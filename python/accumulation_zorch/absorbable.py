@@ -90,7 +90,7 @@ def _fe_array(cv: Curve, values: list[int]) -> np.ndarray:
 
 
 def point_to_field_array_jax(cv: Curve, points: jax.Array) -> jax.Array:
-    """In-jit `point_to_field_array` for a batch of SW-affine points (zkx#773).
+    """In-jit `point_to_field_array` for a batch of SW-affine points.
 
     `points` is an ``(N,)`` ``cv.g1`` jax array (e.g. a stacked set of commitments
     straight off ``lax.msm``); returns the ``(3N,)`` fq packing
@@ -99,8 +99,8 @@ def point_to_field_array_jax(cv: Curve, points: jax.Array) -> jax.Array:
     so the Fiat-Shamir point absorbs trace into the prove instead of forcing a host
     hop at every commitment.
 
-    The coordinate reinterpret is ``lax.bitcast_convert_type(affine → fq)`` (the op
-    zkx#773 added); identity is the all-zero zk_dtypes encoding — both coordinates
+    The coordinate reinterpret is ``lax.bitcast_convert_type(affine → fq)``;
+    identity is the all-zero zk_dtypes encoding — both coordinates
     equal to ``fq(0)`` — packed as arkworks' ``[0, 1, 1]`` via ``select``, the one
     point→field trap, kept identical to the host path. Plain (un-jitted) so it
     inlines into the single ``@jax.jit`` prove.

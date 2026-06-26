@@ -90,7 +90,7 @@ def test_no_zk_fused_proof_matches_arkworks() -> None:
     """The fused on-device variant (`prove_no_zk_fused`) reduces `M·z` in-trace
     from the sparse COO (`jfield.sparse_matvec`) instead of host-side, so this is
     the toy-scale regression that the on-device sparse reduce is byte-correct
-    before scaling it to the recursion circuit (zorch#326 Slice 3)."""
+    before scaling it to the recursion circuit."""
     for cv, fixture in _CURVES:
         d, a, b, c, input_, witness, generators = _load(cv, fixture)
         proof = nark.prove_no_zk_fused(cv, a, b, c, input_, witness, generators)

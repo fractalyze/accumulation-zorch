@@ -27,7 +27,6 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
-from zorch import _composite
 from zorch.fusion import fused_region
 from zorch.hash.poseidon.linear import apply_dense_mds
 from zorch.hash.poseidon.params import PoseidonParams
@@ -80,22 +79,19 @@ class Poseidon:
             raise ValueError(
                 f"state must be a 1-D array of shape ({self.width},), got {state.shape}"
             )
-        return _permute_body(self, state, _composite.has_composite_op())
+        return _permute_body(self, state)
 
 
 # Module-level jit zone so the permutation body traces once per (params, state
 # aval) process-wide: `lax.composite` re-traces its decomposition on every
 # emission, and one PCS open emits hundreds of identical-aval permutes (every
 # Merkle level, leaf hash, and transcript observe/sample) — the uncached
-# re-trace of this body dominated the first-trace-per-config floor (#216).
-# The permutation is the static key, compared by value (#214); `inline=True`
-# splices the cached jaxpr into the enclosing trace, so the emitted module
-# (one composite marker per permute) is unchanged. `has_composite_op` is a
-# pure cache key: `composite_or_inline` reads the flag itself at trace time,
-# but the traced body differs across its values (marker vs inlined fallback),
-# so a flip must not replay a stale entry.
-@partial(jax.jit, static_argnames=("perm", "has_composite_op"), inline=True)
-def _permute_body(perm: Poseidon, state: Array, has_composite_op: bool) -> Array:
+# re-trace of this body dominated the first-trace-per-config floor. The
+# permutation is the static key, compared by value; `inline=True` splices the
+# cached jaxpr into the enclosing trace, so the emitted module (one composite
+# marker per permute) is unchanged.
+@partial(jax.jit, static_argnames=("perm",), inline=True)
+def _permute_body(perm: Poseidon, state: Array) -> Array:
     p = perm._p
     alpha = p.alpha
     w = perm.width
@@ -125,8 +121,8 @@ def _permute_body(perm: Poseidon, state: Array, has_composite_op: bool) -> Array
         rc_flat: Array,
         **_attrs: object,
     ) -> Array:
-        # `_attrs` is marker metadata passed through on both the composite and
-        # inline paths — the decomposition itself does not read it.
+        # `_attrs` is composite marker metadata passed through — the
+        # decomposition itself does not read it.
         total_rounds = 2 * half_full + partial
         rc = rc_flat.reshape(total_rounds, w)
         r = 0

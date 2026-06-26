@@ -71,8 +71,8 @@ class PoseidonParams:
     # Value equality/hash: a permutation rides pytree aux (`DuplexTranscript`
     # meta_fields), which must compare by value — identity equality turns every
     # freshly built transcript into a new jit cache key, re-tracing the whole
-    # enclosing zone per call (issue #163; docs/conventions.md "Pytree
-    # registration"). The dataclass-derived __eq__ is unusable here anyway:
+    # enclosing zone per call. The dataclass-derived __eq__ is unusable here
+    # anyway:
     # `==` on the Array fields is elementwise. Both methods go through one
     # per-instance cached host-side key: jit dispatch calls __eq__ on the aux
     # per call, so comparing live device arrays there would cost a

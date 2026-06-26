@@ -1,12 +1,12 @@
 //! End-to-end GPU byte-match for the **no-zk** fused jax-exported prove core
-//! (zorch#313 Phase 3) — the no-zk twin of `gpu_fused_prove_byte_match.rs`. The
+//! — the no-zk twin of `gpu_fused_prove_byte_match.rs`. The
 //! whole no-zk `ASForR1CSNark` prove runs as **one** PJRT call
 //! (`crate::fused::prove_no_zk_fused`) and must serialize byte-for-byte to the
 //! golden `acc.instance ‖ acc.witness ‖ proof` arkworks produces.
 //!
 //! Fixture-driven: `python/testdata/as_fixtures.json` holds the committer key
 //! (`generators`), the per-seed `r1cs_input` / `blinded_witness`, and the golden
-//! output hex. As of zorch#330 this exercises the **general** no-zk core:
+//! output hex. This exercises the **general** no-zk core:
 //! `export/export_prove.py no-zk` lowers ONE `prove_no_zk_general.mlirbc` whose
 //! runtime inputs are the committer key `bases = generators[:rows]` PLUS the
 //! assignment (`r1cs_input` / `blinded_witness`) — so one core proves every seed,
@@ -71,7 +71,7 @@ fn gpu_fused_no_zk_prove_byte_match() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| root.join("artifacts"));
 
-    // --- Phase A: the general no-zk core (zorch#330) takes the committer key
+    // --- Phase A: the general no-zk core takes the committer key
     // `bases = generators[:rows]` (no hiding base) plus the assignment
     // (`r1cs_input` / `blinded_witness`) as runtime inputs. ONE core, loaded once,
     // fed each seed's assignment below; the assignment also serializes host-side.
@@ -109,7 +109,7 @@ fn gpu_fused_no_zk_prove_byte_match() {
     assert!(!cases.is_empty(), "fixture has no seeds");
 
     // --- Phase B: ONE general core, per-seed runtime assignment, byte-match each.
-    println!("fused jax-exported GENERAL NO-ZK prove core GPU byte-match (zorch#330):");
+    println!("fused jax-exported GENERAL NO-ZK prove core GPU byte-match:");
     for c in &cases {
         let got =
             fused::prove_no_zk_fused::<Pallas>(&mlirbc, &bases, &c.r1cs_input, &c.blinded_witness);

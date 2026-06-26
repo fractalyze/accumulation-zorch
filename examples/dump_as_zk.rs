@@ -1,5 +1,5 @@
-//! Slice-6c R1CS-NARK-AS prove (zk) end-to-end fixtures for the jax port
-//! (zorch#303) — the zk acceptance criterion. Mirrors `oracle.rs`'s
+//! R1CS-NARK-AS prove (zk) end-to-end fixtures for the jax port
+//! — the zk acceptance criterion. Mirrors `oracle.rs`'s
 //! `prove_byte_identical_to_arkworks_zk` flow (seeds {0, 42}, num_inputs=5,
 //! num_constraints=10) so the golden bytes are the oracle's.
 //!
@@ -279,7 +279,7 @@ fn main() {
     let seeds_json: Vec<String> = SEEDS.iter().map(|&s| run_seed(s)).collect();
 
     println!("{{");
-    println!("  \"note\": \"R1CS-NARK-AS zk prove fixtures (zorch#303 slice 6c)\",");
+    println!("  \"note\": \"R1CS-NARK-AS zk prove fixtures\",");
     println!("  \"num_inputs\": {},", NUM_INPUTS);
     println!("  \"num_constraints\": {},", num_constraints);
     println!("  \"supported_num_elems\": {},", supported_num_elems);

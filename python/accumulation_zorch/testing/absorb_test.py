@@ -96,9 +96,9 @@ def test_point_absorb_matches_arkworks() -> None:
 
 
 def test_point_to_field_array_jax_matches_host() -> None:
-    """zkx#773: the in-jit batched affine packing reproduces the host
-    `point_to_field_array` concatenation byte-for-byte, including the arkworks
-    identity `[0, 1, 1]` convention (the all-zero point in the batch)."""
+    """The in-jit batched affine short-Weierstrass point packing reproduces the
+    host `point_to_field_array` concatenation byte-for-byte, including the
+    arkworks identity `[0, 1, 1]` convention (the all-zero point in the batch)."""
     g = json.loads(_ABSORB.read_text())["gamma"]
     points = [_point_from_fixture(c) for c in g["comms"]] + [cv.g1((0, 0))]
     host = np.concatenate([absorbable.point_to_field_array(cv, p) for p in points])

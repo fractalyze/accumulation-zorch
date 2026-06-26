@@ -1,6 +1,5 @@
 """Export the fused **zk fold** prove of the recursion circuit to one StableHLO
-``.mlirbc`` — the full IVC fold step (zorch#326 Slice 5, #720 forward / #722
-reverse, num_addends=3).
+``.mlirbc`` — the full IVC fold step (forward / reverse, num_addends=3).
 
 The whole multi-addend fold (input's NARK + the fold's AS/HP commitments on the
 on-device sparse ``M·z``, the ``num_addends=3`` AS-level fold over

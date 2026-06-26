@@ -1,4 +1,4 @@
-//! Slice-2b Absorbable + fork + NARK gamma-challenge fixtures (zorch#303).
+//! Absorbable + fork + NARK gamma-challenge fixtures for the jax port.
 //!
 //! Reconstructs, with the *public* ark-sponge / ark_pallas API (the same way
 //! `dump_sponge.rs` reconstructs the reference sponge), the field-element
@@ -195,7 +195,7 @@ fn main() {
 
     println!("{{");
     println!(
-        "  \"note\": \"ark-sponge Absorbable + fork + NARK gamma fixtures (zorch#303 slice 2b)\","
+        "  \"note\": \"ark-sponge Absorbable + fork + NARK gamma fixtures\","
     );
     println!("  \"identity_to_field_elements_le_hex\": [{}],", id_fes.join(","));
     println!("  \"fork\": [{}],", fork_json.join(","));

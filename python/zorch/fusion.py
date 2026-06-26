@@ -13,23 +13,23 @@ the body (fixed, small counts) and the linear layers use the normal-form helpers
 (`lax.select`, not `jnp.where`): a `jnp` wrapper's internal `jit` lowers to a
 call inside the body, which the single-kernel rewriter rejects. Name-routed
 markers with a dedicated emitter (`zorch.sumcheck`, `zorch.poseidon2`) are exempt —
-their emitters tolerate reductions and calls. Loop-carrying large-N rounds
-await the in-kernel-loop emitter; see fractalyze/zorch#25.
-
-On a jaxlib without `stablehlo.CompositeOp` the marker is dropped and the
-decomposition runs inline — see `zorch._composite.composite_or_inline`, the
-shared fallback every zorch composite marker routes through.
+their emitters tolerate reductions and calls. Loop-carrying large-N rounds await
+an in-kernel-loop emitter.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TypeVar
 
-from jax import Array
-
-from zorch._composite import _Region, composite_or_inline
+from jax import Array, lax
 
 FUSED_REGION_MARKER = "zorch.fused_region"
+
+# The region's output: a single Array for a one-kernel marker, or a pytree of
+# Arrays for a name-routed region a vendor expands (e.g. a whole-tree commit
+# returning (root, layers)).
+_Region = TypeVar("_Region")
 
 
 def fused_region(
@@ -44,9 +44,7 @@ def fused_region(
 
     Under the default marker the region must be straight-line element-wise — no
     loops, reductions, or gathers — so it lowers to a single kernel. It is called
-    with `operands`, which become the composite's operands in order. On a jaxlib
-    without `stablehlo.CompositeOp` the marker is dropped and `decomposition` runs
-    inline (see the module docstring).
+    with `operands`, which become the composite's operands in order.
 
     A non-default `name` routes the region to a dedicated zkx emitter instead of
     the generic one — e.g. a `zorch.poseidon2` region goes to `Poseidon2Fusion`
@@ -61,6 +59,4 @@ def fused_region(
     sumcheck marker's `degree` / `num_vars`. Both default to absent (`version=0`,
     no attrs), so a plain straight-line region is unchanged.
     """
-    return composite_or_inline(
-        decomposition, *operands, name=name, version=version, **attrs
-    )
+    return lax.composite(decomposition, name=name, version=version)(*operands, **attrs)

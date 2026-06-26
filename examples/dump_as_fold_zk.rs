@@ -1,4 +1,4 @@
-//! Slice-4 multi-addend fold fixtures for the jax port (zorch#326): the full IVC
+//! Multi-addend fold fixtures for the jax port: the full IVC
 //! fold — one input folded INTO one prior accumulator — the `num_addends = 3`
 //! path (`beta = [1, c₁, c₂]`) the current single-input jax (`r1cs_nark_as.
 //! _build_zk_core`, num_addends=2) does not yet cover.
@@ -428,7 +428,7 @@ fn main() {
     let seeds_json: Vec<String> = SEEDS.iter().map(|&s| run_fold_seed(s)).collect();
 
     println!("{{");
-    println!("  \"note\": \"R1CS-NARK-AS multi-addend fold (num_addends=3) fixtures (zorch#326 slice 4)\",");
+    println!("  \"note\": \"R1CS-NARK-AS multi-addend fold (num_addends=3) fixtures\",");
     println!("  \"num_inputs\": {},", NUM_INPUTS);
     println!("  \"num_constraints\": {},", num_constraints);
     println!("  \"supported_num_elems\": {},", supported_num_elems);

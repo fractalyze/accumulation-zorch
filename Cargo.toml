@@ -70,7 +70,7 @@ parallel = [
 # needs a zkx_gpu plugin carrying the Pasta MSM (`ZKX_PJRT_PLUGIN`) and an
 # exported `lax.msm` core; compiling the backend needs neither.
 gpu = ["dep:zkx-pjrt"]
-# Enables the Pasta-cycle recursion step (zkx#715 slice 2): the reused arkworks
+# Enables the Pasta-cycle recursion step: the reused arkworks
 # in-circuit verifier gadget + its r1cs-std/nonnative/sponge stack. Kept off the
 # default and `gpu` builds so the CPU prover and GPU backend stay lean.
 recursion = [

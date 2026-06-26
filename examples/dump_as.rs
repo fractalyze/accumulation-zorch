@@ -1,5 +1,5 @@
-//! Slice-5 R1CS-NARK-AS prove (no-zk) end-to-end fixtures for the jax port
-//! (zorch#303). This is the acceptance criterion: the ported `prove` must
+//! R1CS-NARK-AS prove (no-zk) end-to-end fixtures for the jax port.
+//! This is the acceptance criterion: the ported `prove` must
 //! reproduce the serialized `(acc.instance ‖ acc.witness ‖ proof)` that
 //! `src/oracle.rs`'s `prove_byte_identical_to_arkworks_no_zk` test pins to
 //! arkworks — seeds {0, 42}, num_inputs=5, num_constraints=10.
@@ -14,8 +14,8 @@
 //! The no-zk single-input path draws no randomness; `gamma`, `hash_matrices`,
 //! and the `beta` absorb are no-ops for these bytes (beta = [1] when there is a
 //! single addend, gamma is gated on first-round randomness) — they ride with
-//! the zk path (slice 6). So the Python side recomputes `comm_a/b/c` from the
-//! matrices + assignments (the slice-3-proven path) rather than reading them.
+//! the zk path. So the Python side recomputes `comm_a/b/c` from the
+//! matrices + assignments (the NARK prove path) rather than reading them.
 //!
 //! Run: `cargo run --example dump_as > python/testdata/as_fixtures.json`
 
@@ -251,7 +251,7 @@ fn main() {
         .collect();
 
     println!("{{");
-    println!("  \"note\": \"R1CS-NARK-AS no-zk prove fixtures (zorch#303 slice 5)\",");
+    println!("  \"note\": \"R1CS-NARK-AS no-zk prove fixtures\",");
     println!("  \"num_inputs\": {},", NUM_INPUTS);
     println!("  \"num_constraints\": {},", num_constraints);
     println!("  \"supported_num_elems\": {},", supported_num_elems);

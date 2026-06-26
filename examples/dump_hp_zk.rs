@@ -1,4 +1,4 @@
-//! Slice-6b HP-AS prove (zk) fixtures for the jax port (zorch#303).
+//! HP-AS prove (zk) fixtures for the jax port.
 //!
 //! Drives the crate's real `ASForHadamardProducts::prove` with `make_zk = true`
 //! over a single hiding HP input (so the prover adds the zero placeholder input,
@@ -115,7 +115,7 @@ fn main() {
     let hiding_rand_3 = Fr::rand(&mut rep);
 
     println!("{{");
-    println!("  \"note\": \"HP-AS zk prove fixtures (zorch#303 slice 6b)\",");
+    println!("  \"note\": \"HP-AS zk prove fixtures\",");
     println!("  \"hp_vec_len\": {},", HP_VEC_LEN);
     println!("  \"supported_num_elems\": {},", ck.supported_num_elems());
     println!("  \"generators\": [{}],", gens_json.join(","));

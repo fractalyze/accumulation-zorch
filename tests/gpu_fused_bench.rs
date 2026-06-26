@@ -5,7 +5,7 @@
 //! prove), to answer "GPU vs arkworks accumulation" across sizes.
 //!
 //! Drive it with an off-tree large fixture + the general core's exported `.mlirbc`
-//! (zorch#330 — one seed-independent artifact; the fixture's first seed supplies
+//! (one seed-independent artifact; the fixture's first seed supplies
 //! the runtime witness/randomness):
 //!
 //!     AS_ZK_NUM_CONSTRAINTS=16384 cargo run --release --example dump_as_zk > fix.json

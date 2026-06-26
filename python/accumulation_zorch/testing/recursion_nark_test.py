@@ -1,7 +1,7 @@
 """Slice-2 byte-match: the no-zk NARK prove of the **recursion-verifier circuit**
-on Vesta (zorch#326 Phase 4).
+on Vesta.
 
-The recursion half-step (#717) proves the Pasta-cycle AS verifier gadget — a real
+The recursion half-step proves the Pasta-cycle AS verifier gadget — a real
 ~22.5K-constraint × ~21K-var R1CS (but sparse, ~6 non-zeros/row) — as a Vesta
 NARK. This replays that R1CS through the curve-generic `nark.prove_no_zk(VESTA,
 …)` and byte-matches the golden proof the crate's real `R1CSNark::prove` emits,

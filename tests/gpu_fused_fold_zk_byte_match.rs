@@ -1,5 +1,5 @@
 //! End-to-end GPU byte-match for the **fused zk IVC fold** of the recursion
-//! circuit (zorch#326 Slice 5, the full IVC step — #720 forward / #722 reverse,
+//! circuit (the full IVC step — forward / reverse,
 //! `num_addends = 3`): the whole multi-addend fold run as **one** PJRT call
 //! (`fused::prove_fold_zk_fused`) must serialize byte-for-byte to the golden
 //! folded `acc.instance ‖ acc.witness ‖ proof` arkworks produces — the same golden
@@ -8,7 +8,7 @@
 //! (`jfield.sparse_matvec` → `stablehlo.scatter`) instead of the per-MSM
 //! `GpuBackend` fold dispatch.
 //!
-//! This is the GPU half of the Slice-5 fold gate, and the bar acceptance-criterion
+//! This is the GPU half of the IVC fold gate, and the bar acceptance-criterion
 //! "the full IVC fold step runs as fused call(s) and byte-matches GpuBackend/CPU
 //! (both cycle directions)" needs: a match here proves the on-device fold (the
 //! `num_addends=3` AS-level combine, the HP-level old-accumulator fold, and the
@@ -174,16 +174,16 @@ fn gpu_fused_fold_zk_byte_match() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("artifacts"));
 
-    println!("fused zk IVC fold GPU byte-match (zorch#326 Slice 5, full IVC step, num_addends=3):");
+    println!("fused zk IVC fold GPU byte-match (full IVC step, num_addends=3):");
     // Forward folds on Vesta (constraint field ark_vesta::Fq), reverse on Pallas.
     let fwd = check_direction::<Vesta>(
-        "vesta forward #720",
+        "vesta forward",
         &artifacts,
         "recursion_fold_zk_fixtures.json",
         "fold_zk_vesta.mlirbc",
     );
     let rev = check_direction::<Pallas>(
-        "pallas reverse #722",
+        "pallas reverse",
         &artifacts,
         "recursion_fold_zk_pallas_fixtures.json",
         "fold_zk_pallas.mlirbc",

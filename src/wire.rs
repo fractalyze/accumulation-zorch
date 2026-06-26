@@ -13,10 +13,10 @@
 //! generic over the short-Weierstrass parameters `P` and instantiated per curve.
 //! Pasta is pairing-free, so G1 only (no G2).
 //!
-//! This conversion is the one correctness risk in the GPU backend (issue
-//! zkx#706): a wrong limb order or a missed identity mapping silently corrupts
-//! the MSM. It is pure CPU with no GPU dependency, so the layout is unit-tested
-//! here and re-validated end-to-end by the GPU == CPU == arkworks byte-match.
+//! This conversion is the one correctness risk in the GPU backend: a wrong limb
+//! order or a missed identity mapping silently corrupts the MSM. It is pure CPU
+//! with no GPU dependency, so the layout is unit-tested here and re-validated
+//! end-to-end by the GPU == CPU == arkworks byte-match.
 
 use ark_ec::models::SWModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
@@ -71,7 +71,7 @@ pub fn scalars_to_bytes<P: SWModelParameters>(scalars: &[P::ScalarField]) -> Vec
 /// repr — the **base-field** sponge elements the classic-accumulation Fiat-Shamir
 /// absorbs, on the wire (standard-form 32-byte LE each).
 ///
-/// The general zk core (zorch#330) feeds this consumer-side pre-encoding for the
+/// The general zk core feeds this consumer-side pre-encoding for the
 /// `r1cs_input` / `r1cs_r_input` sponge absorbs: the in-trace `fr→u8` rechunk the
 /// zkx GPU plugin mis-lowers is done here instead. Each 31-byte chunk is
 /// `< 2^248 < the Pasta base-field modulus`, so the zero-padded bytes are already

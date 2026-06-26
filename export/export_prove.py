@@ -1,7 +1,7 @@
 """Export the fused jit zk prove (the whole R1CS-NARK-AS make_zk prove) to one
 StableHLO ``.mlirbc``, à la ``export_pasta_msm.py`` / bellman-zorch's exporter.
 
-The whole prove is one ``@jax.jit`` core (zorch#317 Stage A) that takes the
+The whole prove is one ``@jax.jit`` core that takes the
 committer key (``bases_h = generators ‖ hiding``) and the HP placeholder identity
 as its affine arguments and closes over the circuit / witness / replayed
 randomness; everything else — the NARK + HP cores, every commitment / fold, and
@@ -9,7 +9,7 @@ all three Fiat-Shamir sponges (gamma / mu-nu / beta) — is inside the trace. Th
 lowers that core for a fixture seed to one StableHLO module: the single PJRT call
 the GPU byte-match (Stage B2) and the Rust consumer run.
 
-zorch#330 lifted the assignment + all replayed randomness (NARK/AS/HP) to runtime
+The general prover lifted the assignment + all replayed randomness (NARK/AS/HP) to runtime
 inputs, so this lowers ONE seed-independent ``prove_zk_general.mlirbc`` (the fixture
 supplies only the runtime shapes) — no per-seed baking. The two ``u8_batch``
 Fiat-Shamir absorbs (``r1cs_input`` / ``r1cs_r_input``) are fed pre-encoded as fq
@@ -33,7 +33,7 @@ from accumulation_zorch import curve, r1cs_nark_as, sponge
 
 # The Pasta cycle curve to export for (`PROVE_CURVE=pallas|vesta`, default Pallas).
 # The fixture + Poseidon constants must be the matching curve's; the recursion
-# half-step (zorch#326 Slice 3) exports Vesta.
+# half-step exports Vesta.
 _CURVE = {"pallas": curve.PALLAS, "vesta": curve.VESTA}[
     os.environ.get("PROVE_CURVE", "pallas")
 ]
@@ -98,7 +98,7 @@ def _seed_entry(d: Any, seed: int) -> Any:
 
 
 def build_core(seed: int) -> tuple:
-    """Build the GENERAL fused zk-prove core (zorch#330) from fixture ``seed``: load
+    """Build the GENERAL fused zk-prove core from fixture ``seed``: load
     the circuit + the example assignment / replayed randomness, then return
     ``(core_fn, bases_h, id_pt, <12 runtime arrays>)`` from
     ``r1cs_nark_as._build_zk_core``. ``seed`` supplies only the example arrays for
@@ -124,7 +124,7 @@ def build_core(seed: int) -> tuple:
 
 
 def export_zk_general() -> Path:
-    """Lower the GENERAL fused zk prove core (zorch#330) to one StableHLO module
+    """Lower the GENERAL fused zk prove core to one StableHLO module
     ``prove_zk_general.mlirbc``. The committer key + placeholder identity AND the
     assignment + all replayed randomness (NARK/AS/HP, plus the two pre-encoded
     ``u8_batch`` fq packings) are ALL runtime inputs — the seed-0 fixture supplies
@@ -145,7 +145,7 @@ def export_zk_general() -> Path:
 
 
 def build_no_zk_core(seed: int) -> tuple:
-    """Build the GENERAL fused no-zk-prove core (zorch#330) from
+    """Build the GENERAL fused no-zk-prove core from
     ``as_fixtures.json``: return ``(core_fn, bases, r1cs_input_arr,
     blinded_witness_arr)`` from ``r1cs_nark_as._build_no_zk_core``. The committer
     key ``bases`` AND the assignment (``r1cs_input`` / ``blinded_witness``) are
@@ -161,7 +161,7 @@ def build_no_zk_core(seed: int) -> tuple:
 
 
 def export_no_zk_general() -> Path:
-    """Lower the GENERAL fused no-zk prove core (zorch#330) to one StableHLO module
+    """Lower the GENERAL fused no-zk prove core to one StableHLO module
     ``prove_no_zk_general.mlirbc``. The committer key ``bases``, the public input
     ``r1cs_input``, and the ``blinded_witness`` are ALL runtime inputs — the seed-0
     assignment supplies only the runtime shapes, so the lowered core proves any
@@ -180,7 +180,7 @@ def export_no_zk_general() -> Path:
 
 def main() -> None:
     # `export_prove.py [no-zk]` — exports the GENERAL no-zk or zk core once
-    # (zorch#330; assignment + randomness are runtime inputs, so one seed-independent
+    # (assignment + randomness are runtime inputs, so one seed-independent
     # artifact each, no per-seed baking).
     args = sys.argv[1:]
     if bool(args) and args[0] == "no-zk":

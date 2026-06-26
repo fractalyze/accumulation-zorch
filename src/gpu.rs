@@ -11,7 +11,7 @@
 //! tags its inputs via these consts.
 //!
 //! (The per-MSM `GpuBackend` strategy — one `lax.msm` dispatch per Pedersen
-//! commitment — was retired in zorch#331 once the fused jax-exported core became
+//! commitment — was retired once the fused jax-exported core became
 //! the sole GPU prove path; the CPU faithful-copy prover stays as the arkworks
 //! oracle + fixture generator.)
 
@@ -32,11 +32,11 @@ pub trait PastaCurve {
     const G1_AFFINE: zkx_pjrt::sys::PJRT_Buffer_Type;
     /// The PJRT buffer-type tag for this curve's scalar field (`fr`) — what a
     /// general fused core's `fr` runtime inputs (the witness / public input /
-    /// randomness lifted to runtime in zorch#330) carry so the plugin types them.
+    /// randomness lifted to runtime in the general prover) carry so the plugin types them.
     const SF: zkx_pjrt::sys::PJRT_Buffer_Type;
     /// The PJRT buffer-type tag for this curve's **base** field (`fq`, the
     /// Poseidon / Fiat-Shamir sponge field) — what the zk general core's
-    /// pre-encoded `u8_batch` runtime inputs carry (zorch#330). On the Pasta cycle
+    /// pre-encoded `u8_batch` runtime inputs carry. On the Pasta cycle
     /// `Pallas.fq == Vesta.fr`, so this is the *opposite* curve's `SF` tag.
     const BF: zkx_pjrt::sys::PJRT_Buffer_Type;
 }

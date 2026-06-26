@@ -1,8 +1,8 @@
-//! Thin Rust consumer of the fused jax-exported prove core (zorch#313 Phase 3).
+//! Thin Rust consumer of the fused jax-exported prove core.
 //!
-//! zorch#317 (Phase 2) exported the whole zk `ASForR1CSNark` prove to one
+//! The export pipeline lowers the whole zk `ASForR1CSNark` prove to one
 //! StableHLO `.mlirbc` — every commitment, fold, and Fiat-Shamir sponge in a
-//! single PJRT call — and zorch#330 generalized it: the committer key
+//! single PJRT call — and the **general** core lifts the rest to runtime: the committer key
 //! `bases_h = generators[:rows] ‖ hiding`, the HP placeholder identity `id_pt`,
 //! AND the assignment + replayed randomness are all runtime inputs
 //! (`artifacts/prove_zk_general.mlirbc`). This module loads that core, runs it
@@ -11,10 +11,10 @@
 //! `GpuBackend` path produces — replacing many MSM dispatches with one fused
 //! call (the bellman-zorch "Rust = thin consumer" model).
 //!
-//! The single-input prove core is now the **general** prover (zorch#330): the
+//! The single-input prove core is now the **general** prover: the
 //! assignment + all replayed randomness are runtime PJRT inputs ([`ZkProveInputs`]),
-//! so one lowered `prove_zk_general.mlirbc` proves any seed (the IVC fold core,
-//! zorch#326, still bakes its inputs — see [`prove_fold_zk_fused`]). The consumer
+//! so one lowered `prove_zk_general.mlirbc` proves any seed (the IVC fold core
+//! still bakes its inputs — see [`prove_fold_zk_fused`]). The consumer
 //! is generic over the Pasta cycle curve `C` ([`crate::gpu::PastaCurve`]): the
 //! affine inputs carry `C::G1_AFFINE`, the `fr` runtime inputs `C::SF`, the
 //! `u8_batch` sponge inputs `C::BF`, and the on-device leaves parse with
@@ -42,7 +42,7 @@
 //! Proof}` and `hp_as::{InputInstance, InputWitness, Proof}` — i.e. exactly what
 //! their derived `CanonicalSerialize` would emit (verified against the Python
 //! serialize seam `python/accumulation_zorch/r1cs_nark_as.py:prove_zk`, which
-//! zorch#317 byte-matched to arkworks on GPU).
+//! was byte-matched to arkworks on GPU).
 
 use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
@@ -119,7 +119,7 @@ pub fn load_fused(mlirbc: &[u8]) -> &'static zkx_pjrt::Executable {
     Box::leak(Box::new(unsafe { crate::gpu::session().compile(mlirbc) }))
 }
 
-/// The runtime inputs of the **general** zk prove core (zorch#330): the assignment
+/// The runtime inputs of the **general** zk prove core: the assignment
 /// (`r1cs_input` / `witness`) and all replayed randomness lifted to PJRT inputs, in
 /// the lowered core's argument order after `(bases_h, id_pt)`. The two `u8_batch`
 /// fq sponge inputs are derived here from `r1cs_input` / `r1cs_r_input`
@@ -149,7 +149,7 @@ pub struct ZkProveInputs<C: PastaCurve> {
 /// placeholder identity) plus the assignment + replayed randomness ([`ZkProveInputs`]),
 /// then serialize the on-device outputs to `acc.instance ‖ acc.witness ‖ proof`.
 ///
-/// zorch#330 lifted the witness + randomness to runtime inputs, so one lowered
+/// The general prover lifts the witness + randomness to runtime inputs, so one lowered
 /// `prove_zk_general.mlirbc` proves any seed; `inputs.r1cs_r_input` is both a
 /// runtime input and the AS `ProofRandomness.r1cs_r_input` serialized into the
 /// proof bytes (not an output leaf).
@@ -197,8 +197,8 @@ where
     let rin_u8b = wire::u8_batch_field_array::<C::Params>(&inputs.r1cs_r_input);
     let n_fe = |b: &[u8]| -> i64 { (b.len() / wire::SF_BYTES) as i64 };
     // 12 inputs, in the general zk core's `_core(bases_h, id_pt, in, wit, r,
-    // blinders, r_in, r_wit, as_rand, hp_rand, in_u8b, r_in_u8b)` argument order
-    // (zorch#330): the two affine inputs, the eight `fr` runtime arrays, then the
+    // blinders, r_in, r_wit, as_rand, hp_rand, in_u8b, r_in_u8b)` argument order:
+    // the two affine inputs, the eight `fr` runtime arrays, then the
     // two pre-encoded `u8_batch` base-field (`fq`) sponge arrays.
     let args = [
         (bases_bytes.as_slice(), vec![bases_h.len() as i64], C::G1_AFFINE),
@@ -230,7 +230,7 @@ where
 /// so only their runtime inputs differ (the fold adds the old accumulator's
 /// commitments). `r1cs_r_input` is the one serialized field that is not an output
 /// leaf — the AS `ProofRandomness.r1cs_r_input`, supplied by the caller (a runtime
-/// input on the general prove path, zorch#330; a baked constant on the fold path).
+/// input on the general prove path; a baked constant on the fold path).
 fn serialize_prove_outputs<C: PastaCurve>(out: &[Vec<u8>], r1cs_r_input: &[Fr<C>]) -> FusedProveBytes
 where
     <C::Params as ModelParameters>::BaseField: PrimeField,
@@ -290,8 +290,8 @@ where
     FusedProveBytes { acc_instance, acc_witness, proof }
 }
 
-/// Run the fused zk **fold** core (zorch#326 Slice 5, the full IVC step — #720
-/// forward / #722 reverse, `num_addends = 3`) once on the GPU and serialize the
+/// Run the fused zk **fold** core (the full IVC step — forward (Vesta) /
+/// reverse (Pallas), `num_addends = 3`) once on the GPU and serialize the
 /// folded accumulator's `acc.instance ‖ acc.witness ‖ proof`. The fold core takes
 /// **three** runtime affine arrays — the committer key `bases_h =
 /// generators[:rows] ‖ hiding`, the HP placeholder identity `id_pt`, and the old
@@ -352,7 +352,7 @@ where
     serialize_prove_outputs::<C>(&out, r1cs_r_input)
 }
 
-/// Run the fused **no-zk** `ASForR1CSNark` prove core (zorch#313 Phase 3, the
+/// Run the fused **no-zk** `ASForR1CSNark` prove core (the
 /// no-zk twin of [`prove_fused`]) once on the GPU and serialize its
 /// `acc.instance ‖ acc.witness ‖ proof`. The committer key `bases =
 /// generators[:rows]` (no hiding base on the no-zk path, so — unlike the zk core —
@@ -387,7 +387,7 @@ where
     // Safety: `exe` compiled by this same (leaked) client; the three rank-1 inputs
     // (committer key G1, `r1cs_input` fr, `blinded_witness` fr) match the general
     // no-zk core's `_core(bases, r1cs_input, blinded_witness)` argument order
-    // (zorch#330 — the assignment is a runtime input, no longer baked).
+    // (the assignment is a runtime input, no longer baked).
     let out = unsafe { crate::gpu::session().run(exe, &inputs, NO_ZK_OUTPUTS) };
     assert_eq!(
         out.len(),
@@ -429,7 +429,7 @@ where
     FusedProveBytes { acc_instance, acc_witness, proof }
 }
 
-/// Run the fused **no-zk NARK** core (zorch#326 Slice 3, the half-step #717) once
+/// Run the fused **no-zk NARK** core (the recursion half-step) once
 /// on the GPU and serialize its `Proof`. The committer key `bases` (the recursion
 /// generators — no hiding term, no-zk has no blinders) is the core's sole runtime
 /// affine input; the core returns the three first-round commitments
@@ -478,7 +478,7 @@ where
     proof
 }
 
-/// Run the fused **zk NARK** core (zorch#326 Slice 3, the half-step #717 make_zk
+/// Run the fused **zk NARK** core (the recursion half-step, make_zk
 /// path) once on the GPU and serialize its zk `Proof`. The committer key + hiding
 /// base (`bases_h` = `generators[:rows] ‖ hiding`) is the core's sole runtime
 /// affine input; the prover's sampled randomness (the `r` witness blinders + the
