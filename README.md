@@ -57,8 +57,8 @@ need no extra flags.
 Needs an NVIDIA GPU (CUDA), `clang`/`libclang` (the vendored `crates/zkx-pjrt` shim
 generates its PJRT bindings with `bindgen` at build time), Python 3.11, and
 [`uv`](https://docs.astral.sh/uv/). Install the matched zkx Pasta jax fork + GPU
-plugin from the public Fractalyze index (the `zorch` Poseidon sponge is **vendored**
-in `python/zorch/`, Apache-2.0 — see its `VENDOR.md` — so it is *not* pip-installed):
+plugin from the public Fractalyze index (the `zorch` Poseidon sponge lives in-tree
+at `python/zorch/`, Apache-2.0, so it is *not* pip-installed):
 
 ```bash
 uv venv --python 3.11 .venv
