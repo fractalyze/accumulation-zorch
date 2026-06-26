@@ -2,14 +2,14 @@
 name = "accumulation-zorch"
 version = "0.1.0"
 edition = "2018"
-description = "GPU accumulation prover over the Pasta cycle: a faithful copy of the arkworks ark-accumulation native prove path (r1cs_nark_as + hp_as) with each Pedersen commitment (MSM) routed behind a swappable MsmBackend."
+description = "GPU accumulation prover over the Pasta cycle: the arkworks ark-accumulation native prove path (r1cs_nark_as + hp_as), authored in Python/JAX and run as one fused GPU core, byte-identical to the unmodified arkworks prover."
 license = "MIT OR Apache-2.0"
 
 # The git deps track the same `accumulation-experimental` branch ark-accumulation
 # uses, so Cargo unifies them into a single version shared with the pristine
-# oracle (a `rev=` pin here would fork them into two same-source-but-distinct
-# types, breaking the byte-identical cross-crate test). The resolved commits are
-# pinned in Cargo.lock.
+# arkworks oracle (a `rev=` pin here would fork them into two
+# same-source-but-distinct types, breaking the fixture generators that drive
+# arkworks). The resolved commits are pinned in Cargo.lock.
 
 [dependencies]
 ark-ec = { version = "^0.2.0", default-features = false }
@@ -30,14 +30,14 @@ blake2 = { version = "0.9.1", default-features = false }
 digest = { version = "0.9.0", default-features = false }
 derivative = { version = "2.1.1", default-features = false, features = ["use_core"] }
 tracing = { version = "0.1", default-features = false, features = ["attributes"] }
-# GPU MSM backend FFI, vendored from bellman-zorch and extended with the Pasta
-# (Pallas G1) buffer types. Optional + behind the `gpu` feature: the byte bridge
-# (`wire`) and the CPU prover build without it; only `GpuBackend` (plus a runtime
-# zkx_gpu plugin) needs it.
+# GPU FFI, vendored from bellman-zorch and extended with the Pasta (Pallas G1)
+# buffer types. Optional + behind the `gpu` feature: the byte bridge (`wire`)
+# builds without it; only the `gpu` + `fused` consumer (plus a runtime zkx_gpu
+# plugin) needs it.
 zkx-pjrt = { path = "crates/zkx-pjrt", optional = true }
-# In-circuit verifier gadget stack for the recursion step (zkx#715 slice 2),
-# behind the `recursion` feature. Same arkworks 0.2 line / nonnative rev as the
-# oracle so the gadget types stay unified.
+# In-circuit verifier gadget stack for the recursion step, behind the `recursion`
+# feature. Same arkworks 0.2 line / nonnative rev as the arkworks oracle so the
+# reused gadget's types stay unified.
 ark-r1cs-std = { version = "^0.2.0", default-features = false, optional = true }
 ark-nonnative-field = { git = "https://github.com/arkworks-rs/nonnative", rev = "d57dd4f83f7363e6310526a0a2533e4fc310564b", default-features = false, optional = true }
 

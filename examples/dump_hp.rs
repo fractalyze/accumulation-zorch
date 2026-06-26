@@ -14,8 +14,8 @@ use ark_pallas::{Affine, Fr};
 use ark_poly_commit::trivial_pc::PedersenCommitment;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
-use accumulation_zorch::hp_as::{ASForHadamardProducts, InputInstance, InputWitness};
-use accumulation_zorch::{AccumulationScheme, Accumulator, Input, MakeZK};
+use ark_accumulation::hp_as::{ASForHadamardProducts, InputInstance, InputWitness};
+use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
 
 type CF = ark_pallas::Fq;
 type Sponge = ark_sponge::poseidon::PoseidonSponge<CF>;

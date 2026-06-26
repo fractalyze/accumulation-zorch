@@ -31,9 +31,9 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_sponge::CryptographicSponge;
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 
-use accumulation_zorch::r1cs_nark_as::r1cs_nark::R1CSNark;
-use accumulation_zorch::r1cs_nark_as::{ASForR1CSNark, InputInstance};
-use accumulation_zorch::{AccumulationScheme, Accumulator, Input, MakeZK};
+use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark;
+use ark_accumulation::r1cs_nark_as::{ASForR1CSNark, InputInstance};
+use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
 
 type G = Affine;
 type CF = ark_pallas::Fq;

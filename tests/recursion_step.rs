@@ -20,16 +20,13 @@
 //! NARK on its curve (the **half-step**, #717), then *accumulate* that NARK proof
 //! by folding it into a prior accumulator (the **full IVC step**, #720).
 //!
-//! CPU gates (no GPU, `--features recursion`): `recursion_circuit_satisfiable`
-//! (both verifier circuits synthesize a satisfied CS) and the `full_ivc_step` /
-//! `reverse_ivc_step` CPU verifies (the folded accumulation verifies; they also
-//! record the folding step's largest MSM and assert it fits the exported
-//! artifact's zero-pad `N`). The `dump` submodules write the off-tree recursion
-//! fixtures the **fused** GPU gates (`gpu_fused_{nark,fold}_*`) consume.
-//!
-//! The per-MSM `GpuBackend` recursion GPU gates were retired in zorch#331 once the
-//! fused jax-exported fold core (`tests/gpu_fused_fold_zk_byte_match.rs`) became
-//! the recursion fold's sole GPU path.
+//! CPU gate (no GPU, `--features recursion`): `recursion_circuit_satisfiable`
+//! (both verifier circuits synthesize a satisfied constraint system). The `dump`
+//! submodules drive the pristine arkworks prover to write the off-tree recursion
+//! fixtures the **fused** GPU gates (`gpu_fused_{nark,fold}_*`) byte-match against,
+//! and `arkworks_fold_timing` is the CPU baseline for the fold benchmark. The
+//! fused jax-exported fold core (`tests/gpu_fused_fold_zk_byte_match.rs`) is the
+//! recursion fold's GPU path.
 #![cfg(feature = "recursion")]
 
 use ark_accumulation::constraints::ASVerifierGadget;
@@ -316,20 +313,17 @@ fn recursion_circuit_satisfiable() {
     check::<Vesta>();
 }
 
-/// Shared Vesta-side plumbing for the recursion slices (#717 half-step, #720
-/// full IVC step). Curve-fixed to Vesta — the cycle curve the Pallas-verifier
-/// circuit proves on — and CPU-buildable (the `MsmBackend`-generic prove/fold run
-/// with `CpuBackend`; the recursion fold's GPU path is now the fused core).
+/// Shared Vesta-side plumbing for the recursion slices (the standalone half-step
+/// NARK and the full IVC fold). Curve-fixed to Vesta — the cycle curve the
+/// Pallas-verifier circuit proves on — driving the arkworks prover on CPU to emit
+/// the golden fixtures; the fold's GPU path is the fused core.
 mod vesta {
-    use super::{build_step, Pallas, RecursionCircuit};
-    use accumulation_zorch::backend::{CpuBackend, MsmBackend};
-    use accumulation_zorch::r1cs_nark_as::r1cs_nark::{
+    use super::{build_step, Pallas};
+    use ark_accumulation::r1cs_nark_as::r1cs_nark::{
         IndexProverKey, IndexVerifierKey, Proof as NarkProof, R1CSNark as ZkxR1CSNark,
     };
-    use accumulation_zorch::r1cs_nark_as::{ASForR1CSNark, InputInstance};
-    use accumulation_zorch::{AccumulationScheme, Accumulator, Input, MakeZK};
-    use ark_ec::AffineCurve;
-    use ark_poly_commit::trivial_pc::CommitterKey;
+    use ark_accumulation::r1cs_nark_as::{ASForR1CSNark, InputInstance};
+    use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
     use ark_relations::r1cs::{
         ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, SynthesisMode,
     };
@@ -337,12 +331,6 @@ mod vesta {
     use ark_sponge::poseidon::PoseidonSponge;
     use ark_sponge::CryptographicSponge;
     use ark_std::rand::{rngs::StdRng, SeedableRng};
-    use std::cell::Cell;
-
-    /// The exported Vesta artifact's zero-pad target `N` (`msm_vesta_131072`).
-    /// Each GPU commit is padded to `N`, so `N` must be ≥ the folding
-    /// accumulation's largest MSM or the GPU run would truncate it.
-    const VESTA_ARTIFACT_N: usize = 131072;
 
     // The verifier circuit is over ark_pallas::Fq = ark_vesta::Fr (the Vesta
     // scalar field), so it proves with a Vesta NARK whose constraint field — and
@@ -362,7 +350,7 @@ mod vesta {
     /// The verifier circuit's public input — its `instance_assignment`, captured
     /// with the same optimization goal the NARK prover uses, so `verify` sees the
     /// same vector. Over the scalar field `CF` (= the Vesta NARK's scalar field).
-    pub(super) fn public_input(make_zk: bool, seed: u64) -> Vec<CF> {
+    fn public_input(make_zk: bool, seed: u64) -> Vec<CF> {
         let pcs = ConstraintSystem::<CF>::new_ref();
         pcs.set_optimization_goal(OptimizationGoal::Constraints);
         pcs.set_mode(SynthesisMode::Prove {
@@ -379,7 +367,7 @@ mod vesta {
     /// Vesta NARK setup + index over the recursion circuit. Its structure is
     /// fixed by `make_zk` (seed-independent), so one index serves every
     /// same-`make_zk` recursion input.
-    pub(super) fn nark_index(
+    fn nark_index(
         make_zk: bool,
         seed: u64,
     ) -> (IndexProverKey<VG>, IndexVerifierKey<VG>) {
@@ -387,16 +375,15 @@ mod vesta {
         ZkxR1CSNark::<VG, VSponge>::index(&nark_pp, build_step::<Pallas>(make_zk, seed)).unwrap()
     }
 
-    /// Prove the Pallas-verifier circuit on Vesta under backend `B` (seeded so
-    /// the GPU and CPU runs share identical randomness — only the MSM backend
-    /// differs). `fork` selects the gamma sponge: a **standalone** NARK (the
-    /// half-step #717, verified by `R1CSNark::verify`) uses the plain
+    /// Prove the Pallas-verifier circuit on Vesta, seeded so the fixture replays
+    /// identical randomness. `fork` selects the gamma sponge: a **standalone** NARK
+    /// (the half-step, verified by `R1CSNark::verify`) uses the plain
     /// `VSponge::new()` (`fork = false`); a NARK destined to be **folded** by the
     /// AS must use the AS's forked `nark_sponge` (`fork = true`) so its gamma
     /// matches the one the AS recomputes for the blinded commitments — otherwise
     /// the input's `blinded_witness` and the folded commitments use different
     /// gammas and the accumulator, while it verifies, would not decide.
-    pub(super) fn nark_prove<B: MsmBackend<VG>>(
+    fn nark_prove(
         ipk: &IndexProverKey<VG>,
         make_zk: bool,
         seed: u64,
@@ -408,7 +395,7 @@ mod vesta {
         } else {
             VSponge::new()
         };
-        ZkxR1CSNark::<VG, VSponge>::prove_with_backend::<RecursionCircuit<Pallas>, B>(
+        ZkxR1CSNark::<VG, VSponge>::prove(
             ipk,
             build_step::<Pallas>(make_zk, seed),
             make_zk,
@@ -419,15 +406,15 @@ mod vesta {
     }
 
     /// One Vesta-AS accumulation `Input`: the recursion circuit's Vesta NARK
-    /// proof (under backend `B`) packaged as `(r1cs_input, first_round_message,
+    /// proof packaged as `(r1cs_input, first_round_message,
     /// witness = second_round_message)` — the verifier proof to be accumulated.
-    fn recursion_input<B: MsmBackend<VG>>(
+    fn recursion_input(
         ipk: &IndexProverKey<VG>,
         make_zk: bool,
         seed: u64,
     ) -> Input<VCf, VSponge, VAS> {
         // The AS folds this input, so its NARK must use the forked nark_sponge.
-        let proof = nark_prove::<B>(ipk, make_zk, seed, true);
+        let proof = nark_prove(ipk, make_zk, seed, true);
         Input::<VCf, VSponge, VAS> {
             instance: InputInstance {
                 r1cs_input: public_input(make_zk, seed),
@@ -437,9 +424,8 @@ mod vesta {
         }
     }
 
-    /// The two operands of a full IVC step, built once under `CpuBackend` and
-    /// reused by both the CPU and GPU folding runs so the byte-match isolates the
-    /// folding accumulation.
+    /// The two operands of a full IVC step, built once and reused by the
+    /// fixture-dump fold so the byte-match isolates the folding accumulation.
     pub(super) struct FoldOperands {
         pub pk: <VAS as AccumulationScheme<VCf, VSponge>>::ProverKey,
         pub vk: <VAS as AccumulationScheme<VCf, VSponge>>::VerifierKey,
@@ -458,11 +444,11 @@ mod vesta {
         let (pk, vk, _dk) = VAS::index(&as_pp, &(), &(ipk.clone(), ivk.clone())).unwrap();
 
         // Current step: the verifier proof accumulated this step.
-        let input_cur = recursion_input::<CpuBackend>(&ipk, make_zk, seed);
+        let input_cur = recursion_input(&ipk, make_zk, seed);
 
         // Prior step: init-accumulate a different-seed recursion NARK to get the
         // accumulator the current step folds into.
-        let input_prev = recursion_input::<CpuBackend>(&ipk, make_zk, seed.wrapping_add(1));
+        let input_prev = recursion_input(&ipk, make_zk, seed.wrapping_add(1));
         let prev_inputs = vec![input_prev];
         let no_acc: Vec<Accumulator<VCf, VSponge, VAS>> = Vec::new();
         let mut acc_rng = StdRng::seed_from_u64(seed ^ 0xacc0);
@@ -471,7 +457,7 @@ mod vesta {
         } else {
             MakeZK::Disabled
         };
-        let (acc_prev, _proof_prev) = VAS::prove_with_backend::<CpuBackend>(
+        let (acc_prev, _proof_prev) = VAS::prove(
             &pk,
             Input::<VCf, VSponge, VAS>::map_to_refs(&prev_inputs),
             Accumulator::<VCf, VSponge, VAS>::map_to_refs(&no_acc),
@@ -488,120 +474,24 @@ mod vesta {
         }
     }
 
-    /// Run the folding accumulation under backend `B`: fold the current
-    /// verifier-proof input into the prior accumulator, then verify the result.
-    /// Returns the serialized `(acc instance, acc witness, proof)` (the
-    /// byte-match subject) and whether `AS::verify` accepted it.
-    pub(super) fn fold_step<B: MsmBackend<VG>>(
-        ops: &FoldOperands,
-        make_zk: bool,
-        seed: u64,
-    ) -> (Vec<u8>, bool) {
-        let cur_inputs = vec![ops.input_cur.clone()];
-        let prev_accs = vec![ops.acc_prev.clone()];
-        let mut rng = StdRng::seed_from_u64(seed ^ 0xf01d);
-        let make_zk_arg = if make_zk {
-            MakeZK::Enabled(&mut rng)
-        } else {
-            MakeZK::Disabled
-        };
-        let (acc_new, proof) = VAS::prove_with_backend::<B>(
-            &ops.pk,
-            Input::<VCf, VSponge, VAS>::map_to_refs(&cur_inputs),
-            Accumulator::<VCf, VSponge, VAS>::map_to_refs(&prev_accs),
-            make_zk_arg,
-            None,
-        )
-        .unwrap();
-
-        let mut bytes = Vec::new();
-        acc_new.instance.serialize(&mut bytes).unwrap();
-        acc_new.witness.serialize(&mut bytes).unwrap();
-        proof.serialize(&mut bytes).unwrap();
-
-        let verified = VAS::verify(
-            &ops.vk,
-            vec![&ops.input_cur.instance],
-            vec![&ops.acc_prev.instance],
-            &acc_new.instance,
-            &proof,
-            None,
-        )
-        .unwrap();
-
-        (bytes, verified)
-    }
-
-    thread_local! {
-        static MAX_COMMIT_LEN: Cell<usize> = Cell::new(0);
-    }
-
-    /// `CpuBackend` that also records the longest `elems` it commits. Delegates
-    /// verbatim (results are identical), so the CPU correctness gate doubles as a
-    /// measurement of the folding accumulation's largest MSM — which fixes the
-    /// `N` the exported GPU artifact must cover.
-    struct RecordingBackend;
-    impl MsmBackend<VG> for RecordingBackend {
-        fn commit(
-            ck: &CommitterKey<VG>,
-            elems: &[<VG as AffineCurve>::ScalarField],
-            randomizer: Option<<VG as AffineCurve>::ScalarField>,
-        ) -> VG {
-            MAX_COMMIT_LEN.with(|m| m.set(m.get().max(elems.len())));
-            CpuBackend::commit(ck, elems, randomizer)
-        }
-    }
-
-    /// CPU-only full IVC step: fold the Pallas-verifier circuit's Vesta NARK
-    /// proof into a prior Vesta accumulator and confirm the accumulation
-    /// verifies. The dev-loop correctness gate for slice 3 — no GPU. Also asserts
-    /// the folding accumulation's largest MSM fits the exported Vesta artifact's
-    /// zero-pad target, so the on-demand GPU run isn't truncated.
-    #[test]
-    fn full_ivc_step_verifies_cpu() {
-        for make_zk in [false, true] {
-            for seed in [0u64, 7] {
-                let ops = fold_operands(make_zk, seed);
-                let (_bytes, verified) = fold_step::<RecordingBackend>(&ops, make_zk, seed);
-                assert!(
-                    verified,
-                    "full IVC step failed to verify (make_zk={}, seed={})",
-                    make_zk, seed
-                );
-            }
-        }
-        let max_len = MAX_COMMIT_LEN.with(|m| m.get());
-        eprintln!(
-            "[ivc] largest folding-accumulation MSM = {} (artifact N = {})",
-            max_len, VESTA_ARTIFACT_N
-        );
-        assert!(
-            max_len <= VESTA_ARTIFACT_N,
-            "largest folding commit {} exceeds artifact N {} — export msm_vesta_{}",
-            max_len,
-            VESTA_ARTIFACT_N,
-            max_len.next_power_of_two()
-        );
-    }
-
-    /// zorch#326 informational timing: the arkworks (`CpuBackend`) full IVC fold
+    /// zorch#326 informational timing: the arkworks full IVC fold
     /// **prove** at recursion scale, `--release`, to pair with the warm fused-GPU
     /// fold timing (`tests/gpu_fused_fold_bench.rs`) for the GPU-vs-arkworks figure.
-    /// Times only `VAS::prove_with_backend::<CpuBackend>` + serialize (the same scope
+    /// Times only `VAS::prove` + serialize (the same scope
     /// as the fused consumer — no `AS::verify`); the slow `fold_operands` recursion
     /// synthesis is one-time setup, excluded. `#[ignore]`d and meant for `--release`:
     ///
     ///     cargo test --release --features recursion --test recursion_step \
     ///       vesta::arkworks_fold_timing -- --ignored --nocapture
     #[test]
-    #[ignore = "--release arkworks fold-prove timing at recursion scale (slow CpuBackend setup)"]
+    #[ignore = "--release arkworks fold-prove timing at recursion scale (slow arkworks fold setup)"]
     fn arkworks_fold_timing() {
         let ops = fold_operands(true, 0); // one-time setup, not timed
         let prove_once = || {
             let cur = vec![ops.input_cur.clone()];
             let prev = vec![ops.acc_prev.clone()];
             let mut rng = StdRng::seed_from_u64(0xf01d);
-            let (acc_new, proof) = VAS::prove_with_backend::<CpuBackend>(
+            let (acc_new, proof) = VAS::prove(
                 &ops.pk,
                 Input::<VCf, VSponge, VAS>::map_to_refs(&cur),
                 Accumulator::<VCf, VSponge, VAS>::map_to_refs(&prev),
@@ -625,7 +515,7 @@ mod vesta {
         }
         times.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "arkworks CpuBackend full IVC fold prove (Vesta, make_zk, ~77.5K constraints, {n_bytes}B) \
+            "arkworks full IVC fold prove (Vesta, make_zk, ~77.5K constraints, {n_bytes}B) \
              --release: median {:.0} ms over {N} runs (min {:.0}, max {:.0})",
             times[N / 2],
             times[0],
@@ -644,9 +534,8 @@ mod vesta {
         use super::{
             build_step, fold_operands, nark_index, nark_prove, Pallas, VCf, VSponge, VAS, VG,
         };
-        use accumulation_zorch::backend::CpuBackend;
-        use accumulation_zorch::r1cs_nark_as::r1cs_nark::R1CSNark as ZkxR1CSNark;
-        use accumulation_zorch::{AccumulationScheme, Accumulator, Input, MakeZK};
+        use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark as ZkxR1CSNark;
+        use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
         use ark_ff::{BigInteger, PrimeField, UniformRand, Zero};
         use ark_poly_commit::trivial_pc::PedersenCommitment;
         use ark_relations::r1cs::{
@@ -881,7 +770,7 @@ mod vesta {
         /// `cargo test --features recursion --test recursion_step dump_recursion_nark_zk`
         /// (writes `$ACCUMULATION_ZORCH_ARTIFACTS/recursion_nark_zk_fixtures.json`).
         ///
-        /// The zk half-step's golden IS `nark_prove::<CpuBackend>` — the exact
+        /// The zk half-step's golden IS `nark_prove` — the exact
         /// subject the GPU gate (`recursion_step_proves_on_vesta`, make_zk=true)
         /// byte-matches — so the fused export reproduces that proof. The prover's
         /// sampled randomness (the `r` witness blinders + 8 sigma blinders) is
@@ -900,7 +789,7 @@ mod vesta {
 
             // Golden zk Vesta NARK proof = the GPU byte-match subject itself.
             let (ipk, _ivk) = nark_index(make_zk, seed);
-            let proof = nark_prove::<CpuBackend>(&ipk, make_zk, seed, false);
+            let proof = nark_prove(&ipk, make_zk, seed, false);
             let proof_hex = ser_hex(&proof);
 
             // Matrices a/b/c (Constraints + Setup) over CF — the make_zk=true
@@ -1093,7 +982,7 @@ mod vesta {
             let cur_inputs = vec![ops.input_cur.clone()];
             let prev_accs = vec![ops.acc_prev.clone()];
             let mut rng_fold = StdRng::seed_from_u64(seed ^ 0xf01d);
-            let (golden_acc, golden_proof) = VAS::prove_with_backend::<CpuBackend>(
+            let (golden_acc, golden_proof) = VAS::prove(
                 &ops.pk,
                 Input::<VCf, VSponge, VAS>::map_to_refs(&cur_inputs),
                 Accumulator::<VCf, VSponge, VAS>::map_to_refs(&prev_accs),
@@ -1192,33 +1081,23 @@ mod vesta {
     }
 }
 
-/// Shared Pallas-side plumbing for the reverse full IVC step (#722). Curve-fixed
-/// to Pallas — the cycle curve the Vesta-verifier circuit proves on — and
-/// CPU-buildable (the `MsmBackend`-generic prove/fold run with `CpuBackend`).
-/// Mirror of [`vesta`] with the cycle curves swapped.
+/// Shared Pallas-side plumbing for the reverse full IVC step. Curve-fixed to
+/// Pallas — the cycle curve the Vesta-verifier circuit proves on — driving the
+/// arkworks prover on CPU to emit the golden fixtures. Mirror of [`vesta`] with
+/// the cycle curves swapped.
 mod pallas {
-    use super::{build_step, RecursionCircuit, Vesta};
-    use accumulation_zorch::backend::{CpuBackend, MsmBackend};
-    use accumulation_zorch::r1cs_nark_as::r1cs_nark::{
+    use super::{build_step, Vesta};
+    use ark_accumulation::r1cs_nark_as::r1cs_nark::{
         IndexProverKey, IndexVerifierKey, Proof as NarkProof, R1CSNark as ZkxR1CSNark,
     };
-    use accumulation_zorch::r1cs_nark_as::{ASForR1CSNark, InputInstance};
-    use accumulation_zorch::{AccumulationScheme, Accumulator, Input, MakeZK};
-    use ark_ec::AffineCurve;
-    use ark_poly_commit::trivial_pc::CommitterKey;
+    use ark_accumulation::r1cs_nark_as::{ASForR1CSNark, InputInstance};
+    use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
     use ark_relations::r1cs::{
         ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, SynthesisMode,
     };
-    use ark_serialize::CanonicalSerialize;
     use ark_sponge::poseidon::PoseidonSponge;
     use ark_sponge::CryptographicSponge;
     use ark_std::rand::{rngs::StdRng, SeedableRng};
-    use std::cell::Cell;
-
-    /// The exported Pallas artifact's zero-pad target `N` (`msm_pallas_131072`).
-    /// Each GPU commit is padded to `N`, so `N` must be ≥ the folding
-    /// accumulation's largest MSM or the GPU run would truncate it.
-    const PALLAS_ARTIFACT_N: usize = 131072;
 
     // The verifier circuit is over ark_vesta::Fq = ark_pallas::Fr (the Pallas
     // scalar field), so it proves with a Pallas NARK whose constraint field — and
@@ -1260,14 +1139,13 @@ mod pallas {
         ZkxR1CSNark::<PG, PSponge>::index(&nark_pp, build_step::<Vesta>(make_zk, seed)).unwrap()
     }
 
-    /// Prove the Vesta-verifier circuit on Pallas under backend `B` (seeded so
-    /// the GPU and CPU runs share identical randomness — only the MSM backend
-    /// differs). `fork` selects the gamma sponge: a NARK destined to be **folded**
+    /// Prove the Vesta-verifier circuit on Pallas, seeded so the fixture replays
+    /// identical randomness. `fork` selects the gamma sponge: a NARK destined to be **folded**
     /// by the AS must use the AS's forked `nark_sponge` (`fork = true`) so its
     /// gamma matches the one the AS recomputes for the blinded commitments;
     /// a standalone NARK would use the plain `PSponge::new()`. See the `vesta`
     /// twin for the full rationale.
-    fn nark_prove<B: MsmBackend<PG>>(
+    fn nark_prove(
         ipk: &IndexProverKey<PG>,
         make_zk: bool,
         seed: u64,
@@ -1279,7 +1157,7 @@ mod pallas {
         } else {
             PSponge::new()
         };
-        ZkxR1CSNark::<PG, PSponge>::prove_with_backend::<RecursionCircuit<Vesta>, B>(
+        ZkxR1CSNark::<PG, PSponge>::prove(
             ipk,
             build_step::<Vesta>(make_zk, seed),
             make_zk,
@@ -1290,15 +1168,15 @@ mod pallas {
     }
 
     /// One Pallas-AS accumulation `Input`: the recursion circuit's Pallas NARK
-    /// proof (under backend `B`) packaged as `(r1cs_input, first_round_message,
+    /// proof packaged as `(r1cs_input, first_round_message,
     /// witness = second_round_message)` — the verifier proof to be accumulated.
-    fn recursion_input<B: MsmBackend<PG>>(
+    fn recursion_input(
         ipk: &IndexProverKey<PG>,
         make_zk: bool,
         seed: u64,
     ) -> Input<PCf, PSponge, PAS> {
         // The AS folds this input, so its NARK must use the forked nark_sponge.
-        let proof = nark_prove::<B>(ipk, make_zk, seed, true);
+        let proof = nark_prove(ipk, make_zk, seed, true);
         Input::<PCf, PSponge, PAS> {
             instance: InputInstance {
                 r1cs_input: public_input(make_zk, seed),
@@ -1308,9 +1186,8 @@ mod pallas {
         }
     }
 
-    /// The two operands of a full IVC step, built once under `CpuBackend` and
-    /// reused by both the CPU and GPU folding runs so the byte-match isolates the
-    /// folding accumulation.
+    /// The two operands of a full IVC step, built once and reused by the
+    /// fixture-dump fold so the byte-match isolates the folding accumulation.
     pub(super) struct FoldOperands {
         pub pk: <PAS as AccumulationScheme<PCf, PSponge>>::ProverKey,
         pub vk: <PAS as AccumulationScheme<PCf, PSponge>>::VerifierKey,
@@ -1329,11 +1206,11 @@ mod pallas {
         let (pk, vk, _dk) = PAS::index(&as_pp, &(), &(ipk.clone(), ivk.clone())).unwrap();
 
         // Current step: the verifier proof accumulated this step.
-        let input_cur = recursion_input::<CpuBackend>(&ipk, make_zk, seed);
+        let input_cur = recursion_input(&ipk, make_zk, seed);
 
         // Prior step: init-accumulate a different-seed recursion NARK to get the
         // accumulator the current step folds into.
-        let input_prev = recursion_input::<CpuBackend>(&ipk, make_zk, seed.wrapping_add(1));
+        let input_prev = recursion_input(&ipk, make_zk, seed.wrapping_add(1));
         let prev_inputs = vec![input_prev];
         let no_acc: Vec<Accumulator<PCf, PSponge, PAS>> = Vec::new();
         let mut acc_rng = StdRng::seed_from_u64(seed ^ 0xacc0);
@@ -1342,7 +1219,7 @@ mod pallas {
         } else {
             MakeZK::Disabled
         };
-        let (acc_prev, _proof_prev) = PAS::prove_with_backend::<CpuBackend>(
+        let (acc_prev, _proof_prev) = PAS::prove(
             &pk,
             Input::<PCf, PSponge, PAS>::map_to_refs(&prev_inputs),
             Accumulator::<PCf, PSponge, PAS>::map_to_refs(&no_acc),
@@ -1359,110 +1236,13 @@ mod pallas {
         }
     }
 
-    /// Run the folding accumulation under backend `B`: fold the current
-    /// verifier-proof input into the prior accumulator, then verify the result.
-    /// Returns the serialized `(acc instance, acc witness, proof)` (the
-    /// byte-match subject) and whether `AS::verify` accepted it.
-    pub(super) fn fold_step<B: MsmBackend<PG>>(
-        ops: &FoldOperands,
-        make_zk: bool,
-        seed: u64,
-    ) -> (Vec<u8>, bool) {
-        let cur_inputs = vec![ops.input_cur.clone()];
-        let prev_accs = vec![ops.acc_prev.clone()];
-        let mut rng = StdRng::seed_from_u64(seed ^ 0xf01d);
-        let make_zk_arg = if make_zk {
-            MakeZK::Enabled(&mut rng)
-        } else {
-            MakeZK::Disabled
-        };
-        let (acc_new, proof) = PAS::prove_with_backend::<B>(
-            &ops.pk,
-            Input::<PCf, PSponge, PAS>::map_to_refs(&cur_inputs),
-            Accumulator::<PCf, PSponge, PAS>::map_to_refs(&prev_accs),
-            make_zk_arg,
-            None,
-        )
-        .unwrap();
-
-        let mut bytes = Vec::new();
-        acc_new.instance.serialize(&mut bytes).unwrap();
-        acc_new.witness.serialize(&mut bytes).unwrap();
-        proof.serialize(&mut bytes).unwrap();
-
-        let verified = PAS::verify(
-            &ops.vk,
-            vec![&ops.input_cur.instance],
-            vec![&ops.acc_prev.instance],
-            &acc_new.instance,
-            &proof,
-            None,
-        )
-        .unwrap();
-
-        (bytes, verified)
-    }
-
-    thread_local! {
-        static MAX_COMMIT_LEN: Cell<usize> = Cell::new(0);
-    }
-
-    /// `CpuBackend` that also records the longest `elems` it commits. Delegates
-    /// verbatim (results are identical), so the CPU correctness gate doubles as a
-    /// measurement of the folding accumulation's largest MSM — which fixes the
-    /// `N` the exported GPU artifact must cover.
-    struct RecordingBackend;
-    impl MsmBackend<PG> for RecordingBackend {
-        fn commit(
-            ck: &CommitterKey<PG>,
-            elems: &[<PG as AffineCurve>::ScalarField],
-            randomizer: Option<<PG as AffineCurve>::ScalarField>,
-        ) -> PG {
-            MAX_COMMIT_LEN.with(|m| m.set(m.get().max(elems.len())));
-            CpuBackend::commit(ck, elems, randomizer)
-        }
-    }
-
-    /// CPU-only reverse full IVC step: fold the Vesta-verifier circuit's Pallas
-    /// NARK proof into a prior Pallas accumulator and confirm the accumulation
-    /// verifies. The dev-loop correctness gate for slice 4 — no GPU. Also asserts
-    /// the folding accumulation's largest MSM fits the exported Pallas artifact's
-    /// zero-pad target, so the on-demand GPU run isn't truncated.
-    #[test]
-    fn reverse_ivc_step_verifies_cpu() {
-        for make_zk in [false, true] {
-            for seed in [0u64, 7] {
-                let ops = fold_operands(make_zk, seed);
-                let (_bytes, verified) = fold_step::<RecordingBackend>(&ops, make_zk, seed);
-                assert!(
-                    verified,
-                    "reverse IVC step failed to verify (make_zk={}, seed={})",
-                    make_zk, seed
-                );
-            }
-        }
-        let max_len = MAX_COMMIT_LEN.with(|m| m.get());
-        eprintln!(
-            "[ivc] largest reverse folding-accumulation MSM = {} (artifact N = {})",
-            max_len, PALLAS_ARTIFACT_N
-        );
-        assert!(
-            max_len <= PALLAS_ARTIFACT_N,
-            "largest folding commit {} exceeds artifact N {} — export msm_pallas_{}",
-            max_len,
-            PALLAS_ARTIFACT_N,
-            max_len.next_power_of_two()
-        );
-    }
-
     /// Off-tree fixture dumps for the reverse (Pallas #722) direction — the
     /// curve-swapped twin of `vesta::dump`. Only the zk **fold** dump is mirrored
     /// here (the standalone half-step byte-match is Vesta-only); the helpers are
     /// the same JSON encoders, typed for `PG`/`CF`.
     mod dump {
         use super::{build_step, fold_operands, Vesta, PAS, PCf, PG, PSponge};
-        use accumulation_zorch::backend::CpuBackend;
-        use accumulation_zorch::{AccumulationScheme, Accumulator, Input, MakeZK};
+        use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
         use ark_ff::{BigInteger, PrimeField, UniformRand, Zero};
         use ark_poly_commit::trivial_pc::PedersenCommitment;
         use ark_relations::r1cs::{
@@ -1650,7 +1430,7 @@ mod pallas {
             let cur_inputs = vec![ops.input_cur.clone()];
             let prev_accs = vec![ops.acc_prev.clone()];
             let mut rng_fold = StdRng::seed_from_u64(seed ^ 0xf01d);
-            let (golden_acc, golden_proof) = PAS::prove_with_backend::<CpuBackend>(
+            let (golden_acc, golden_proof) = PAS::prove(
                 &ops.pk,
                 Input::<PCf, PSponge, PAS>::map_to_refs(&cur_inputs),
                 Accumulator::<PCf, PSponge, PAS>::map_to_refs(&prev_accs),

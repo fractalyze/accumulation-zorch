@@ -7,13 +7,15 @@ Overview, setup, the reproduction path, and the benchmark all live in
 
 The rules every change must respect:
 
-- **Byte-identical oracle gates.** Every prover change is gated `fused GPU core ≡
-  CPU faithful copy ≡ unmodified arkworks` over serialized bytes (`src/oracle.rs`
-  pins the CPU copy to arkworks; the fused GPU gates byte-match the arkworks-derived
-  golden). No behavior change ships without its byte-match.
-- **Copy the prover, reuse the gadget.** Copy an arkworks component only if it
-  contains a prover MSM; the in-circuit verifier gadget has none, so it is reused
-  as-is, never copied.
+- **Byte-identical to arkworks.** Every prover change is gated `fused GPU core ≡
+  unmodified arkworks` over serialized bytes: the golden fixtures are emitted by the
+  pristine `ark-accumulation` prover (the `../accumulation` dev-dependency), and the
+  jax CPU port + the fused GPU core byte-match them. No behavior change ships without
+  its byte-match.
+- **Reuse the gadget, never re-implement it.** The in-circuit verifier gadget is
+  reused from `ark-accumulation` as-is (it has no prover MSM); the prover itself
+  lives only in the jax port (`python/accumulation_zorch/`). The repo re-derives
+  neither.
 - **Curve-generic, not duplicated.** Pallas and Vesta are two instantiations of
   one generic prover (`PastaCurve` in Rust, the `Curve` record in Python), never
   per-curve copies.
