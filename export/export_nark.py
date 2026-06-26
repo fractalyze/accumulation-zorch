@@ -1,5 +1,5 @@
 """Export the fused **no-zk NARK** prove of the recursion circuit to one
-StableHLO ``.mlirbc`` — the Vesta half-step (zorch#326 Slice 3, #717).
+StableHLO ``.mlirbc`` — the Vesta half-step.
 
 The whole no-zk NARK prove (three sparse ``M·z`` reduces + three ``lax.msm``
 commitments) is one ``@jax.jit`` core (``nark.build_no_zk_core``) that takes the

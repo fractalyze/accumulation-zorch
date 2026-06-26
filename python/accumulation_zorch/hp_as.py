@@ -354,7 +354,7 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     a = jnp.stack([a_real, row1_a])  # (n, L), row 1 = old accumulator / placeholder
     b = jnp.stack([b_real, row1_b])
     # The hiding values + randomizers are host constants (baked half-step / fold)
-    # or a runtime `(5,)` fr array `[hiding_a, hiding_b, hr1, hr2, hr3]` (zorch#330's
+    # or a runtime `(5,)` fr array `[hiding_a, hiding_b, hr1, hr2, hr3]` (the
     # general prover); the latter lets one lowered core prove any HP randomness.
     if hp_rand is not None:
         hiding_a_vec = jnp.broadcast_to(hp_rand[0], (L,))
@@ -437,7 +437,7 @@ def prove_zk_core(cv: Curve, bases_h: jax.Array, id_pt: jax.Array, real_inst: ja
     `old_inst` / `old_a` / `old_b` / `old_rand` are the IVC fold's old-accumulator
     HP input (instance `(3,)`, opening vectors `(L,)`, randomness `(3,)`); omitting
     them (the default) is the single-input init — the second input is the inert
-    zero placeholder. `hp_rand` (zorch#330) lifts the hiding values + randomizers
+    zero placeholder. `hp_rand` (the general prover) lifts the hiding values + randomizers
     to a runtime `(5,)` fr array so one lowered core proves any HP randomness;
     omitting it bakes them as host constants. Plain so it inlines into the AS
     top-level `@jax.jit`."""

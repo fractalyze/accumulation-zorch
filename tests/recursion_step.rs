@@ -12,13 +12,13 @@
 //!
 //! The hinge is the type-level Pasta cycle: `ConstraintF<VC::G>` (the verifier
 //! circuit's field) IS the *other* curve's scalar field, so the circuit proves
-//! on that curve directly — no isomorphism bridge. Forward (#717/#720): a
+//! on that curve directly — no isomorphism bridge. Forward: a
 //! `RecursionCircuit<Pallas>` proves on Vesta (`ark_pallas::Fq == ark_vesta::Fr`),
 //! in the [`vesta`] module.
 //!
 //! Each proving module mirrors the same shape: prove the verifier circuit as a
-//! NARK on its curve (the **half-step**, #717), then *accumulate* that NARK proof
-//! by folding it into a prior accumulator (the **full IVC step**, #720).
+//! NARK on its curve (the **half-step**), then *accumulate* that NARK proof
+//! by folding it into a prior accumulator (the **full IVC step**).
 //!
 //! CPU gate (no GPU, `--features recursion`): `recursion_circuit_satisfiable`
 //! (both verifier circuits synthesize a satisfied constraint system). The `dump`
@@ -474,7 +474,7 @@ mod vesta {
         }
     }
 
-    /// zorch#326 informational timing: the arkworks full IVC fold
+    /// Informational timing: the arkworks full IVC fold
     /// **prove** at recursion scale, `--release`, to pair with the warm fused-GPU
     /// fold timing (`tests/gpu_fused_fold_bench.rs`) for the GPU-vs-arkworks figure.
     /// Times only `VAS::prove` + serialize (the same scope
@@ -523,7 +523,7 @@ mod vesta {
         );
     }
 
-    /// Slice 2 (zorch#326): dump the forward recursion-circuit no-zk Vesta NARK
+    /// Dump the forward recursion-circuit no-zk Vesta NARK
     /// to an off-tree JSON fixture, for the jax `nark.prove_no_zk` byte-match. The
     /// circuit is the AS verifier gadget (~22.5K constraints × ~21K vars, but
     /// sparse), so the fixture is large and written **off-tree**
@@ -724,7 +724,7 @@ mod vesta {
 
             let json = format!(
                 concat!(
-                    "{{\n  \"note\": \"recursion-circuit no-zk Vesta NARK (zorch#326 slice 2)\",\n",
+                    "{{\n  \"note\": \"recursion-circuit no-zk Vesta NARK\",\n",
                     "  \"curve\": \"vesta\",\n  \"num_constraints\": {},\n  \"num_vars\": {},\n",
                     "  \"a\": {},\n  \"b\": {},\n  \"c\": {},\n  \"input\": {},\n  \"witness\": {},\n",
                     "  \"generators\": [{}],\n  \"proof_hex\": \"{}\"\n}}\n"
@@ -862,7 +862,7 @@ mod vesta {
 
             let json = format!(
                 concat!(
-                    "{{\n  \"note\": \"recursion-circuit zk Vesta NARK (unforked sponge, zorch#326 slice 3)\",\n",
+                    "{{\n  \"note\": \"recursion-circuit zk Vesta NARK (unforked sponge)\",\n",
                     "  \"curve\": \"vesta\",\n  \"num_constraints\": {},\n  \"num_vars\": {},\n",
                     "  \"nark_matrices_hash_hex\": \"{}\",\n",
                     "  \"a\": {},\n  \"b\": {},\n  \"c\": {},\n  \"input\": {},\n  \"witness\": {},\n",
@@ -907,7 +907,7 @@ mod vesta {
             );
         }
 
-        /// Slice 5 (zorch#326): dump the forward recursion-circuit zk **fold** (one
+        /// Dump the forward recursion-circuit zk **fold** (one
         /// input folded INTO one prior Vesta accumulator, num_addends=3) for the
         /// jax `r1cs_nark_as.prove_zk_fold(VESTA, …)` end-to-end byte-match — the
         /// recursion-scale analog of the toy `dump_as_fold_zk`. Replays the input's
@@ -1023,7 +1023,7 @@ mod vesta {
 
             let json = format!(
                 concat!(
-                    "{{\n  \"note\": \"recursion-circuit zk Vesta fold (num_addends=3, zorch#326 slice 5)\",\n",
+                    "{{\n  \"note\": \"recursion-circuit zk Vesta fold (num_addends=3)\",\n",
                     "  \"curve\": \"vesta\",\n  \"num_constraints\": {},\n  \"num_vars\": {},\n",
                     "  \"supported_num_elems\": {},\n",
                     "  \"nark_matrices_hash_hex\": \"{}\",\n  \"as_matrices_hash_hex\": \"{}\",\n",
@@ -1236,7 +1236,7 @@ mod pallas {
         }
     }
 
-    /// Off-tree fixture dumps for the reverse (Pallas #722) direction — the
+    /// Off-tree fixture dumps for the reverse (Pallas) direction — the
     /// curve-swapped twin of `vesta::dump`. Only the zk **fold** dump is mirrored
     /// here (the standalone half-step byte-match is Vesta-only); the helpers are
     /// the same JSON encoders, typed for `PG`/`CF`.
@@ -1364,9 +1364,9 @@ mod pallas {
             )
         }
 
-        /// Slice 5 (zorch#326): dump the **reverse** recursion-circuit zk fold (one
+        /// Dump the **reverse** recursion-circuit zk fold (one
         /// input folded into a prior Pallas accumulator, num_addends=3) for the jax
-        /// `prove_zk_fold(PALLAS, …)` byte-match — the Pallas (#722) twin of
+        /// `prove_zk_fold(PALLAS, …)` byte-match — the Pallas twin of
         /// `vesta::dump::dump_recursion_fold_zk`.
         ///
         /// `cargo test --features recursion --test recursion_step \
@@ -1467,7 +1467,7 @@ mod pallas {
 
             let json = format!(
                 concat!(
-                    "{{\n  \"note\": \"recursion-circuit zk Pallas fold (num_addends=3, zorch#326 slice 5)\",\n",
+                    "{{\n  \"note\": \"recursion-circuit zk Pallas fold (num_addends=3)\",\n",
                     "  \"curve\": \"pallas\",\n  \"num_constraints\": {},\n  \"num_vars\": {},\n",
                     "  \"supported_num_elems\": {},\n",
                     "  \"nark_matrices_hash_hex\": \"{}\",\n  \"as_matrices_hash_hex\": \"{}\",\n",

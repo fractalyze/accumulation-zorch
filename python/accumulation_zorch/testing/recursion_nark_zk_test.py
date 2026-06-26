@@ -1,5 +1,5 @@
 """Slice-3 byte-match: the **zk** NARK prove of the recursion-verifier circuit on
-Vesta (zorch#326 Phase 4) — the half-step (#717) make_zk path.
+Vesta — the half-step make_zk path.
 
 The make_zk recursion circuit (~77.5K constraints × ~76.2K vars — larger than the
 no-zk circuit, which carries no randomness commitments) is proven as a Vesta zk

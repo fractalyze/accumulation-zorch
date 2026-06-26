@@ -1,5 +1,5 @@
-//! End-to-end GPU byte-match for the **general** fused jax-exported zk prove core
-//! (zorch#330): the whole zk `ASForR1CSNark` prove run as **one** PJRT call
+//! End-to-end GPU byte-match for the **general** fused jax-exported zk prove core:
+//! the whole zk `ASForR1CSNark` prove run as **one** PJRT call
 //! (`crate::fused::run_fused`) must serialize byte-for-byte to the golden
 //! `acc.instance ‖ acc.witness ‖ proof` arkworks produces — the same target the
 //! per-MSM `GpuBackend` byte-match (`gpu_prove_byte_match.rs`) hits, but with a
@@ -7,7 +7,7 @@
 //!
 //! Fixture-driven: `python/testdata/as_zk_fixtures.json` holds the committer key
 //! (`generators`, `hiding`) and, per seed, the assignment + replayed randomness +
-//! golden output hex. As of zorch#330 this exercises the **general** core:
+//! golden output hex. This exercises the **general** core:
 //! `export/export_prove.py` lowers ONE seed-independent `prove_zk_general.mlirbc`
 //! whose runtime inputs are the committer key PLUS the assignment + all replayed
 //! randomness (NARK/AS/HP) — so one core, compiled once, proves every seed fed its
@@ -75,7 +75,7 @@ fn gpu_fused_prove_byte_match() {
 
     // --- Phase B: compile the ONE general core once, run it per seed (each fed its
     // own witness/randomness), and byte-match per component.
-    println!("general fused jax-exported prove core GPU byte-match (zorch#330, one core × seeds):");
+    println!("general fused jax-exported prove core GPU byte-match (one core × seeds):");
     let mlirbc = std::fs::read(artifacts.join("prove_zk_general.mlirbc"))
         .unwrap_or_else(|e| panic!("read prove_zk_general.mlirbc: {}", e));
     let exe = fused::load_fused(&mlirbc);

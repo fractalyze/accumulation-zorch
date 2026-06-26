@@ -1,5 +1,5 @@
 """Export the fused **zk NARK** prove of the recursion circuit to one StableHLO
-``.mlirbc`` — the Vesta half-step (zorch#326 Slice 3, #717, make_zk path).
+``.mlirbc`` — the Vesta half-step (make_zk path).
 
 The whole zk NARK prove (six sparse ``M·z`` / ``M·z_r`` reduces, eight ``lax.msm``
 blinded commitments, the in-trace gamma sponge, and the gamma-blinded responses)

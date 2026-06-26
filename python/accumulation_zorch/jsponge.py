@@ -1,6 +1,6 @@
 """Jit-able ark-sponge challenge squeeze — the jit/GPU-exportable replacement
-for `sponge.squeeze_bits`/`squeeze_nonnative`/`squeeze_challenges` (zorch#314
-Phase 1).
+for `sponge.squeeze_bits`/`squeeze_nonnative`/`squeeze_challenges` (the
+jit/GPU-exportable port).
 
 Those decode each squeezed Fq element to a Python bigint and slice bits in a
 Python loop. Here the same ark-sponge bit math runs in jax: bitcast the squeezed

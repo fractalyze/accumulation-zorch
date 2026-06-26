@@ -245,7 +245,7 @@ class NarkZkCore(NamedTuple):
 
 class NarkZkRuntime(NamedTuple):
     """The zk NARK prover's per-prove inputs lifted to **runtime** device arrays
-    (zorch#330's general prover): the assignment (`r1cs_input` / `witness`), the
+    (the general prover): the assignment (`r1cs_input` / `witness`), the
     witness-blinder vector `r`, the 8 sigma blinders `[a, b, c, r_a, r_b, r_c, 1,
     2]`, and the public input's `u8_batch` field-element packing (`input_u8b`, an
     fq array). When `prove_zk_core` receives this it bakes nothing — one lowered
@@ -273,7 +273,7 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
     base stack is a separate affine argument (`bases_h`) — an affine-typed jit
     constant doesn't lower, and the committer key is a runtime input on export.
 
-    When `rt` is given (zorch#330's general prover) the assignment + blinders come
+    When `rt` is given (the general prover) the assignment + blinders come
     from runtime device arrays rather than being baked from the host lists, so the
     lowered core proves any assignment; otherwise they are host constants (the
     baked half-step / fold path)."""
@@ -285,7 +285,7 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
         # `r1cs_nark_as._build_zk_fold_core`). Reduce DENSE instead (constant matrix
         # · runtime vector → no scatter), as the no-zk general core does. Returns
         # `(a_dense, b_dense, c_dense)`; densifying the recursion R1CS is ~15 GB, so
-        # the general single-prove is fixture-/moderate-scale (zorch#330's target).
+        # the general single-prove is fixture-/moderate-scale (the general prover's target).
         n = rt.r1cs_input.shape[0] + rt.witness.shape[0]
         dense = tuple(jnp.asarray(to_dense(cv, m, n)) for m in (a, b, c))
         z = jnp.concatenate([rt.r1cs_input, rt.witness])
@@ -366,7 +366,7 @@ def prove_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
     hiding base (an affine jit argument). Plain so it inlines into the AS
     top-level `@jax.jit`; `prove_zk` is the materializing standalone wrapper.
 
-    `rt` (zorch#330) lifts the assignment + randomness to runtime device arrays so
+    `rt` (the general prover) lifts the assignment + randomness to runtime device arrays so
     one lowered core proves any prove; omitting it bakes them as host constants
     (the standalone half-step / fold path)."""
     coo_a, coo_b, coo_c, z, zr, blinders, witness_arr, r_arr, dense = _prove_zk_field_prep(
@@ -461,10 +461,10 @@ def _gamma_pre_sponge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list
 
     `fork` = whether the base sponge is the AS's `nark_sponge` (forked with
     `PROTOCOL_NAME`). The AS-embedded NARK forks; a **standalone** NARK prove —
-    the recursion half-step (#717), whose subject passes a plain `Sponge::new()` —
+    the recursion half-step, whose subject passes a plain `Sponge::new()` —
     draws an unforked sponge, so pass `fork=False` there.
 
-    `input_u8b` (zorch#330's general prover) is the `inputs`' `u8_batch`
+    `input_u8b` (the general prover) is the `inputs`' `u8_batch`
     field-element packing supplied as a runtime input and absorbed directly — the
     in-trace `fr→u8` rechunk the zkx GPU plugin mis-lowers is done consumer-side.
     Byte-identical to the host pack: `absorb_bytes` is exactly `sp.absorb(
@@ -485,7 +485,7 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
     packs) into the pre-sponge and squeeze gamma. `comms` / `randomness` are
     pre-stacked `(N,)` affine arrays (`stack_affine` for host points, `jnp.stack`
     for the in-jit `lax.msm` outputs); `randomness` is None on the no-zk path. The
-    point packing runs in-jit (zkx#773). Plain so it inlines into the `@jit`
+    point packing runs in-jit. Plain so it inlines into the `@jit`
     prove. Returns the `(1,)` truncated-128 fr challenge."""
     parts = [absorbable.point_to_field_array_jax(cv, comms),
              jnp.asarray(absorbable.option_flag(cv, randomness is not None))]

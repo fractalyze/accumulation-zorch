@@ -1,5 +1,4 @@
-# Type-checking config for the jax prover port (zorch#303), mirroring zorch's
-# enforced-typing convention. Run from this `python/` dir: `mypy`.
+# Type-checking config for the jax prover port. Run from this `python/` dir: `mypy`.
 [tool.mypy]
 python_version = "3.11"
 files = ["accumulation_zorch"]

@@ -1,6 +1,6 @@
 """Jit-able Fr field/vector/polynomial kernels — the jit/GPU-exportable
-replacement for the numpy `zk_dtypes` arithmetic in `hp_as.py` (zorch#314
-Phase 1).
+replacement for the numpy `zk_dtypes` arithmetic in `hp_as.py` (the
+jit/GPU-exportable port).
 
 Each kernel takes Fr `jnp` arrays and returns Fr `jnp` arrays; the orchestration
 (`hp_as.prove_no_zk`) keeps the challenge / opening values as int lists and
@@ -35,7 +35,7 @@ def sparse_matvec(vals: jax.Array, col_idx: jax.Array, row_idx: jax.Array,
     but ~6 nonzeros/row, so densifying it (`rows × vars` ≈ 15 GB) is infeasible —
     only the sparse reduce scales. The gather `z[col_idx]` and the scatter-add
     `segment_sum` (→ `stablehlo.scatter`) both lower over the i256 `fr` dtype in
-    the zkx fork (zorch#326). Byte-identical to `matvec` on the densified matrix.
+    the zkx fork. Byte-identical to `matvec` on the densified matrix.
     """
     return jax.ops.segment_sum(vals * z[col_idx], row_idx, num_segments=num_rows)
 

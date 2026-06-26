@@ -1,9 +1,9 @@
 """Jit-able Pasta-G1 Pedersen commitments — the jit/GPU-exportable replacement
-for `curve.py`'s `zk_dtypes` CPU group ops (zorch#314 Phase 1).
+for `curve.py`'s `zk_dtypes` CPU group ops (the jit/GPU-exportable port).
 
 `curve.pedersen_commit` sums `g * cv.fr(s)` over the affine dtype — CPU-only group
 ops that don't lower to a jit/GPU kernel. Here the commitment is `lax.msm` (the
-Pasta G1 MSM kernel, zkx#695/#699), and any field reduction feeding it (`M·z`)
+Pasta G1 MSM kernel), and any field reduction feeding it (`M·z`)
 runs as vectorized jax over the `fr` dtype. The op is GPU-ready for Phase 2;
 Phase 1 gates it on CPU (`JAX_PLATFORMS=cpu`).
 
@@ -67,7 +67,7 @@ def commit_hiding(cv: Curve, scalars: jax.Array, randomizer: int | jax.Array,
     committer key is a runtime input.
 
     `randomizer` is a host int (the baked half-step / fold path) or a runtime `fr`
-    device scalar (zorch#330's general prover, where the randomness is a runtime
+    device scalar (the general prover, where the randomness is a runtime
     input); either rides as the trailing MSM term, byte-identically."""
     if isinstance(randomizer, (int, np.integer)):
         rand = jnp.asarray(np.array([randomizer], dtype=cv.fr))

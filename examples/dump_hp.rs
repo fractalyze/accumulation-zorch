@@ -1,11 +1,11 @@
-//! Slice-4 HP-AS prove (no-zk) fixtures for the jax port (zorch#303).
+//! HP-AS prove (no-zk) fixtures for the jax port.
 //!
 //! Drives the crate's real `ASForHadamardProducts::prove` (no-zk) over two
 //! Hadamard-product inputs and dumps the golden accumulator instance + `Proof`,
 //! plus the replay inputs (the committer-key generators, the per-input `a`/`b`
 //! vectors and their commitments). The no-zk HP prove draws no randomness; its
 //! mu/nu challenges come from a fresh `S::new()` sponge (standalone — the AS
-//! path forks it with `AS-FOR-HP-2020`, wired in slice 5).
+//! path forks it with `AS-FOR-HP-2020`).
 //!
 //! Run: `cargo run --example dump_hp > python/testdata/hp_fixtures.json`
 
@@ -114,7 +114,7 @@ fn main() {
         .collect();
 
     println!("{{");
-    println!("  \"note\": \"HP-AS no-zk prove fixtures (zorch#303 slice 4)\",");
+    println!("  \"note\": \"HP-AS no-zk prove fixtures\",");
     println!("  \"hp_vec_len\": {},", HP_VEC_LEN);
     println!("  \"num_inputs\": {},", inputs.len());
     println!("  \"supported_num_elems\": {},", ck.supported_num_elems());

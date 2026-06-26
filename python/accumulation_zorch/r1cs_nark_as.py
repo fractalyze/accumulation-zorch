@@ -87,7 +87,7 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
                       r1cs_input: list[int], blinded_witness: list[int],
                       generators: list[np.ndarray], supported_num_elems: int,
                       params: Any) -> tuple:
-    """Build the fused no-zk prove `@jax.jit` core (zorch#330: the **general**
+    """Build the fused no-zk prove `@jax.jit` core (the **general**
     prover). The circuit (`a`/`b`/`c`, baked) is fixed, but the **assignment is a
     runtime input**: the core takes `(bases, r1cs_input, blinded_witness)` with the
     latter two device `fr` arrays — not captured constants — so one lowered core
@@ -209,7 +209,7 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
                    nark_r: list[int], nark_blinders: tuple[int, int, int, int, int, int, int, int],
                    as_r1cs_r_input: int, as_r1cs_r_witness: int, as_rand: tuple[int, int, int],
                    hp_hiding_a: int, hp_hiding_b: int, hp_rand: tuple[int, int, int]) -> tuple:
-    """Build the fused zk-prove `@jax.jit` core (zorch#330: the **general** prover).
+    """Build the fused zk-prove `@jax.jit` core (the **general** prover).
     The circuit (`a`/`b`/`c`, the matrices hashes, `params` — none are jax pytrees)
     stays baked, but the **assignment + all replayed randomness are runtime inputs**:
     the core takes `(bases_h, id_pt)` plus the assignment / NARK / AS / HP randomness

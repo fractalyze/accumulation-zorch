@@ -2,7 +2,7 @@
 //! the scale bench). Builds the general zk core's runtime inputs from a fixture
 //! seed entry — the same per-seed witness/randomness `export/export_prove.py
 //! build_core` reads — so one lowered `prove_zk_general.mlirbc` is exercised per
-//! seed (zorch#330).
+//! seed.
 #![allow(dead_code)] // each `mod common;` test crate uses a subset of these.
 
 use accumulation_zorch::fused::ZkProveInputs;

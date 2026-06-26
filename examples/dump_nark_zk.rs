@@ -1,4 +1,4 @@
-//! Slice-6a NARK prove (zk) fixtures for the jax port (zorch#303).
+//! NARK prove (zk) fixtures for the jax port.
 //!
 //! Drives the crate's real `R1CSNark::prove` with `make_zk = true` over a fixed
 //! `DummyCircuit` and dumps the golden serialized zk `Proof`, the replay inputs
@@ -197,7 +197,7 @@ fn main() {
     let blinder_2 = Fr::rand(&mut rep);
 
     println!("{{");
-    println!("  \"note\": \"NARK zk prove fixtures (zorch#303 slice 6a)\",");
+    println!("  \"note\": \"NARK zk prove fixtures\",");
     println!("  \"num_inputs\": {},", input.len());
     println!("  \"num_constraints\": {},", num_constraints);
     println!("  \"nark_matrices_hash_hex\": \"{}\",", hex(&nark_matrices_hash));

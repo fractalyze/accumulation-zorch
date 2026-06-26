@@ -1,4 +1,4 @@
-//! Slice-3 NARK prove (no-zk) fixtures for the jax port (zorch#303), over either
+//! NARK prove (no-zk) fixtures for the jax port, over either
 //! Pasta cycle curve (Pallas or Vesta).
 //!
 //! Drives the crate's real `R1CSNark::prove` (no-zk) over a fixed `DummyCircuit`
@@ -202,7 +202,7 @@ where
     // Python test slices them out for per-commitment anchoring.
 
     println!("{{");
-    println!("  \"note\": \"NARK no-zk prove fixtures ({} curve, zorch#303 slice 3)\",", curve);
+    println!("  \"note\": \"NARK no-zk prove fixtures ({} curve)\",", curve);
     println!("  \"curve\": \"{}\",", curve);
     println!("  \"num_inputs\": {},", input.len());
     println!("  \"num_constraints\": {},", num_constraints);

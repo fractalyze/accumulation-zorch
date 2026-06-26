@@ -1,6 +1,5 @@
 """Slice-5 byte-match: the **zk fold** of the recursion-verifier circuit, both
-cycle directions (zorch#326 Phase 4) — the full IVC step (#720 forward / #722
-reverse), num_addends=3.
+cycle directions — the full IVC step (forward / reverse), num_addends=3.
 
 Promotes the toy end-to-end fold (`as_fold_zk_e2e_test`) to the recursion circuit
 (~77.5K constraints, the ~2¹⁷-MSM scale): one NARK proof of the cycle-partner
@@ -47,9 +46,9 @@ _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 # Forward folds on Vesta (constraint field ark_vesta::Fq); reverse on Pallas
 # (constraint field ark_pallas::Fq = the toy's sponge_fixtures.json).
 _DIRECTIONS = [
-    ("vesta forward #720", curve.VESTA, "recursion_fold_zk_fixtures.json",
+    ("vesta forward", curve.VESTA, "recursion_fold_zk_fixtures.json",
      "sponge_vesta_fixtures.json"),
-    ("pallas reverse #722", curve.PALLAS, "recursion_fold_zk_pallas_fixtures.json",
+    ("pallas reverse", curve.PALLAS, "recursion_fold_zk_pallas_fixtures.json",
      "sponge_fixtures.json"),
 ]
 

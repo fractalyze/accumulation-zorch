@@ -1,4 +1,4 @@
-//! Slice-1 substrate fixtures for the jax prover-port byte-match (zorch#303).
+//! Substrate fixtures for the jax prover-port byte-match.
 //!
 //! Emits, as JSON, the arkworks `CanonicalSerialize` bytes of a handful of
 //! `ark_pallas::Fq` / `Fr` field elements and `ark_pallas::Affine` points (the
@@ -159,7 +159,7 @@ fn main() {
     let fr_modulus = dec(&(-Fr::one()));
 
     println!("{{");
-    println!("  \"note\": \"arkworks ark_pallas CanonicalSerialize fixtures for zorch#303 slice 1\",");
+    println!("  \"note\": \"arkworks ark_pallas CanonicalSerialize fixtures\",");
     println!("  \"fq_modulus_minus_one\": \"{}\",", fq_modulus);
     println!("  \"fr_modulus_minus_one\": \"{}\",", fr_modulus);
     println!("  \"fields\": {{");

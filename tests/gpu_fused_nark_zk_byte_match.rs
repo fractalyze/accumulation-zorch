@@ -1,5 +1,5 @@
 //! End-to-end GPU byte-match for the **fused zk NARK** prove of the recursion
-//! circuit (zorch#326 Slice 3, the half-step #717, make_zk path): the whole zk
+//! circuit (the recursion half-step, make_zk path): the whole zk
 //! Vesta NARK prove run as **one** PJRT call (`fused::prove_nark_zk_fused`) must
 //! serialize byte-for-byte to the golden `Proof` arkworks produces — the same
 //! proof the per-MSM `GpuBackend` byte-match (`recursion_step::vesta::on_gpu::
@@ -8,7 +8,7 @@
 //! (`jfield.sparse_matvec` → `stablehlo.scatter`) instead of eight per-MSM commit
 //! dispatches.
 //!
-//! This is the GPU half of the Slice-3 zk gate: the CPU side
+//! This is the GPU half of the half-step zk gate: the CPU side
 //! (`recursion_nark_zk_test.py`) already byte-matches the same golden, so a match
 //! here proves the on-device scatter + the in-trace gamma sponge (the unforked
 //! `Sponge::new()` the standalone half-step passes) are correct on the GPU plugin,
@@ -94,7 +94,7 @@ fn gpu_fused_nark_zk_byte_match() {
     let mlirbc = std::fs::read(&mlirbc_path).expect("read nark_zk_vesta.mlirbc");
 
     // --- Phase B: one fused PJRT call on the GPU, then byte-match the proof.
-    println!("fused zk Vesta NARK GPU byte-match (zorch#326 slice 3, half-step #717):");
+    println!("fused zk Vesta NARK GPU byte-match (recursion half-step):");
     let got = fused::prove_nark_zk_fused::<Vesta>(&mlirbc, &bases_h);
     assert_eq!(
         to_hex(&got),

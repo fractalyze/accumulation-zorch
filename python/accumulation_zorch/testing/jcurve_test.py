@@ -1,14 +1,14 @@
 """Phase-1 slice-1 tracer: a single jit-able Pedersen commitment byte-matches
 arkworks.
 
-De-risks the whole #314 (jit/GPU-exportable port) premise in one minimal path:
+De-risks the whole jit/GPU-exportable port premise in one minimal path:
 the first-round commitment `comm_a = commit(M·z)` is computed by an
 `@jax.jit` function that does the `M·z` field reduction in jax (a dense Fr
 matmul) and the commitment via `lax.msm` — no `zk_dtypes` numpy field/EC
 arithmetic on the prove path — and must reproduce the byte-exact `comm_a` the
 CPU port (`nark_test`) already pins to arkworks (`nark_fixtures.json`).
 
-If this can't be made jit-able / byte-exact on CPU, the #314 plan stops here.
+If this can't be made jit-able / byte-exact on CPU, the port stops here.
 
 Run (from the repo's `python/` dir, in the accumulation-zorch venv):
 

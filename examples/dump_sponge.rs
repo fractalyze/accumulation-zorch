@@ -1,4 +1,4 @@
-//! NARK/AS Poseidon Fiat-Shamir sponge fixtures for the jax port (zorch#303),
+//! NARK/AS Poseidon Fiat-Shamir sponge fixtures for the jax port,
 //! over either Pasta cycle curve (Pallas or Vesta).
 //!
 //! Emits the default ark-sponge `PoseidonSponge<CF>` round constants (the 117
@@ -154,7 +154,7 @@ where
 
     println!("{{");
     println!(
-        "  \"note\": \"ark-sponge PoseidonSponge<{} base field> default-config fixtures (zorch#303 slice 2)\",",
+        "  \"note\": \"ark-sponge PoseidonSponge<{} base field> default-config fixtures\",",
         curve
     );
     println!("  \"curve\": \"{}\",", curve);
