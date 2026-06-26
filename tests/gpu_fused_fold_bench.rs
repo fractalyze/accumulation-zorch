@@ -2,7 +2,7 @@
 //! informational acceptance item): compile the fold core once, then time many warm
 //! `run_fold_fused` calls — the steady-state cost of one fused PJRT fold dispatch
 //! at recursion scale (~77.5K constraints, 2¹⁷-MSM class), excluding the one-time
-//! compile. Pairs with the arkworks `CpuBackend` fold-prove --release timing
+//! compile. Pairs with the arkworks fold-prove --release timing
 //! (`recursion_step` `vesta::arkworks_fold_timing`) for the GPU-vs-arkworks
 //! comparison.
 //!

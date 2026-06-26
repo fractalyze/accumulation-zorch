@@ -30,7 +30,7 @@ use ark_relations::r1cs::{
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_sponge::Absorbable;
 
-use accumulation_zorch::r1cs_nark_as::r1cs_nark::R1CSNark;
+use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark;
 
 /// `ConstraintF<G>` (the sponge / constraint field), re-derived: it is
 /// `pub(crate)` upstream. For the Pasta curves the base field is already prime,

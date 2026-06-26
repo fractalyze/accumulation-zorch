@@ -17,8 +17,8 @@ use ark_poly_commit::trivial_pc::PedersenCommitment;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 
-use accumulation_zorch::hp_as::{ASForHadamardProducts, InputInstance, InputWitness, InputWitnessRandomness};
-use accumulation_zorch::{AccumulationScheme, Accumulator, Input, MakeZK};
+use ark_accumulation::hp_as::{ASForHadamardProducts, InputInstance, InputWitness, InputWitnessRandomness};
+use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
 
 type CF = ark_pallas::Fq;
 type Sponge = ark_sponge::poseidon::PoseidonSponge<CF>;

@@ -1,6 +1,6 @@
 # accumulation-zorch
 
-A GPU accumulation prover over the Pasta curve. A faithful copy of the arkworks
+A GPU accumulation prover over the Pasta curve. The arkworks
 [`ark-accumulation`](https://github.com/arkworks-rs/accumulation) native prove path
 (`r1cs_nark_as` + `hp_as`), with the whole prover authored in **Python/JAX** and
 compiled to a **single fused GPU kernel** — byte-identical to the reference
@@ -15,11 +15,12 @@ consumer that feeds the committer key + assignment/randomness and re-serializes 
 output. The assignment + all replayed randomness are runtime PJRT inputs, so one
 exported core proves any statement (not a fixture replayer).
 
-The CPU **faithful copy** of arkworks (`src/{r1cs_nark_as,hp_as}`) is the in-tree
-byte-match oracle + fixture generator. Everything is gated byte-for-byte against the
-unmodified arkworks prover: `src/oracle.rs` pins the CPU faithful copy to arkworks
-(`../accumulation`), and the fused GPU gates byte-match the arkworks-derived golden
-fixtures.
+The byte-match oracle is the **pristine, unmodified arkworks prover** itself (the
+`ark-accumulation` dev-dependency at `../accumulation`); the repo never
+re-implements it. The fixture generators (`examples/dump_*.rs` and
+`tests/recursion_step.rs`) drive arkworks to emit the golden
+`(acc.instance ‖ acc.witness ‖ proof)` bytes, and the jax CPU port + the fused GPU
+core are each gated byte-for-byte against those golden bytes.
 
 ## Setup
 
@@ -37,16 +38,19 @@ cd accumulation-zorch
 (`ark-sponge` / `ark-poly-commit`, on their `accumulation-experimental` branches) are
 fetched by Cargo automatically — only `accumulation` is a manual clone.
 
-There are two reproduction tiers: the **CPU correctness gate is fully external**
-(Rust only); the **GPU / jax path** needs the Fractalyze zkx Pasta toolchain.
+Reproduction has two layers: a **Rust toolchain** regenerates the golden fixtures
+by driving the pristine arkworks prover directly (no GPU, no Python); the **jax /
+GPU byte-match** then checks the port against them and needs the Fractalyze zkx
+Pasta toolchain.
 
-### CPU tier (Rust only — no GPU, no Python)
+### Regenerate the golden fixtures (Rust only — no GPU, no Python)
 
-Just a Rust toolchain. The `src/oracle.rs` gate byte-matches the in-tree faithful
-copy against the pristine `../accumulation`, so that test compiles `../accumulation`
-— which needs `RUSTFLAGS="--cap-lints=warn"` (arkworks' `#![deny(warnings)]` breaks
-modern rustc). The command is under [Reproduce](#reproduce); plain `cargo build` /
-`cargo test` (the crate's own suite) need no extra flags.
+Just a Rust toolchain. The fixture generators (`examples/dump_*.rs`,
+`tests/recursion_step.rs`) drive the unmodified `../accumulation` prover, so they
+compile `../accumulation` — which needs `RUSTFLAGS="--cap-lints=warn"` (arkworks'
+`#![deny(warnings)]` breaks modern rustc). The commands are under
+[Reproduce](#reproduce); plain `cargo build` / `cargo test` (the crate's own suite)
+need no extra flags.
 
 ### GPU + jax tier (the zkx Pasta toolchain)
 
@@ -80,15 +84,15 @@ export ZKX_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/jax_plugins/cuda/
 
 ## Reproduce
 
-### CPU byte-identical-to-arkworks oracle (fully external)
+### Regenerate the golden fixtures from arkworks (fully external)
 
-The decisive correctness gate — the faithful-copy prover ≡ unmodified arkworks over
-serialized bytes, no GPU/Python:
+The golden `(acc.instance ‖ acc.witness ‖ proof)` bytes the byte-match tests check
+against are produced by driving the **unmodified** arkworks prover — no GPU, no
+Python (the generators compile `../accumulation`, hence `--cap-lints=warn`):
 
 ```bash
-RUSTFLAGS="--cap-lints=warn" cargo test --lib oracle -- --nocapture
-# oracle::prove_byte_identical_to_arkworks_no_zk ... ok
-# oracle::prove_byte_identical_to_arkworks_zk    ... ok
+RUSTFLAGS="--cap-lints=warn" cargo run --example dump_as_zk > python/testdata/as_zk_fixtures.json
+# regenerates the committed golden; a clean `git diff` confirms it still matches arkworks
 ```
 
 ### Python jax prove byte-match (CPU)

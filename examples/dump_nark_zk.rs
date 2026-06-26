@@ -29,8 +29,8 @@ use ark_std::rand::{rngs::StdRng, SeedableRng};
 use blake2::VarBlake2b;
 use digest::{Update, VariableOutput};
 
-use accumulation_zorch::r1cs_nark_as::r1cs_nark::R1CSNark;
-use accumulation_zorch::r1cs_nark_as::ASForR1CSNark;
+use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark;
+use ark_accumulation::r1cs_nark_as::ASForR1CSNark;
 
 type Sponge = ark_sponge::poseidon::PoseidonSponge<ark_pallas::Fq>;
 
