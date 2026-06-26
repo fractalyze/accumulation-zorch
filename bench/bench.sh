@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+#
+# Reproduce the README "Benchmark" tables in one command: run the fused GPU
+# prover and the arkworks CPU prover at matched sizes and print the comparison
+# as a Markdown table — exactly the tables in README.md.
+#
+#   bench/bench.sh prove   # the "Single AS prove" sweep (sizes from PROVE_SIZES)
+#   bench/bench.sh fold    # the "Recursion IVC fold" point (one recursion-scale row)
+#   bench/bench.sh all     # both (default)
+#
+# Live progress streams to stderr; the finished table(s) print to stdout only
+# once every point is measured — so `bench/bench.sh prove >table.md` captures a
+# clean table and nothing else.
+#
+# Prereqs are the README "GPU + jax tier": an **idle** NVIDIA GPU, plus the two
+# env vars the README Setup already exports —
+#
+#   ZKX_VENV_PYTHON   the zkx Pasta jax venv interpreter (e.g. $PWD/.venv/bin/python)
+#   ZKX_PJRT_PLUGIN   path to pjrt_c_api_gpu_plugin.so
+#
+# Optional knobs:
+#   PROVE_SIZES   space-separated num_constraints for `prove` (default "4096 16384 32768")
+#   ARTIFACTS_DIR scratch dir for fixtures, .mlirbc, and per-step logs
+#                 (default: $SCRATCH_DIR, else a mktemp dir)
+set -euo pipefail
+
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mode="${1:-all}"
+
+: "${ZKX_VENV_PYTHON:?set ZKX_VENV_PYTHON to the zkx Pasta venv python (see README Setup)}"
+: "${ZKX_PJRT_PLUGIN:?set ZKX_PJRT_PLUGIN to pjrt_c_api_gpu_plugin.so (see README Setup)}"
+[ -x "$ZKX_VENV_PYTHON" ] || { echo "ZKX_VENV_PYTHON not executable: $ZKX_VENV_PYTHON" >&2; exit 1; }
+[ -f "$ZKX_PJRT_PLUGIN" ] || { echo "ZKX_PJRT_PLUGIN not found: $ZKX_PJRT_PLUGIN" >&2; exit 1; }
+
+ART="${ARTIFACTS_DIR:-${SCRATCH_DIR:-$(mktemp -d)}}"
+mkdir -p "$ART"
+export PYTHONPATH=python
+
+# All progress goes to stderr so stdout stays a clean table.
+say()  { printf '%s\n' "$*" >&2; }
+step() { printf '%s' "$*" >&2; }
+
+# A Rust `Duration` Debug token ("1.05s" / "651.2ms"), or a bare number already
+# in ms, -> milliseconds. Uses the venv python (required above), stdlib only.
+to_ms() {
+  "$ZKX_VENV_PYTHON" - "$1" <<'PY'
+import re, sys
+s = sys.argv[1].strip().replace(" ", "")
+m = re.match(r"^([0-9.]+)(ns|µs|us|ms|s|m)?$", s)
+if not m:
+    print("nan"); raise SystemExit
+v, u = float(m.group(1)), (m.group(2) or "ms")
+print("%.1f" % (v * {"ns": 1e-6, "µs": 1e-3, "us": 1e-3, "ms": 1.0, "s": 1e3, "m": 6e4}[u]))
+PY
+}
+
+speedup() { awk -v c="$1" -v g="$2" 'BEGIN { printf "%.2f", c / g }'; }
+
+# label  cpu_ms  gpu_ms  ->  one Markdown row; speedup bold when the GPU wins.
+row() {
+  local sp cell; sp=$(speedup "$2" "$3"); cell="${sp}×"
+  awk -v s="$sp" 'BEGIN { exit !(s + 0 > 1) }' && cell="**${sp}×**"
+  printf '| %s | %.0f ms | %.0f ms | %s |\n' "$1" "$2" "$3" "$cell"
+}
+
+require() { [ -n "$2" ] || { say "  ✗ could not parse $1 — see logs in $ART"; exit 1; }; }
+
+# Builds the "Single AS prove" table on stdout; progress on stderr.
+bench_prove() {
+  local sizes; read -r -a sizes <<<"${PROVE_SIZES:-4096 16384 32768}"
+  local n fix derr cpu_tok gpu_tok cpu_ms gpu_ms
+  say "Single AS prove — sweeping n = ${sizes[*]} (warm GPU; a few minutes)…"
+  echo "## Single AS prove"
+  echo
+  echo '|     `n` | CPU arkworks (release) | GPU fused (1 PJRT call) | speedup |'
+  echo '| ------: | ---------------------: | ----------------------: | ------: |'
+  for n in "${sizes[@]}"; do
+    fix="$ART/fix_$n.json"; derr="$ART/dump_$n.err"
+    printf '  n=%-6s ' "$n" >&2
+    step "CPU prove… "
+    AS_ZK_NUM_CONSTRAINTS="$n" cargo run --quiet --release --example dump_as_zk >"$fix" 2>"$derr"
+    cpu_tok=$(sed -n 's/.*seed 0 .*= \(.*\) (CPU arkworks).*/\1/p' "$derr" | head -1)
+    require "CPU timing (n=$n)" "$cpu_tok"
+    step "lower… "
+    AS_ZK_FIXTURE="$fix" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
+      "$ZKX_VENV_PYTHON" export/export_prove.py >"$ART/export_$n.log" 2>&1
+    step "GPU… "
+    gpu_tok=$(AS_ZK_FIXTURE="$fix" FUSED_MLIRBC="$ART/prove_zk_general.mlirbc" \
+      ZKX_PJRT_PLUGIN="$ZKX_PJRT_PLUGIN" \
+      cargo test --quiet --release --features gpu --test gpu_fused_bench -- --ignored --nocapture \
+      2>"$ART/gpu_$n.log" \
+      | sed -n 's/.*median=\([^ ]*\) over.*/\1/p' | head -1)
+    require "GPU timing (n=$n)" "$gpu_tok"
+    cpu_ms=$(to_ms "$cpu_tok"); gpu_ms=$(to_ms "$gpu_tok")
+    say "$(printf '→ CPU %.0f ms  GPU %.0f ms  %s×' "$cpu_ms" "$gpu_ms" "$(speedup "$cpu_ms" "$gpu_ms")")"
+    row "$(printf '%7s' "$n")" "$cpu_ms" "$gpu_ms"
+  done
+}
+
+# Builds the "Recursion IVC fold" table on stdout; progress on stderr.
+bench_fold() {
+  local feats="recursion,gpu" cpu_ms gpu_ms
+  say "Recursion IVC fold — one recursion-scale point (warm GPU)…"
+  step "  arkworks CPU fold… "
+  cpu_ms=$(cargo test --quiet --release --features "$feats" --test recursion_step \
+    vesta::arkworks_fold_timing -- --ignored --nocapture 2>"$ART/fold_cpu.log" \
+    | sed -n 's/.*median \([0-9.]*\) ms over.*/\1/p' | head -1)
+  require "CPU fold timing" "$cpu_ms"
+  step "fixture… "
+  ACCUMULATION_ZORCH_ARTIFACTS="$ART" cargo test --quiet --release --features "$feats" \
+    --test recursion_step vesta::dump::dump_recursion_fold_zk -- --nocapture >"$ART/fold_dump.log" 2>&1
+  step "lower… "
+  ACCUMULATION_ZORCH_ARTIFACTS="$ART" PROVE_CURVE=vesta JAX_PLATFORMS=cpu \
+    "$ZKX_VENV_PYTHON" export/export_fold_zk.py >"$ART/fold_export.log" 2>&1
+  step "GPU fold… "
+  gpu_ms=$(ZKX_PJRT_PLUGIN="$ZKX_PJRT_PLUGIN" ACCUMULATION_ZORCH_ARTIFACTS="$ART" \
+    cargo test --quiet --release --features gpu --test gpu_fused_fold_bench -- --ignored --nocapture \
+    2>"$ART/fold_gpu.log" \
+    | sed -n 's/.*warm run median \([0-9.]*\) ms.*/\1/p' | head -1)
+  require "GPU fold timing" "$gpu_ms"
+  say "$(printf '→ CPU %.0f ms  GPU %.0f ms  %s×' "$cpu_ms" "$gpu_ms" "$(speedup "$cpu_ms" "$gpu_ms")")"
+  echo "## Recursion IVC fold (the accumulation step)"
+  echo
+  echo '| operation   | CPU arkworks (release) | GPU fused (1 PJRT call, warm) | speedup |'
+  echo '| ----------- | ---------------------: | ----------------------------: | ------: |'
+  row "zk IVC fold" "$cpu_ms" "$gpu_ms"
+}
+
+# Measure first (progress to stderr, tables captured), then print the finished
+# table(s) to stdout in one clean block.
+prove_out=""; fold_out=""
+case "$mode" in
+  prove) prove_out=$(bench_prove) ;;
+  fold)  fold_out=$(bench_fold) ;;
+  all)   prove_out=$(bench_prove); fold_out=$(bench_fold) ;;
+  *) echo "usage: bench/bench.sh [prove|fold|all]" >&2; exit 2 ;;
+esac
+
+say ""
+[ -n "$prove_out" ] && { printf '%s\n' "$prove_out"; [ -n "$fold_out" ] && echo; }
+[ -n "$fold_out" ] && printf '%s\n' "$fold_out"
+say "(artifacts + per-step logs in: $ART)"

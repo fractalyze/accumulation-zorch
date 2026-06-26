@@ -1,0 +1,32 @@
+fn main() {
+    // Vendored PJRT C API headers (self-contained, see third_party/pjrt). The header
+    // `#include`s the bazel-generated `zkx/pjrt/c/pjrt_c_api_data_types.h`, also vendored;
+    // the include root is `third_party/pjrt` so that relative include resolves.
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let header = std::env::var("ZKX_PJRT_HEADER")
+        .unwrap_or_else(|_| format!("{manifest}/third_party/pjrt/zkx/pjrt/c/pjrt_c_api.h"));
+    let inc = std::env::var("ZKX_PJRT_INCLUDE")
+        .unwrap_or_else(|_| format!("{manifest}/third_party/pjrt"));
+    println!("cargo:rerun-if-env-changed=ZKX_PJRT_HEADER");
+    println!("cargo:rerun-if-changed={header}");
+    // pjrt_c_api.h `#include`s this generated data-types header; track it too so
+    // edits to the buffer-type enum (e.g. adding Pasta curves) re-run bindgen.
+    println!("cargo:rerun-if-changed={manifest}/third_party/pjrt/zkx/pjrt/c/pjrt_c_api_data_types.h");
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    bindgen::Builder::default()
+        .header(&header)
+        .clang_arg(format!("-I{inc}"))
+        // pjrt_c_api.h uses C++ constructs (reinterpret_cast in PJRT_STRUCT_SIZE).
+        .clang_arg("-x")
+        .clang_arg("c++")
+        .clang_arg("-std=c++17")
+        .allowlist_type("PJRT_.*")
+        .allowlist_function("GetPjrtApi")
+        .allowlist_var("PJRT_.*")
+        .default_enum_style(bindgen::EnumVariation::Consts)
+        .derive_default(true)
+        .generate()
+        .expect("bindgen failed")
+        .write_to_file(out.join("pjrt_sys.rs"))
+        .expect("write bindings");
+}

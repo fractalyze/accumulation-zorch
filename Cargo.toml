@@ -1,0 +1,90 @@
+[package]
+name = "accumulation-zorch"
+version = "0.1.0"
+edition = "2018"
+description = "GPU accumulation prover over the Pasta cycle: a faithful copy of the arkworks ark-accumulation native prove path (r1cs_nark_as + hp_as) with each Pedersen commitment (MSM) routed behind a swappable MsmBackend."
+license = "MIT OR Apache-2.0"
+
+# The git deps track the same `accumulation-experimental` branch ark-accumulation
+# uses, so Cargo unifies them into a single version shared with the pristine
+# oracle (a `rev=` pin here would fork them into two same-source-but-distinct
+# types, breaking the byte-identical cross-crate test). The resolved commits are
+# pinned in Cargo.lock.
+
+[dependencies]
+ark-ec = { version = "^0.2.0", default-features = false }
+# The Pasta cycle curves for the GPU MSM boundary (G1 only — Pasta is
+# pairing-free). Normal deps (not just dev) so `wire`/`gpu` can be non-test code
+# the GPU backend depends on. Same arkworks 0.2 line so the shared `ark-*` deps
+# stay unified with the oracle.
+ark-pallas = { version = "^0.2.0", features = ["curve"] }
+ark-vesta = { version = "^0.2.0" }
+ark-ff = { version = "^0.2.0", default-features = false }
+ark-poly = { version = "^0.2.0", default-features = false }
+ark-relations = { version = "^0.2.0", default-features = false }
+ark-serialize = { version = "^0.2.0", default-features = false, features = ["derive"] }
+ark-std = { version = "^0.2.0", default-features = false }
+ark-sponge = { git = "https://github.com/arkworks-rs/sponge/", branch = "accumulation-experimental", default-features = false }
+ark-poly-commit = { git = "https://github.com/arkworks-rs/poly-commit", branch = "accumulation-experimental", default-features = false }
+blake2 = { version = "0.9.1", default-features = false }
+digest = { version = "0.9.0", default-features = false }
+derivative = { version = "2.1.1", default-features = false, features = ["use_core"] }
+tracing = { version = "0.1", default-features = false, features = ["attributes"] }
+# GPU MSM backend FFI, vendored from bellman-zorch and extended with the Pasta
+# (Pallas G1) buffer types. Optional + behind the `gpu` feature: the byte bridge
+# (`wire`) and the CPU prover build without it; only `GpuBackend` (plus a runtime
+# zkx_gpu plugin) needs it.
+zkx-pjrt = { path = "crates/zkx-pjrt", optional = true }
+# In-circuit verifier gadget stack for the recursion step (zkx#715 slice 2),
+# behind the `recursion` feature. Same arkworks 0.2 line / nonnative rev as the
+# oracle so the gadget types stay unified.
+ark-r1cs-std = { version = "^0.2.0", default-features = false, optional = true }
+ark-nonnative-field = { git = "https://github.com/arkworks-rs/nonnative", rev = "d57dd4f83f7363e6310526a0a2533e4fc310564b", default-features = false, optional = true }
+
+[dev-dependencies]
+# The pristine arkworks prover, used as the byte-identical oracle in tests; the
+# `r1cs` feature also exposes its in-circuit verifier gadget, reused (not copied)
+# by the recursion step.
+ark-accumulation = { path = "../accumulation", features = ["r1cs-nark-as", "r1cs"] }
+# Regenerate ark-sponge's default Poseidon round constants in the Python-port
+# fixture dumper (`examples/dump_sponge.rs`): the ARK are drawn from
+# `ChaChaRng::seed_from_u64(123456789)` exactly as `PoseidonSponge::new()` does.
+# Versions match ark-std 0.2's rand 0.7.3 ecosystem (see Cargo.lock).
+rand_chacha = "0.2.2"
+rand_core = "0.5.1"
+# Reads the `python/testdata/*.json` byte-match fixtures in the fused-core GPU
+# consumer test (`tests/gpu_fused_prove_byte_match.rs`).
+serde_json = "1"
+
+[features]
+default = ["std"]
+std = [
+    "ark-ec/std", "ark-ff/std", "ark-poly/std", "ark-poly-commit/std",
+    "ark-relations/std", "ark-serialize/std", "ark-sponge/std", "ark-std/std",
+]
+parallel = [
+    "std", "ark-ec/parallel", "ark-ff/parallel", "ark-poly/parallel",
+    "ark-poly-commit/parallel", "ark-std/parallel", "rayon",
+]
+# Enables `GpuBackend` (the Pasta GPU MSM prover). At runtime it additionally
+# needs a zkx_gpu plugin carrying the Pasta MSM (`ZKX_PJRT_PLUGIN`) and an
+# exported `lax.msm` core; compiling the backend needs neither.
+gpu = ["dep:zkx-pjrt"]
+# Enables the Pasta-cycle recursion step (zkx#715 slice 2): the reused arkworks
+# in-circuit verifier gadget + its r1cs-std/nonnative/sponge stack. Kept off the
+# default and `gpu` builds so the CPU prover and GPU backend stay lean.
+recursion = [
+    "std",
+    "ark-pallas/r1cs",
+    "ark-vesta/r1cs",
+    "ark-sponge/r1cs",
+    "dep:ark-r1cs-std", "ark-r1cs-std/std",
+    "dep:ark-nonnative-field", "ark-nonnative-field/std",
+]
+
+[dependencies.rayon]
+version = "1"
+optional = true
+
+[workspace]
+members = ["crates/zkx-pjrt"]
