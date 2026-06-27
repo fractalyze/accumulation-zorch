@@ -50,6 +50,8 @@ class _Input(NamedTuple):
     l_vec: list
     r_vec: list
     final_comm_key: Any
+    hiding_comm: Any = None
+    rand: int = 0
 
 
 def _parse_input(cv: curve.Curve, d: Any) -> _Input:
@@ -60,6 +62,8 @@ def _parse_input(cv: curve.Curve, d: Any) -> _Input:
         l_vec=[_point(cv, p) for p in d["l_vec"]],
         r_vec=[_point(cv, p) for p in d["r_vec"]],
         final_comm_key=_point(cv, d["final_comm_key"]),
+        hiding_comm=_point(cv, d["hiding_comm"]) if "hiding_comm" in d else None,
+        rand=_fr(d["rand"]) if "rand" in d else 0,
     )
 
 
@@ -98,10 +102,55 @@ def test_as_prove_zk_accumulator_instance_matches_arkworks() -> None:
               f"byte-matches arkworks ({d['num_inputs']} inputs)")
 
 
+def test_decide_zk_size_d_msm_matches_final_comm_key() -> None:
+    """Slice 5d (zk Decide): the decider's size-`d` MSM
+    `final_key = Σ generators_i · compute_coeffs(zk_succinct_check(acc))_i` must
+    equal the (hiding) accumulator's `final_comm_key` — the zk twin of the no-zk
+    decide check, and the fused zk GPU core's target."""
+    for cv, as_fixture, sponge_fixture in _CURVES:
+        params = _params(cv, sponge_fixture)
+        d = json.loads(as_fixture.read_text())
+        generators = [_point(cv, g) for g in d["generators"]]
+        s = _point(cv, d["s"])
+        acc = _parse_input(cv, d["accumulator"])
+
+        final_key = ipa_pc_as.decide_final_key_zk(cv, params, generators, acc, s)
+        got = curve.point_to_bytes(cv, final_key).hex()
+        want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
+        assert got == want, f"[{cv.name}] zk decider size-d MSM != final_comm_key: {got} != {want}"
+        print(f"  [{cv.name}] zk decider size-d MSM (= MSM(generators, h(X) coeffs)) "
+              f"byte-matches the accumulator's final_comm_key")
+
+
+def test_decider_coeffs_fixture_matches_port_zk() -> None:
+    """The fixture's arkworks-golden `decider_coeffs` — the scalar input fed to the
+    Slice-5e fused GPU decider MSM — are exactly the port's
+    `compute_coeffs(zk_succinct_check(accumulator))`, tying the GPU core's runtime
+    input to the byte-matched CPU port."""
+    from accumulation_zorch import ipa_pc
+    for cv, as_fixture, sponge_fixture in _CURVES:
+        params = _params(cv, sponge_fixture)
+        d = json.loads(as_fixture.read_text())
+        s = _point(cv, d["s"])
+        acc = _parse_input(cv, d["accumulator"])
+
+        check_poly = ipa_pc.succinct_check_challenges_zk(
+            cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec,
+            s, acc.hiding_comm, acc.rand)
+        coeffs = ipa_pc.compute_coeffs(cv, check_poly)
+        got = [cv.fr(c).tobytes().hex() for c in coeffs]
+        want = d["decider_coeffs"]
+        assert got == want, f"[{cv.name}] zk decider_coeffs: port != fixture"
+        print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's zk "
+              f"compute_coeffs(succinct_check(acc)) — the fused GPU MSM's scalar input")
+
+
 def main() -> None:
-    print("slice-5b IPA-PC zk accumulation prove (instance) byte-match (Pallas + Vesta):")
+    print("slice-5b/5d IPA-PC zk accumulation prove + decide byte-match (Pallas + Vesta):")
     test_as_prove_zk_accumulator_instance_matches_arkworks()
-    print("ALL SLICE-5b IPA-PC-AS ZK INSTANCE CHECKS PASSED")
+    test_decide_zk_size_d_msm_matches_final_comm_key()
+    test_decider_coeffs_fixture_matches_port_zk()
+    print("ALL SLICE-5b/5d IPA-PC-AS ZK CHECKS PASSED")
 
 
 if __name__ == "__main__":

@@ -108,9 +108,7 @@ where
     format!("[{}]", v.join(","))
 }
 
-/// An `InputInstance` (an input or the new accumulator) as JSON — the no-zk shape;
-/// the accumulator's hiding `ipa_proof.hiding_comm`/`rand` are not read by the
-/// Slice-5b instance check.
+/// A no-zk `InputInstance` (an AS input) as JSON.
 fn instance_json<P: SWModelParameters>(inst: &InputInstance<GroupAffine<P>>) -> String
 where
     P::BaseField: PrimeField,
@@ -124,6 +122,24 @@ where
         points_json(&inst.ipa_proof.r_vec),
         point_json(&inst.ipa_proof.final_comm_key),
         fe_hex(&inst.ipa_proof.c),
+    )
+}
+
+/// The new accumulator (zk) as JSON: the `instance_json` fields PLUS its hiding
+/// IPA opening's `hiding_comm` / `rand` — the two extra inputs the port's zk
+/// succinct check (and thus the zk decider MSM) reads off the accumulator.
+fn accumulator_zk_json<P: SWModelParameters>(inst: &InputInstance<GroupAffine<P>>) -> String
+where
+    P::BaseField: PrimeField,
+{
+    let base = instance_json(inst);
+    let hiding_comm = inst.ipa_proof.hiding_comm.expect("zk accumulator has hiding_comm");
+    let rand = inst.ipa_proof.rand.expect("zk accumulator has rand");
+    format!(
+        "{},\"hiding_comm\":{},\"rand\":\"{}\"}}",
+        &base[..base.len() - 1], // drop the closing brace to append the hiding fields
+        point_json(&hiding_comm),
+        fe_hex(&rand),
     )
 }
 
@@ -203,6 +219,22 @@ where
     let rlp_commitment = GroupAffine::<P>::deserialize(&mut cur).unwrap();
     let commitment_randomness = P::ScalarField::deserialize(&mut cur).unwrap();
 
+    // The zk decider's size-`d` MSM scalars: the dense `compute_coeffs` of the
+    // accumulator's (hiding) succinct check — the decider accepts iff
+    // `MSM(ck.comm_key, decider_coeffs) == accumulator.final_comm_key`. These are
+    // the fused zk GPU core's scalar input (Slice 5e).
+    let acc_inst = &accumulator.instance;
+    let acc_check_poly = IpaPC::<P>::succinct_check(
+        svk,
+        vec![&acc_inst.ipa_commitment],
+        acc_inst.point,
+        vec![acc_inst.evaluation],
+        &acc_inst.ipa_proof,
+        &|_| P::ScalarField::one(),
+    )
+    .expect("accumulator hiding opening must verify");
+    let decider_coeffs = acc_check_poly.compute_coeffs();
+
     let inputs_json: Vec<String> = inputs.iter().map(|inp| instance_json(&inp.instance)).collect();
 
     println!("{{");
@@ -217,7 +249,8 @@ where
     println!("  \"random_linear_polynomial_commitment\": {},", point_json(&rlp_commitment));
     println!("  \"commitment_randomness\": \"{}\",", fe_hex(&commitment_randomness));
     println!("  \"inputs\": [{}],", inputs_json.join(","));
-    println!("  \"accumulator\": {}", instance_json(&accumulator.instance));
+    println!("  \"accumulator\": {},", accumulator_zk_json(&accumulator.instance));
+    println!("  \"decider_coeffs\": {}", fr_list_json(&decider_coeffs));
     println!("}}");
 }
 

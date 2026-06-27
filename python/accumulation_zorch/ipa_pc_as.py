@@ -285,6 +285,23 @@ def decide_final_key(cv: Curve, params, generators: list[np.ndarray], inst: Any)
     return curve.pedersen_commit(cv, generators, coeffs)
 
 
+def decide_final_key_zk(cv: Curve, params, generators: list[np.ndarray], inst: Any,
+                        s: np.ndarray) -> np.ndarray:  # type: ignore[no-untyped-def]
+    """The zk AS decider's size-`d` MSM (`IpaPC::check` on the hiding accumulator):
+    run the **zk** succinct check on the accumulator (hiding-folded seed using its
+    `hiding_comm` / `rand` and the verifier key's hiding generator `s`), densely
+    expand the check polynomial, and recompute
+    `final_key = Σ generators_i · compute_coeffs(check_poly)_i`. The decider accepts
+    iff this equals the accumulator's `final_comm_key`. Same size-`d` MSM as the
+    no-zk decider (:func:`decide_final_key`) — only the succinct check differs — so
+    it is the fused zk GPU core's target (Slice 5e)."""
+    check_poly = ipa_pc.succinct_check_challenges_zk(
+        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec,
+        s, inst.hiding_comm, inst.rand)
+    coeffs = ipa_pc.compute_coeffs(cv, check_poly)
+    return curve.pedersen_commit(cv, generators, coeffs)
+
+
 def succinct_check_input(cv: Curve, params, inst: Any) -> SuccinctCheck:
     """Run the Slice-1 succinct check on one input instance (a dict-like with
     `commitment`, `point`, `evaluation`, `l_vec`, `r_vec`, `final_comm_key`) and
