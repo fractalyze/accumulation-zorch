@@ -542,6 +542,47 @@ where
     proof
 }
 
+/// Run the fused **IPA-PC accumulation decider** core (the size-`d` MSM) once on
+/// the GPU and return the resulting affine point. The decider's only GPU-value
+/// work is `final_key = Σ generators_i · coeffs_i` — `coeffs` the dense
+/// `compute_coeffs(succinct_check(accumulator))` of the accumulator's check
+/// polynomial, `generators` the IPA committer key — and the decider accepts iff
+/// this equals `accumulator.final_comm_key` (`ipa_pc_as.decide_final_key` /
+/// `IpaPC::check`'s final equality). Both the check-poly `coeffs` (scalar input)
+/// and the committer-key `generators` (bases) are runtime inputs, so one lowered
+/// `ipa_decider_msm_<curve>.mlirbc` decides any accumulator at that degree. One
+/// PJRT call replaces the per-MSM `GpuBackend` decider dispatch; byte-identical to
+/// the host `ipa_pc_as.decide_final_key` and (the byte-match gate) to the
+/// accumulator's arkworks `final_comm_key`.
+pub fn decide_ipa_msm_fused<C: PastaCurve>(
+    mlirbc: &[u8],
+    coeffs: &[Fr<C>],
+    generators: &[Affine<C>],
+) -> Affine<C>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
+    const DECIDER_OUTPUTS: usize = 1; // the single folded `final_key` point.
+    let exe = load_fused(mlirbc);
+    let coeffs_bytes = wire::scalars_to_bytes::<C::Params>(coeffs);
+    let gens_bytes = wire::g1_array_to_bytes(generators);
+    let inputs = [
+        (coeffs_bytes.as_slice(), vec![coeffs.len() as i64], C::SF),
+        (gens_bytes.as_slice(), vec![generators.len() as i64], C::G1_AFFINE),
+    ];
+    // Safety: `exe` compiled by this same (leaked) client; the two rank-1 inputs
+    // (`coeffs` fr scalars, `generators` G1 affine) match the decider core's
+    // `_core(scalars, bases)` argument order (`export/export_ipa.py`).
+    let out = unsafe { crate::gpu::session().run(exe, &inputs, DECIDER_OUTPUTS) };
+    assert_eq!(
+        out.len(),
+        DECIDER_OUTPUTS,
+        "decider MSM core returned {} leaves, expected {DECIDER_OUTPUTS}",
+        out.len()
+    );
+    parse_point::<C>(&out[0])
+}
+
 /// Serialize each element of `items` individually (struct fields, no `Vec`
 /// length prefix).
 fn serialize_each<T: CanonicalSerialize>(items: &[T], out: &mut Vec<u8>) {

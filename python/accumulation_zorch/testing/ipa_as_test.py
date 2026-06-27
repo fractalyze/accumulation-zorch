@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from accumulation_zorch import curve, ipa_pc_as, sponge
+from accumulation_zorch import curve, ipa_pc, ipa_pc_as, sponge
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
@@ -149,12 +149,35 @@ def test_decide_no_zk_size_d_msm_matches_final_comm_key() -> None:
               f"byte-matches the accumulator's final_comm_key")
 
 
+def test_decider_coeffs_fixture_matches_port() -> None:
+    """The fixture's arkworks-golden `decider_coeffs` — the scalar input fed to the
+    Slice-4 fused GPU decider MSM — are exactly the jax port's
+    `compute_coeffs(succinct_check(accumulator))`. This ties the GPU core's runtime
+    scalar input to the byte-matched CPU port, so the GPU byte-match
+    (`MSM(generators, decider_coeffs) == final_comm_key`) exercises the port's
+    coefficients, not just arkworks'."""
+    for cv, as_fixture, sponge_fixture in _CURVES:
+        params = _params(cv, sponge_fixture)
+        d = json.loads(as_fixture.read_text())
+        acc = _parse_input(cv, d["accumulator"])
+
+        check_poly = ipa_pc.succinct_check_challenges(
+            cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec)
+        coeffs = ipa_pc.compute_coeffs(cv, check_poly)
+        got = [cv.fr(c).tobytes().hex() for c in coeffs]
+        want = d["decider_coeffs"]
+        assert got == want, f"[{cv.name}] decider_coeffs: port {got} != fixture {want}"
+        print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's "
+              f"compute_coeffs(succinct_check(acc)) — the fused GPU MSM's scalar input")
+
+
 def main() -> None:
-    print("slice-2/3 IPA-PC accumulation prove + decide byte-match (Pallas + Vesta):")
+    print("slice-2/3/4 IPA-PC accumulation prove + decide byte-match (Pallas + Vesta):")
     test_as_prove_no_zk_accumulator_instance_matches_arkworks()
     test_as_prove_no_zk_full_accumulator_matches_arkworks()
     test_decide_no_zk_size_d_msm_matches_final_comm_key()
-    print("ALL SLICE-2/3 IPA-PC-AS CHECKS PASSED")
+    test_decider_coeffs_fixture_matches_port()
+    print("ALL SLICE-2/3/4 IPA-PC-AS CHECKS PASSED")
 
 
 if __name__ == "__main__":

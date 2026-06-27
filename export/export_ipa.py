@@ -1,0 +1,129 @@
+"""Export the IPA-PC accumulation decider's size-`d` MSM to one StableHLO
+``.mlirbc`` — the Slice-4 fused GPU core, à la ``export_prove.py`` /
+bellman-zorch's exporter.
+
+The IPA-AS decider's only GPU-value work is the size-`d` MSM
+``final_key = Σ generators_i · coeffs_i``, where ``coeffs`` is the dense
+``compute_coeffs(succinct_check(accumulator))`` of the accumulator's check
+polynomial; the decider accepts iff ``final_key == accumulator.final_comm_key``
+(``ipa_pc_as.decide_final_key`` / ``IpaPC::check``'s final equality). Per the
+issue's profile note the heavy MSM lives here (not in the field-heavy prover), so
+this lowers exactly that one MSM (``jcurve.msm`` / ``lax.msm``) to a single PJRT
+call: the committer-key ``generators`` AND the check-poly ``coeffs`` are runtime
+inputs, so one general core decides any accumulator (the fixture supplies only the
+runtime shapes — degree-`d` for both Pasta curves here).
+
+The challenge-derivation + ``compute_coeffs`` that produce ``coeffs`` stay
+host-side (cheap field/sponge work, already byte-matched on CPU in slices 1-3);
+the Rust consumer feeds the arkworks-golden ``decider_coeffs`` from the fixture
+(tied to the jax port by ``testing/ipa_as_test.py``). The MSM op dispatches on the
+bases' element type, so each curve lowers a distinct module — both are written by
+default.
+
+Run with the Pasta jax-fork venv — CPU is enough, lowering needs no GPU:
+
+    JAX_PLATFORMS=cpu PYTHONPATH=python \\
+      <venv>/bin/python export/export_ipa.py [pallas|vesta]
+"""
+import io
+import json
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import jax.numpy as jnp
+import numpy as np
+
+from accumulation_zorch import curve, jcurve
+from accumulation_zorch.curve import Curve
+
+_TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
+_FIXTURE = {
+    "pallas": _TESTDATA / "ipa_as_fixtures.json",
+    "vesta": _TESTDATA / "ipa_as_vesta_fixtures.json",
+}
+
+# Artifacts live next to the crate so the Rust consumer can find them via a stable
+# default; override with the env var for out-of-tree builds.
+ART = Path(
+    os.environ.get(
+        "ACCUMULATION_ZORCH_ARTIFACTS",
+        str(Path(__file__).resolve().parent.parent / "artifacts"),
+    )
+)
+
+
+def _fr(hex_le: str) -> int:
+    return int.from_bytes(bytes.fromhex(hex_le), "little")
+
+
+def _point(cv: Curve, p: Any) -> Any:
+    return cv.g1((_fr(p["x_le_hex"]), _fr(p["y_le_hex"])))
+
+
+def write_bytecode(lowered: Any, path: Path) -> int:
+    """Serialize a lowered module to StableHLO bytecode (the format the plugin's
+    ``PJRT_Client_Compile`` consumes). Mirrors ``export_prove.write_bytecode``."""
+    m = lowered.compiler_ir(dialect="stablehlo")
+    try:
+        from jax._src.interpreters import mlir as _jmlir
+
+        data = _jmlir.module_to_bytecode(m)
+    except Exception:
+        buf = io.BytesIO()
+        m.operation.write_bytecode(buf)
+        data = buf.getvalue()
+    path.write_bytes(data)
+    return len(data)
+
+
+def build_decider_core(cv: Curve) -> tuple:
+    """Build the general decider-MSM core for curve ``cv`` from its ``ipa_as``
+    fixture: return ``(core_fn, scalars, bases)`` where ``core_fn`` is
+    ``jcurve.msm`` and ``scalars`` / ``bases`` are the example
+    ``decider_coeffs`` / ``generators`` arrays carrying the runtime shapes. Both
+    are runtime inputs, so the lowered core decides any accumulator of this
+    degree."""
+    d = json.loads(_FIXTURE[cv.name].read_text())
+    generators = [_point(cv, g) for g in d["generators"]]
+    coeffs = [_fr(h) for h in d["decider_coeffs"]]
+    bases = jcurve.stack_affine(cv, generators)
+    scalars = jnp.asarray(np.array(coeffs, dtype=cv.fr))
+    return jcurve.msm, scalars, bases
+
+
+def export_decider(cv: Curve) -> Path:
+    """Lower the general decider-MSM core to ``ipa_decider_msm_<curve>.mlirbc``.
+    The committer-key ``generators`` and the check-poly ``coeffs`` are BOTH runtime
+    inputs (``_core(scalars, bases) = lax.msm(scalars, bases)``), so one lowered
+    core decides any accumulator at this degree."""
+    core_fn, scalars, bases = build_decider_core(cv)
+    t0 = time.perf_counter()
+    lowered = core_fn.lower(scalars, bases)
+    t_lower = time.perf_counter() - t0
+    ART.mkdir(parents=True, exist_ok=True)
+    out = ART / f"ipa_decider_msm_{cv.name}.mlirbc"
+    size = write_bytecode(lowered, out)
+    print(f"wrote {out} ({size} B); {cv.name} decider size-d MSM core; "
+          f"lower {t_lower:.2f}s; coeffs={scalars.shape[0]}, bases={bases.shape[0]}")
+    return out
+
+
+def main() -> None:
+    # `export_ipa.py [pallas|vesta]` — exports the named curve's decider MSM core,
+    # or BOTH (the byte-match test exercises both Pasta curves) when no arg given.
+    args = sys.argv[1:]
+    curves = {"pallas": curve.PALLAS, "vesta": curve.VESTA}
+    if args:
+        if args[0] not in curves:
+            raise SystemExit(f"unknown curve {args[0]!r} (expected pallas|vesta)")
+        export_decider(curves[args[0]])
+        return
+    for cv in (curve.PALLAS, curve.VESTA):
+        export_decider(cv)
+
+
+if __name__ == "__main__":
+    main()

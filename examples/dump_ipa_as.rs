@@ -76,6 +76,12 @@ fn fe_hex<F: PrimeField>(f: &F) -> String {
     hex(&f.into_repr().to_bytes_le())
 }
 
+/// A JSON array of canonical-LE 32B hex scalars (the decider check-poly coeffs).
+fn fr_list_json<F: PrimeField>(xs: &[F]) -> String {
+    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fe_hex(f))).collect();
+    format!("[{}]", v.join(","))
+}
+
 /// x-coordinate of an affine point as canonical-LE 32B hex (identity → zeros).
 fn coord_x_hex<P: SWModelParameters>(p: &GroupAffine<P>) -> String
 where
@@ -215,6 +221,25 @@ where
     .unwrap();
     assert!(proof.is_none(), "no-zk AS proof must be None");
 
+    // The decider's size-`d` MSM scalars: run the IPA succinct check on the new
+    // accumulator (a single commitment, constant-`1` opening challenges, exactly as
+    // the AS decider does) and densely expand its `SuccinctCheckPolynomial`. The
+    // decider accepts iff `MSM(ck.comm_key, decider_coeffs) == accumulator
+    // .final_comm_key` — these coeffs are the fused GPU core's scalar input (Slice
+    // 4), the generators its bases. `.unwrap()` also asserts the accumulator opening
+    // verifies.
+    let acc_inst = &accumulator.instance;
+    let acc_check_poly = IpaPC::<P>::succinct_check(
+        svk,
+        vec![&acc_inst.ipa_commitment],
+        acc_inst.point,
+        vec![acc_inst.evaluation],
+        &acc_inst.ipa_proof,
+        &|_| P::ScalarField::one(),
+    )
+    .expect("accumulator opening must verify");
+    let decider_coeffs = acc_check_poly.compute_coeffs();
+
     let inputs_json: Vec<String> = inputs.iter().map(|inp| instance_json(&inp.instance)).collect();
     let gens_json = points_json(&ck.comm_key);
 
@@ -227,7 +252,8 @@ where
     println!("  \"s\": {},", point_json(&svk.s));
     println!("  \"generators\": {},", gens_json);
     println!("  \"inputs\": [{}],", inputs_json.join(","));
-    println!("  \"accumulator\": {}", instance_json(&accumulator.instance));
+    println!("  \"accumulator\": {},", instance_json(&accumulator.instance));
+    println!("  \"decider_coeffs\": {}", fr_list_json(&decider_coeffs));
     println!("}}");
 }
 
