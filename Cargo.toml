@@ -45,7 +45,7 @@ ark-nonnative-field = { git = "https://github.com/arkworks-rs/nonnative", rev = 
 # The pristine arkworks prover, used as the byte-identical oracle in tests; the
 # `r1cs` feature also exposes its in-circuit verifier gadget, reused (not copied)
 # by the recursion step.
-ark-accumulation = { path = "../accumulation", features = ["r1cs-nark-as", "r1cs"] }
+ark-accumulation = { path = "../accumulation", features = ["r1cs-nark-as", "ipa-pc-as", "r1cs"] }
 # Regenerate ark-sponge's default Poseidon round constants in the Python-port
 # fixture dumper (`examples/dump_sponge.rs`): the ARK are drawn from
 # `ChaChaRng::seed_from_u64(123456789)` exactly as `PoseidonSponge::new()` does.
