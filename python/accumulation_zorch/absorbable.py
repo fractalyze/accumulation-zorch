@@ -139,6 +139,16 @@ def option_flag(cv: Curve, is_some: bool) -> np.ndarray:
     return _fe_array(cv, [1 if is_some else 0])
 
 
+def absorb_option_bytes(cv: Curve, sp: DuplexSponge, data: bytes) -> DuplexSponge:
+    """Absorb an `Option<Vec<u8>>` in the `Some` case: a single `F::from(true)`
+    flag, then the bytes' `u8::batch_to_sponge_field_elements` packing — all in one
+    absorb (e.g. `compute_new_challenge`'s `Some(to_bytes![rlp_coeffs])`). The
+    `None` case is :func:`absorb_none`."""
+    arr = jnp.concatenate([jnp.asarray(option_flag(cv, True)),
+                           jnp.asarray(u8_batch_field_array(cv, data))])
+    return sp.absorb(arr)
+
+
 def absorb_option_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) -> DuplexSponge:
     """Absorb an `Option<_>` whose inner Absorbable is a batch of points, in the
     `Some` case: a single `F::from(true)` flag, then each point's `[x, y,
