@@ -131,6 +131,83 @@ def combine_check_polynomials(cv: Curve, addends: list[tuple[int, list[int]]]) -
     return fe_values(combined)
 
 
+def _rlp_pair(rlp_coeffs: list[int]) -> tuple[int, int]:
+    """The degree-1 `random_linear_polynomial` coefficients `(c0, c1)`, padded with
+    zero to length 2 (arkworks resizes `coeffs` to 2 before absorbing / using
+    them)."""
+    c0 = int(rlp_coeffs[0]) if len(rlp_coeffs) > 0 else 0
+    c1 = int(rlp_coeffs[1]) if len(rlp_coeffs) > 1 else 0
+    return c0, c1
+
+
+def combine_zk(
+    cv: Curve, params, succinct_checks: list[SuccinctCheck],
+    rlp_coeffs: list[int], rlp_commitment: np.ndarray, s: np.ndarray,
+    commitment_randomness: int,
+) -> tuple[list[int], np.ndarray, np.ndarray, list[tuple[int, list[int]]]]:  # type: ignore[no-untyped-def]
+    """`combine_succinct_check_polynomials_and_commitments` (zk): the AS sponge
+    additionally absorbs the random linear polynomial — its two coefficients
+    (each `to_bytes![c_i]`, separately) then its commitment — before the per-input
+    loop, and the combined commitment is seeded from `rlp_commitment` (not the
+    identity). Returns the lc challenges, the **non-randomized** combined
+    commitment `rlp_commitment + Σ final_comm_key_j·lc_j` (which seeds
+    `compute_new_challenge_zk`), the **randomized** combined commitment
+    `combined + s·commitment_randomness` (the new accumulator's commitment), and
+    the addends."""
+    sp = _new(cv, params)
+    c0, c1 = _rlp_pair(rlp_coeffs)
+    sp = absorbable.absorb_bytes(cv, sp, c0.to_bytes(32, "little"))
+    sp = absorbable.absorb_bytes(cv, sp, c1.to_bytes(32, "little"))
+    sp = absorbable.absorb_point(cv, sp, rlp_commitment)
+    for sc in succinct_checks:
+        sp = _absorb_check_poly(cv, sp, sc.check_poly)
+        sp = absorbable.absorb_point(cv, sp, sc.final_comm_key)
+    _, lc_challenges = sponge.squeeze_challenges(sp, len(succinct_checks), _LC_CHALLENGE_BITS)
+
+    bases = [rlp_commitment] + [sc.final_comm_key for sc in succinct_checks]
+    scalars = [1] + list(lc_challenges)
+    combined = curve.pedersen_commit(cv, bases, scalars)
+    randomized = curve.pedersen_commit(
+        cv, bases, scalars, hiding=s, randomizer=int(commitment_randomness))
+    addends = [(lc, sc.check_poly) for lc, sc in zip(lc_challenges, succinct_checks)]
+    return lc_challenges, combined, randomized, addends
+
+
+def compute_new_challenge_zk(
+    cv: Curve, params, combined_commitment: np.ndarray,
+    addends: list[tuple[int, list[int]]], rlp_coeffs: list[int],
+) -> int:  # type: ignore[no-untyped-def]
+    """`compute_new_challenge` (zk): a fresh AS sponge absorbs the (non-randomized)
+    combined commitment, then `Some(to_bytes![rlp_c0, rlp_c1])` (the random linear
+    polynomial coefficients as one byte-vec, where no-zk absorbs `None`), then per
+    addend the lc challenge (16 bytes) and the check polynomial; squeeze the new
+    opening point (`Truncated(184)`)."""
+    sp = _new(cv, params)
+    sp = absorbable.absorb_point(cv, sp, combined_commitment)
+    c0, c1 = _rlp_pair(rlp_coeffs)
+    sp = absorbable.absorb_option_bytes(cv, sp, c0.to_bytes(32, "little") + c1.to_bytes(32, "little"))
+    for lc_challenge, check_poly in addends:
+        sp = absorbable.absorb_bytes(cv, sp, int(lc_challenge).to_bytes(_LC_CHALLENGE_BYTES, "little"))
+        sp = _absorb_check_poly(cv, sp, check_poly)
+    _, point = sponge.squeeze_challenges(sp, 1, _CHALLENGE_POINT_BITS)
+    return point[0]
+
+
+def combined_evaluation_zk(
+    cv: Curve, addends: list[tuple[int, list[int]]], point: int, rlp_coeffs: list[int],
+) -> int:
+    """`combined_check_polynomial.evaluate(point)` (zk) = `rlp(point) + Σ lc_j·h_j
+    (point)` — the combined check polynomial now includes the degree-1 random
+    linear polynomial `rlp(X) = c0 + c1·X`."""
+    c0, c1 = _rlp_pair(rlp_coeffs)
+    acc = (np.array([c0], dtype=cv.fr)
+           + np.array([c1], dtype=cv.fr) * np.array([int(point)], dtype=cv.fr))
+    for lc_challenge, check_poly in addends:
+        h_at_point = np.array([ipa_pc.evaluate(cv, check_poly, point)], dtype=cv.fr)
+        acc = acc + np.array([int(lc_challenge)], dtype=cv.fr) * h_at_point
+    return int(np.asarray(acc[0]).astype(object))
+
+
 class AccumulatorInstance(NamedTuple):
     """The new accumulator's *instance* fields (no-zk), minus the IPA proof
     (Slice 2b): the combined commitment, the new opening point, and the combined
@@ -159,6 +236,23 @@ def prove_no_zk_instance(
     point = compute_new_challenge(cv, params, combined_commitment, addends)
     evaluation = combined_evaluation(cv, addends, point)
     return AccumulatorInstance(combined_commitment, point, evaluation)
+
+
+def prove_zk_instance(
+    cv: Curve, params, succinct_checks: list[SuccinctCheck],
+    rlp_coeffs: list[int], rlp_commitment: np.ndarray, s: np.ndarray,
+    commitment_randomness: int,
+) -> AccumulatorInstance:  # type: ignore[no-untyped-def]
+    """The AS zk prove up to the new accumulator instance: the random-linear-
+    polynomial combine, the new opening point, and the combined evaluation. The
+    accumulator's commitment is the **randomized** combined commitment
+    (`+ s·commitment_randomness`); the new point is seeded from the non-randomized
+    one."""
+    _, combined, randomized, addends = combine_zk(
+        cv, params, succinct_checks, rlp_coeffs, rlp_commitment, s, commitment_randomness)
+    point = compute_new_challenge_zk(cv, params, combined, addends, rlp_coeffs)
+    evaluation = combined_evaluation_zk(cv, addends, point, rlp_coeffs)
+    return AccumulatorInstance(randomized, point, evaluation)
 
 
 def prove_no_zk_accumulator(

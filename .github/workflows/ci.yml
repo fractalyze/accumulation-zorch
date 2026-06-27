@@ -70,6 +70,7 @@ jobs:
           - hp_test.py
           - hp_zk_test.py
           - ipa_as_test.py
+          - ipa_as_zk_test.py
           - ipa_test.py
           - ipa_zk_test.py
           - jcurve_test.py
