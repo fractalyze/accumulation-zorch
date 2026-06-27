@@ -93,10 +93,48 @@ def test_as_prove_no_zk_accumulator_instance_matches_arkworks() -> None:
               f"byte-matches arkworks ({d['num_inputs']} inputs)")
 
 
+def test_as_prove_no_zk_full_accumulator_matches_arkworks() -> None:
+    """Slice 2b: the FULL new accumulator, including the IPA opening proof
+    (`l_vec`/`r_vec`/`final_comm_key`/`c`) produced by the `IpaPC::open` fold over
+    the combined check polynomial."""
+    for cv, as_fixture, sponge_fixture in _CURVES:
+        params = _params(cv, sponge_fixture)
+        d = json.loads(as_fixture.read_text())
+        inputs = [_parse_input(cv, inp) for inp in d["inputs"]]
+        svk_h = _point(cv, d["h"])
+        generators = [_point(cv, g) for g in d["generators"]]
+
+        succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
+        acc = ipa_pc_as.prove_no_zk_accumulator(cv, params, svk_h, generators, succinct_checks)
+        want = d["accumulator"]
+
+        def _pt(p: Any) -> str:
+            return curve.point_to_bytes(cv, p).hex()
+
+        assert _pt(acc.commitment) == _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment"
+        assert cv.fr(acc.point).tobytes().hex() == want["point"], f"[{cv.name}] point"
+        assert cv.fr(acc.evaluation).tobytes().hex() == want["evaluation"], f"[{cv.name}] evaluation"
+
+        for i, want_l in enumerate(want["l_vec"]):
+            got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
+            assert got == wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}"
+        for i, want_r in enumerate(want["r_vec"]):
+            got, wnt = _pt(acc.ipa_proof.r_vec[i]), _pt(_point(cv, want_r))
+            assert got == wnt, f"[{cv.name}] ipa_proof.r_vec[{i}]: {got} != {wnt}"
+        got_fck, wnt_fck = _pt(acc.ipa_proof.final_comm_key), _pt(_point(cv, want["final_comm_key"]))
+        assert got_fck == wnt_fck, f"[{cv.name}] ipa_proof.final_comm_key: {got_fck} != {wnt_fck}"
+        got_c = cv.fr(acc.ipa_proof.c).tobytes().hex()
+        assert got_c == want["c"], f"[{cv.name}] ipa_proof.c: {got_c} != {want['c']}"
+
+        print(f"  [{cv.name}] full AS no-zk accumulator (instance + IPA proof: "
+              f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks")
+
+
 def main() -> None:
-    print("slice-2a IPA-PC accumulation prove instance byte-match (Pallas + Vesta):")
+    print("slice-2 IPA-PC accumulation prove byte-match (Pallas + Vesta):")
     test_as_prove_no_zk_accumulator_instance_matches_arkworks()
-    print("ALL SLICE-2a IPA-PC-AS CHECKS PASSED")
+    test_as_prove_no_zk_full_accumulator_matches_arkworks()
+    print("ALL SLICE-2 IPA-PC-AS CHECKS PASSED")
 
 
 if __name__ == "__main__":

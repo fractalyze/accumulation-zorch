@@ -36,6 +36,7 @@ import numpy as np
 
 from . import absorbable, curve, ipa_pc, sponge
 from .curve import Curve
+from .field import fe_values
 
 # ark `ipa_pc_as` AS-level domain (`ASForIpaPCDomain`).
 AS_DOMAIN = b"AS-FOR-IPA-PC-2020"
@@ -118,6 +119,18 @@ def combined_evaluation(cv: Curve, addends: list[tuple[int, list[int]]], point: 
     return int(np.asarray(acc[0]).astype(object))
 
 
+def combine_check_polynomials(cv: Curve, addends: list[tuple[int, list[int]]]) -> list[int]:
+    """`combine_succinct_check_polynomials` (no-zk): the dense combined check
+    polynomial `Σ lc_challenge_j · h_j(X)` (length `d+1 = 2^log_d`), each `h_j`
+    densely expanded via `compute_coeffs`."""
+    n = 1 << len(addends[0][1])  # 2^log_d
+    combined = np.zeros(n, dtype=cv.fr)
+    for lc_challenge, check_poly in addends:
+        coeffs = np.array(ipa_pc.compute_coeffs(cv, check_poly), dtype=cv.fr)
+        combined = combined + np.array([int(lc_challenge)], dtype=cv.fr) * coeffs
+    return fe_values(combined)
+
+
 class AccumulatorInstance(NamedTuple):
     """The new accumulator's *instance* fields (no-zk), minus the IPA proof
     (Slice 2b): the combined commitment, the new opening point, and the combined
@@ -125,6 +138,15 @@ class AccumulatorInstance(NamedTuple):
     commitment: np.ndarray
     point: int
     evaluation: int
+
+
+class Accumulator(NamedTuple):
+    """The full new accumulator instance (no-zk): the instance fields plus the IPA
+    opening proof of the combined check polynomial at the new point."""
+    commitment: np.ndarray
+    point: int
+    evaluation: int
+    ipa_proof: ipa_pc.IpaProof
 
 
 def prove_no_zk_instance(
@@ -137,6 +159,22 @@ def prove_no_zk_instance(
     point = compute_new_challenge(cv, params, combined_commitment, addends)
     evaluation = combined_evaluation(cv, addends, point)
     return AccumulatorInstance(combined_commitment, point, evaluation)
+
+
+def prove_no_zk_accumulator(
+    cv: Curve, params, svk_h: np.ndarray, generators: list[np.ndarray],
+    succinct_checks: list[SuccinctCheck],
+) -> Accumulator:  # type: ignore[no-untyped-def]
+    """The full AS no-zk prove: the instance fields (`combine` + `compute_new_
+    challenge` + combined evaluation) plus `compute_new_accumulator`'s IPA open of
+    the combined check polynomial at the new point — the complete new accumulator
+    arkworks `prove` returns."""
+    _, combined_commitment, addends = combine(cv, params, succinct_checks)
+    point = compute_new_challenge(cv, params, combined_commitment, addends)
+    evaluation = combined_evaluation(cv, addends, point)
+    coeffs = combine_check_polynomials(cv, addends)
+    ipa_proof = ipa_pc.open_no_zk(cv, params, svk_h, combined_commitment, point, coeffs, generators)
+    return Accumulator(combined_commitment, point, evaluation, ipa_proof)
 
 
 def succinct_check_input(cv: Curve, params, inst: Any) -> SuccinctCheck:
