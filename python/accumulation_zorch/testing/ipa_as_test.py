@@ -130,11 +130,31 @@ def test_as_prove_no_zk_full_accumulator_matches_arkworks() -> None:
               f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks")
 
 
+def test_decide_no_zk_size_d_msm_matches_final_comm_key() -> None:
+    """Slice 3 (Decide): the decider's size-`d` MSM
+    `final_key = Σ generators_i · compute_coeffs(succinct_check(acc))_i` must equal
+    the accumulator's `final_comm_key`. This MSM is the IPA accumulation's
+    GPU-value work (the fused-core target). Runs on the golden accumulator."""
+    for cv, as_fixture, sponge_fixture in _CURVES:
+        params = _params(cv, sponge_fixture)
+        d = json.loads(as_fixture.read_text())
+        generators = [_point(cv, g) for g in d["generators"]]
+        acc = _parse_input(cv, d["accumulator"])
+
+        final_key = ipa_pc_as.decide_final_key(cv, params, generators, acc)
+        got = curve.point_to_bytes(cv, final_key).hex()
+        want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
+        assert got == want, f"[{cv.name}] decider size-d MSM != final_comm_key: {got} != {want}"
+        print(f"  [{cv.name}] decider size-d MSM (= MSM(generators, h(X) coeffs)) "
+              f"byte-matches the accumulator's final_comm_key")
+
+
 def main() -> None:
-    print("slice-2 IPA-PC accumulation prove byte-match (Pallas + Vesta):")
+    print("slice-2/3 IPA-PC accumulation prove + decide byte-match (Pallas + Vesta):")
     test_as_prove_no_zk_accumulator_instance_matches_arkworks()
     test_as_prove_no_zk_full_accumulator_matches_arkworks()
-    print("ALL SLICE-2 IPA-PC-AS CHECKS PASSED")
+    test_decide_no_zk_size_d_msm_matches_final_comm_key()
+    print("ALL SLICE-2/3 IPA-PC-AS CHECKS PASSED")
 
 
 if __name__ == "__main__":

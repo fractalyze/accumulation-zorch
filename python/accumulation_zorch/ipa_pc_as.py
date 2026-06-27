@@ -177,6 +177,20 @@ def prove_no_zk_accumulator(
     return Accumulator(combined_commitment, point, evaluation, ipa_proof)
 
 
+def decide_final_key(cv: Curve, params, generators: list[np.ndarray], inst: Any) -> np.ndarray:
+    """The AS decider's size-`d` MSM (`IpaPC::check`'s final check): run the
+    accumulator's succinct check, densely expand its check polynomial, and
+    recompute `final_key = Σ generators_i · compute_coeffs(check_poly)_i`. The
+    decider accepts iff this equals the accumulator's `final_comm_key`. This MSM is
+    the IPA accumulation's GPU-value work (the fused core target, Slice 4); here it
+    is the CPU group-reduction oracle. `inst` is the accumulator instance (a
+    `commitment` / `point` / `value` / `l_vec` / `r_vec` holder)."""
+    check_poly = ipa_pc.succinct_check_challenges(
+        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec)
+    coeffs = ipa_pc.compute_coeffs(cv, check_poly)
+    return curve.pedersen_commit(cv, generators, coeffs)
+
+
 def succinct_check_input(cv: Curve, params, inst: Any) -> SuccinctCheck:
     """Run the Slice-1 succinct check on one input instance (a dict-like with
     `commitment`, `point`, `evaluation`, `l_vec`, `r_vec`, `final_comm_key`) and
