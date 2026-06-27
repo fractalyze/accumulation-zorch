@@ -111,9 +111,39 @@ def export_decider(cv: Curve) -> Path:
     return out
 
 
+def export_decider_bench(cv: Curve, n: int) -> Path:
+    """Lower the general decider-MSM core at bench size ``n`` to
+    ``ipa_decider_msm_bench.mlirbc``. The example arrays carry only the runtime
+    shapes — ``n`` scalars + ``n`` bases — so their values are irrelevant to the
+    traced module; the scale bench feeds real random inputs at run time. The bases
+    are one fixture generator replicated (a valid affine point; the MSM kernel
+    dispatches on its element type)."""
+    d = json.loads(_FIXTURE[cv.name].read_text())
+    bases = jcurve.stack_affine(cv, [_point(cv, d["generators"][0])] * n)
+    scalars = jnp.asarray(np.zeros(n, dtype=cv.fr))
+    t0 = time.perf_counter()
+    lowered = jcurve.msm.lower(scalars, bases)
+    t_lower = time.perf_counter() - t0
+    ART.mkdir(parents=True, exist_ok=True)
+    out = ART / "ipa_decider_msm_bench.mlirbc"
+    size = write_bytecode(lowered, out)
+    print(f"wrote {out} ({size} B); {cv.name} decider MSM bench core; "
+          f"lower {t_lower:.2f}s; size={n}")
+    return out
+
+
 def main() -> None:
     # `export_ipa.py [pallas|vesta]` — exports the named curve's decider MSM core,
     # or BOTH (the byte-match test exercises both Pasta curves) when no arg given.
+    # `IPA_DECIDER_SIZE=<n>` instead lowers the size-`n` bench core for `PROVE_CURVE`
+    # (default Pallas), for the scale benchmark.
+    bench_size = os.environ.get("IPA_DECIDER_SIZE")
+    if bench_size:
+        cv = {"pallas": curve.PALLAS, "vesta": curve.VESTA}[
+            os.environ.get("PROVE_CURVE", "pallas")]
+        export_decider_bench(cv, int(bench_size))
+        return
+
     args = sys.argv[1:]
     curves = {"pallas": curve.PALLAS, "vesta": curve.VESTA}
     if args:

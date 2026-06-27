@@ -5,8 +5,9 @@
 # as a Markdown table — exactly the tables in README.md.
 #
 #   bench/bench.sh prove   # the "Single AS prove" sweep (sizes from PROVE_SIZES)
+#   bench/bench.sh decide  # the "Decider size-d MSM" sweep (sizes from DECIDE_SIZES)
 #   bench/bench.sh fold    # the "Recursion IVC fold" point (one recursion-scale row)
-#   bench/bench.sh all     # both (default)
+#   bench/bench.sh all     # all three (default)
 #
 # Live progress streams to stderr; the finished table(s) print to stdout only
 # once every point is measured — so `bench/bench.sh prove >table.md` captures a
@@ -20,6 +21,7 @@
 #
 # Optional knobs:
 #   PROVE_SIZES   space-separated num_constraints for `prove` (default "4096 16384 32768")
+#   DECIDE_SIZES  space-separated MSM sizes d for `decide` (default "16384 65536 262144")
 #   ARTIFACTS_DIR scratch dir for fixtures, .mlirbc, and per-step logs
 #                 (default: $SCRATCH_DIR, else a mktemp dir)
 set -euo pipefail
@@ -126,17 +128,53 @@ bench_fold() {
   row "zk IVC fold" "$cpu_ms" "$gpu_ms"
 }
 
+# Builds the "Decider size-d MSM" table on stdout; progress on stderr. The decider
+# is the IPA accumulation's GPU-value op (`final_key = Σ generators·coeffs`, a pure
+# size-`d` MSM), so unlike the host-bound fold it shows the GPU's MSM advantage as
+# `d` grows. Inputs are synthetic (random committer key + coefficients) — the MSM
+# time is size-driven and the byte-match gate keeps it honest.
+bench_decide() {
+  local sizes; read -r -a sizes <<<"${DECIDE_SIZES:-16384 65536 262144}"
+  say "Decider size-d MSM — sweeping d = ${sizes[*]} (warm GPU)…"
+  echo "## Decider size-\`d\` MSM"
+  echo
+  echo '|       `d` | CPU arkworks (release) | GPU fused (1 PJRT call, warm) | speedup |'
+  echo '| --------: | ---------------------: | ----------------------------: | ------: |'
+  for n in "${sizes[@]}"; do
+    step "  d=$n lower… "
+    IPA_DECIDER_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
+      "$ZKX_VENV_PYTHON" export/export_ipa.py >"$ART/decide_export_$n.log" 2>&1
+    step "GPU MSM… "
+    local line cpu_ms gpu_ms
+    line=$(IPA_DECIDER_SIZE="$n" IPA_DECIDER_MLIRBC="$ART/ipa_decider_msm_bench.mlirbc" \
+      ZKX_PJRT_PLUGIN="$ZKX_PJRT_PLUGIN" \
+      cargo test --quiet --release --features gpu --test gpu_fused_ipa_decide_bench -- --ignored --nocapture \
+      2>"$ART/decide_gpu_$n.log" | grep '\[bench\]')
+    cpu_ms=$(to_ms "$(printf '%s' "$line" | sed -n 's/.*CPU arkworks=\([^ ]*\).*/\1/p')")
+    gpu_ms=$(to_ms "$(printf '%s' "$line" | sed -n 's/.*min=\([^ ]*\).*/\1/p')")
+    require "decide d=$n CPU" "$cpu_ms"; require "decide d=$n GPU" "$gpu_ms"
+    say "$(printf '→ d=%s  CPU %.0f ms  GPU %.0f ms  %s×' "$n" "$cpu_ms" "$gpu_ms" "$(speedup "$cpu_ms" "$gpu_ms")")"
+    row "$n" "$cpu_ms" "$gpu_ms"
+  done
+}
+
 # Measure first (progress to stderr, tables captured), then print the finished
 # table(s) to stdout in one clean block.
-prove_out=""; fold_out=""
+prove_out=""; decide_out=""; fold_out=""
 case "$mode" in
-  prove) prove_out=$(bench_prove) ;;
-  fold)  fold_out=$(bench_fold) ;;
-  all)   prove_out=$(bench_prove); fold_out=$(bench_fold) ;;
-  *) echo "usage: bench/bench.sh [prove|fold|all]" >&2; exit 2 ;;
+  prove)  prove_out=$(bench_prove) ;;
+  decide) decide_out=$(bench_decide) ;;
+  fold)   fold_out=$(bench_fold) ;;
+  all)    prove_out=$(bench_prove); decide_out=$(bench_decide); fold_out=$(bench_fold) ;;
+  *) echo "usage: bench/bench.sh [prove|decide|fold|all]" >&2; exit 2 ;;
 esac
 
 say ""
-[ -n "$prove_out" ] && { printf '%s\n' "$prove_out"; [ -n "$fold_out" ] && echo; }
-[ -n "$fold_out" ] && printf '%s\n' "$fold_out"
+first=1
+for out in "$prove_out" "$decide_out" "$fold_out"; do
+  [ -n "$out" ] || continue
+  [ "$first" -eq 1 ] || echo
+  printf '%s\n' "$out"
+  first=0
+done
 say "(artifacts + per-step logs in: $ART)"
