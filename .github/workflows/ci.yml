@@ -50,37 +50,29 @@ jobs:
         run: cargo test -p accumulation-zorch --verbose
 
   python:
-    # One self-checking byte-match script per shard, run in parallel: each is a
-    # jax CPU trace+prove that takes ~30-60s, so sharding keeps wall time to a
-    # single test instead of the sum. recursion_fold_zk_test.py is omitted (the
-    # full recursion-circuit IVC fold is minutes-slow on CPU; its fold math is
-    # covered by as_fold_zk*, its recursion circuit by recursion_nark*).
-    name: Python ${{ matrix.test }}
+    # The byte-match scripts are absltest cases; each is a jax CPU trace+prove
+    # (the heavy fused-prove ones run ~30-60s), so they are split into a handful
+    # of parallel shards — wall time is the slowest shard, not the sum, without
+    # one GitHub check per file. Shards are balanced so the slow fused-prove
+    # tests are spread across them. recursion_fold_zk_test.py is omitted (the full
+    # recursion-circuit IVC fold is minutes-slow on CPU; its fold math is covered
+    # by as_fold_zk*, its recursion circuit by recursion_nark*).
+    name: Python (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        test:
-          - absorb_test.py
-          - as_fold_zk_e2e_test.py
-          - as_fold_zk_test.py
-          - as_hp_fold_zk_test.py
-          - as_test.py
-          - as_zk_test.py
-          - hp_test.py
-          - hp_zk_test.py
-          - ipa_as_test.py
-          - ipa_as_zk_test.py
-          - ipa_test.py
-          - ipa_zk_test.py
-          - jcurve_test.py
-          - jsponge_test.py
-          - nark_test.py
-          - nark_zk_test.py
-          - recursion_nark_test.py
-          - recursion_nark_zk_test.py
-          - sponge_test.py
-          - substrate_test.py
+        shard:
+          - name: accumulation
+            tests: "as_test.py as_zk_test.py absorb_test.py"
+          - name: folding
+            tests: "as_fold_zk_test.py as_fold_zk_e2e_test.py sponge_test.py jsponge_test.py"
+          - name: hp
+            tests: "as_hp_fold_zk_test.py hp_zk_test.py hp_test.py substrate_test.py"
+          - name: nark
+            tests: "nark_test.py nark_zk_test.py recursion_nark_test.py"
+          - name: ipa
+            tests: "ipa_test.py ipa_zk_test.py ipa_as_test.py ipa_as_zk_test.py jcurve_test.py recursion_nark_zk_test.py"
     steps:
       - uses: actions/checkout@v4
 
@@ -101,13 +93,18 @@ jobs:
             --index-url https://fractalyze.github.io/pypi/simple/ \
             --extra-index-url https://pypi.org/simple/ \
             jax==0.0.5.dev20260624111151 jaxlib==0.0.5.dev20260624111151 \
-            zk-dtypes==0.0.7 numpy
+            zk-dtypes==0.0.7 numpy absl-py
 
-      # The script prints "... CHECKS PASSED" and exits non-zero on a byte-match
-      # failure. CPU-forced; the GPU byte-match tests are separate (Rust,
-      # hardware-gated) and not run here.
-      - name: ${{ matrix.test }}
+      # Each absltest case exits non-zero on a byte-match failure. CPU-forced; the
+      # GPU byte-match tests are separate (Rust, hardware-gated) and not run here.
+      # `||` short-circuit fails the shard on the first failing test.
+      - name: ${{ matrix.shard.name }}
         env:
           JAX_PLATFORMS: cpu
           PYTHONPATH: python
-        run: .venv/bin/python "python/accumulation_zorch/testing/${{ matrix.test }}"
+        run: |
+          for t in ${{ matrix.shard.tests }}; do
+            echo "::group::$t"
+            .venv/bin/python "python/accumulation_zorch/testing/$t" || exit 1
+            echo "::endgroup::"
+          done
