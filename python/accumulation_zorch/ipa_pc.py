@@ -32,7 +32,7 @@ import numpy as np
 
 from . import absorbable, curve, sponge
 from .curve import Curve
-from .field import fe_value, fe_values, fr_mul
+from .field import fe_value, fe_values, fr_add, fr_mul
 
 # ark `ipa_pc` domain (`IpaPCDomain`): every fresh succinct-check sponge is a
 # `DomainSeparatedSponge` forked with this label before anything is absorbed.
@@ -305,11 +305,9 @@ def _open_fold(
         round_challenge = _squeeze_challenge(cv, sp)
         rc_inv = pow(int(round_challenge), -1, cv.fr_modulus)
 
-        coeffs = [fe_value(np.array([coeffs_l[k]], dtype=cv.fr)
-                           + np.array([fr_mul(cv, rc_inv, coeffs_r[k])], dtype=cv.fr))
+        coeffs = [fr_add(cv, coeffs_l[k], fr_mul(cv, rc_inv, coeffs_r[k]))
                   for k in range(half)]
-        z = [fe_value(np.array([z_l[k]], dtype=cv.fr)
-                      + np.array([fr_mul(cv, round_challenge, z_r[k])], dtype=cv.fr))
+        z = [fr_add(cv, z_l[k], fr_mul(cv, round_challenge, z_r[k]))
              for k in range(half)]
 
         if i % 2 == 0:
@@ -377,13 +375,8 @@ def open_zk(
     sp = absorbable.absorb_bytes(cv, sp, _fr32(point) + _fr32(combined_v))
     hc = _squeeze_challenge(cv, sp)
 
-    hc_fr = np.array([int(hc)], dtype=cv.fr)
-    mod_coeffs = [
-        fe_value(np.array([coeffs[k]], dtype=cv.fr) + hc_fr * np.array([hiding_poly[k]], dtype=cv.fr))
-        for k in range(d + 1)
-    ]
-    combined_rand = fe_value(
-        np.array([int(commitment_randomness)], dtype=cv.fr) + hc_fr * np.array([int(hiding_rand)], dtype=cv.fr))
+    mod_coeffs = [fr_add(cv, coeffs[k], fr_mul(cv, hc, hiding_poly[k])) for k in range(d + 1)]
+    combined_rand = fr_add(cv, commitment_randomness, fr_mul(cv, hc, hiding_rand))
     neg_rand = (-int(combined_rand)) % cv.fr_modulus
     mod_commitment = curve.pedersen_commit(
         cv, [combined_commitment, hiding_commitment, s], [1, int(hc), neg_rand])

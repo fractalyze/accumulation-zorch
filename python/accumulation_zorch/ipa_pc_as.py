@@ -112,11 +112,11 @@ def combined_evaluation(cv: Curve, addends: list[tuple[int, list[int]]], point: 
     `Σ lc_challenge_j · h_j(point)` — the combined check polynomial is linear in
     the per-input check polynomials, so its evaluation is the weighted sum of the
     succinct `h_j(point)`."""
-    acc = np.zeros(1, dtype=cv.fr)
+    acc = 0
     for lc_challenge, check_poly in addends:
-        h_at_point = np.array([ipa_pc.evaluate(cv, check_poly, point)], dtype=cv.fr)
-        acc = acc + np.array([int(lc_challenge)], dtype=cv.fr) * h_at_point
-    return int(np.asarray(acc[0]).astype(object))
+        h_at_point = ipa_pc.evaluate(cv, check_poly, point)
+        acc = fr_add(cv, acc, fr_mul(cv, lc_challenge, h_at_point))
+    return acc
 
 
 def combine_check_polynomials(cv: Curve, addends: list[tuple[int, list[int]]]) -> list[int]:
