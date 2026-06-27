@@ -71,6 +71,7 @@ jobs:
           - hp_zk_test.py
           - ipa_as_test.py
           - ipa_test.py
+          - ipa_zk_test.py
           - jcurve_test.py
           - jsponge_test.py
           - nark_test.py

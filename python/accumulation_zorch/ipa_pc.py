@@ -65,25 +65,21 @@ def _fr32(value: int) -> bytes:
     return int(value).to_bytes(32, "little")
 
 
-def succinct_check_challenges(
-    cv: Curve, params, commitment: np.ndarray, point: int, value: int,
+def _round_challenges_from_seed(
+    cv: Curve, params, seed_commitment: np.ndarray, point: int, value: int,
     l_vec: list[np.ndarray], r_vec: list[np.ndarray],
 ) -> list[int]:  # type: ignore[no-untyped-def]
-    """The `SuccinctCheckPolynomial` round challenges (ξ₁..ξ_log_d) of
-    `ipa_pc::succinct_check`, as canonical `fr` ints.
-
-    `commitment` is the (combined) IPA commitment point; `point` / `value` are the
-    opening's scalar point and claimed evaluation; `l_vec` / `r_vec` are the
-    proof's per-round fold commitments (host affine point arrays)."""
-    # Seed challenge ξ₀ — fresh sponge, absorb the combined commitment then
-    # `to_bytes![point, value]`. Not pushed into the check polynomial.
+    """The round challenges ξ₁..ξ_log_d from a seed commitment: the seed sponge
+    (absorb `seed_commitment` then `to_bytes![point, value]`) gives ξ₀, then each
+    round's fresh sponge absorbs the previous challenge (low 16 bytes) + `L_i` +
+    `R_i`. The seed commitment is the bare input commitment on the no-zk path and
+    the hiding-folded commitment on the zk path — the only difference between the
+    two succinct checks."""
     sp = _new(cv, params)
-    sp = absorbable.absorb_point(cv, sp, commitment)
+    sp = absorbable.absorb_point(cv, sp, seed_commitment)
     sp = absorbable.absorb_bytes(cv, sp, _fr32(point) + _fr32(value))
     round_challenge = _squeeze_challenge(cv, sp)
 
-    # Round i — fresh sponge, absorb the previous challenge (low 16 bytes) then
-    # L_i, R_i, and squeeze the next challenge.
     challenges: list[int] = []
     for l, r in zip(l_vec, r_vec):
         sp = _new(cv, params)
@@ -93,6 +89,46 @@ def succinct_check_challenges(
         round_challenge = _squeeze_challenge(cv, sp)
         challenges.append(round_challenge)
     return challenges
+
+
+def succinct_check_challenges(
+    cv: Curve, params, commitment: np.ndarray, point: int, value: int,
+    l_vec: list[np.ndarray], r_vec: list[np.ndarray],
+) -> list[int]:  # type: ignore[no-untyped-def]
+    """The `SuccinctCheckPolynomial` round challenges (ξ₁..ξ_log_d) of
+    `ipa_pc::succinct_check` (no-zk), as canonical `fr` ints.
+
+    `commitment` is the (combined) IPA commitment point; `point` / `value` are the
+    opening's scalar point and claimed evaluation; `l_vec` / `r_vec` are the
+    proof's per-round fold commitments (host affine point arrays). No-zk ⇒ the
+    round-challenge seed is the bare combined commitment (no hiding fold)."""
+    return _round_challenges_from_seed(cv, params, commitment, point, value, l_vec, r_vec)
+
+
+def succinct_check_challenges_zk(
+    cv: Curve, params, commitment: np.ndarray, point: int, value: int,
+    l_vec: list[np.ndarray], r_vec: list[np.ndarray],
+    s: np.ndarray, hiding_comm: np.ndarray, rand: int,
+) -> list[int]:  # type: ignore[no-untyped-def]
+    """The zk/hiding `ipa_pc::succinct_check` round challenges. Before deriving the
+    round challenges, a fresh `"IPA-PC-2020"` sponge absorbs `commitment`,
+    `hiding_comm`, then `to_bytes![point, value]` and squeezes one `Truncated(128)`
+    `hiding_challenge`; the commitment is folded to
+    `commitment + hiding_comm·hiding_challenge − s·rand`, and the round challenges
+    are seeded from THAT. `s` is the succinct verifier key's hiding generator;
+    `hiding_comm` / `rand` are the zk proof's `hiding_comm` / `rand`."""
+    sp = _new(cv, params)
+    sp = absorbable.absorb_point(cv, sp, commitment)
+    sp = absorbable.absorb_point(cv, sp, hiding_comm)
+    sp = absorbable.absorb_bytes(cv, sp, _fr32(point) + _fr32(value))
+    hiding_challenge = _squeeze_challenge(cv, sp)
+
+    # combined_commitment + hiding_comm·hiding_challenge − s·rand, as one group
+    # reduction (the `−s·rand` term rides as `s·(r − rand)`, canonical in `fr`).
+    neg_rand = (-int(rand)) % cv.fr_modulus
+    seed = curve.pedersen_commit(
+        cv, [commitment, hiding_comm, s], [1, int(hiding_challenge), neg_rand])
+    return _round_challenges_from_seed(cv, params, seed, point, value, l_vec, r_vec)
 
 
 def compute_coeffs(cv: Curve, challenges: list[int]) -> list[int]:
