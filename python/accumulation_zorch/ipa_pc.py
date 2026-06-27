@@ -248,25 +248,26 @@ def _odd_folding_step(cv, comm_key, prev_rc, rc):  # type: ignore[no-untyped-def
 
 
 class IpaProof(NamedTuple):
-    """The IPA opening proof (no-zk): the per-round fold commitments, the
-    fully-folded generator and coefficient. (`hiding_comm`/`rand` are `None`.)"""
+    """The IPA opening proof: the per-round fold commitments, the fully-folded
+    generator and coefficient, and (zk only) the hiding commitment + combined
+    blinder. No-zk leaves `hiding_comm`/`rand` as `None`."""
     l_vec: list[np.ndarray]
     r_vec: list[np.ndarray]
     final_comm_key: np.ndarray
     c: int
+    hiding_comm: np.ndarray | None = None
+    rand: int | None = None
 
 
-def open_no_zk(
+def _open_fold(
     cv: Curve, params, svk_h: np.ndarray, combined_commitment: np.ndarray,
     point: int, coeffs: list[int], generators: list[np.ndarray],
-) -> "IpaProof":  # type: ignore[no-untyped-def]
-    """`IpaPC::open_individual_opening_challenges` (no-zk, single combined poly):
-    the IPA fold producing `(l_vec, r_vec, final_comm_key, c)`.
-
-    `coeffs` is the combined check polynomial (length `d+1 = 2^log_d`);
-    `generators` the committer-key `comm_key`; `combined_commitment` seeds the
-    Fiat-Shamir (same `to_bytes![point, value]` as succinct_check, with
-    `value = Σ coeffs_i·point^i`)."""
+) -> tuple:  # type: ignore[no-untyped-def]
+    """The IPA fold producing `(l_vec, r_vec, final_comm_key, c)` from a combined
+    commitment + combined polynomial coefficients — shared by the no-zk and zk
+    opens (the zk path differs only in the hiding prelude that produces these
+    inputs). `combined_v = Σ coeffs_i·point^i` seeds the Fiat-Shamir (the zk hiding
+    polynomial evaluates to 0 at the point, so this equals the pre-hiding value)."""
     d = len(generators) - 1
     z = [pow(int(point), k, cv.fr_modulus) for k in range(d + 1)]
     combined_v = _inner_product(cv, coeffs, z)
@@ -318,4 +319,75 @@ def open_no_zk(
         i += 1
         n //= 2
 
-    return IpaProof(l_vec, r_vec, comm_key[0], coeffs[0])
+    return l_vec, r_vec, comm_key[0], coeffs[0]
+
+
+def open_no_zk(
+    cv: Curve, params, svk_h: np.ndarray, combined_commitment: np.ndarray,
+    point: int, coeffs: list[int], generators: list[np.ndarray],
+) -> "IpaProof":  # type: ignore[no-untyped-def]
+    """`IpaPC::open_individual_opening_challenges` (no-zk, single combined poly):
+    the IPA fold producing `(l_vec, r_vec, final_comm_key, c)`.
+
+    `coeffs` is the combined check polynomial (length `d+1 = 2^log_d`);
+    `generators` the committer-key `comm_key`; `combined_commitment` seeds the
+    Fiat-Shamir."""
+    l_vec, r_vec, final_comm_key, c = _open_fold(
+        cv, params, svk_h, combined_commitment, point, coeffs, generators)
+    return IpaProof(l_vec, r_vec, final_comm_key, c)
+
+
+def open_zk(
+    cv: Curve, params, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
+    combined_commitment: np.ndarray, point: int, coeffs: list[int],
+    hiding_poly_raw: list[int], hiding_rand: int, commitment_randomness: int,
+) -> "IpaProof":  # type: ignore[no-untyped-def]
+    """`IpaPC::open_individual_opening_challenges` (zk, single combined poly): the
+    hiding prelude then the shared IPA fold. Before folding, the combined
+    polynomial is masked by a random degree-`d` `hiding_polynomial` (shifted to
+    evaluate to 0 at `point`, so the claimed value is unchanged):
+
+    * `hiding_commitment = Σ generators_i·hiding_poly_i + s·hiding_rand`.
+    * `hiding_challenge` is squeezed from a fresh IPA-PC sponge absorbing
+      `combined_commitment, hiding_commitment, to_bytes![point, combined_v]`.
+    * `combined_poly += hiding_challenge·hiding_poly`,
+      `combined_rand = commitment_randomness + hiding_challenge·hiding_rand`,
+      `combined_commitment += hiding_commitment·hiding_challenge − s·combined_rand`.
+
+    `hiding_poly_raw` is arkworks' `P::rand(d, rng)` (pre-shift); `hiding_rand` /
+    `commitment_randomness` its blinders. Returns the proof with
+    `hiding_comm`/`rand` set."""
+    d = len(generators) - 1
+    z = [pow(int(point), k, cv.fr_modulus) for k in range(d + 1)]
+    combined_v = _inner_product(cv, coeffs, z)
+
+    # Shift the raw hiding polynomial to evaluate to 0 at `point` (subtract the
+    # constant `raw(point)` — only the degree-0 coefficient changes).
+    raw = [int(c) for c in hiding_poly_raw] + [0] * (d + 1 - len(hiding_poly_raw))
+    raw_eval = _inner_product(cv, raw, z)
+    hiding_poly = list(raw)
+    hiding_poly[0] = fe_value(np.array([raw[0]], dtype=cv.fr) - np.array([raw_eval], dtype=cv.fr))
+
+    hiding_commitment = curve.pedersen_commit(
+        cv, generators, hiding_poly, hiding=s, randomizer=int(hiding_rand))
+
+    sp = _new(cv, params)
+    sp = absorbable.absorb_point(cv, sp, combined_commitment)
+    sp = absorbable.absorb_point(cv, sp, hiding_commitment)
+    sp = absorbable.absorb_bytes(cv, sp, _fr32(point) + _fr32(combined_v))
+    hc = _squeeze_challenge(cv, sp)
+
+    hc_fr = np.array([int(hc)], dtype=cv.fr)
+    mod_coeffs = [
+        fe_value(np.array([coeffs[k]], dtype=cv.fr) + hc_fr * np.array([hiding_poly[k]], dtype=cv.fr))
+        for k in range(d + 1)
+    ]
+    combined_rand = fe_value(
+        np.array([int(commitment_randomness)], dtype=cv.fr) + hc_fr * np.array([int(hiding_rand)], dtype=cv.fr))
+    neg_rand = (-int(combined_rand)) % cv.fr_modulus
+    mod_commitment = curve.pedersen_commit(
+        cv, [combined_commitment, hiding_commitment, s], [1, int(hc), neg_rand])
+
+    l_vec, r_vec, final_comm_key, c = _open_fold(
+        cv, params, svk_h, mod_commitment, point, mod_coeffs, generators)
+    return IpaProof(l_vec, r_vec, final_comm_key, c, hiding_comm=hiding_commitment, rand=int(combined_rand))

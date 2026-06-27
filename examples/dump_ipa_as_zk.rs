@@ -219,6 +219,34 @@ where
     let rlp_commitment = GroupAffine::<P>::deserialize(&mut cur).unwrap();
     let commitment_randomness = P::ScalarField::deserialize(&mut cur).unwrap();
 
+    // The new accumulator's IPA opening (Slice 5c) hides the combined polynomial
+    // with a random `hiding_polynomial` (degree `d`) + `hiding_rand` drawn inside
+    // `IpaPC::open`, which `prove` never returns. `test_rng()` is deterministic, so
+    // a fresh one re-runs the same setup + input draws to reach the same state the
+    // prover entered `open` with, then the prover-randomness + open draws in order.
+    // The self-check below asserts the replayed AS randomness equals the
+    // serialize-recovered values — i.e. the draw schedule is correct, so the
+    // recovered `hiding_polynomial` / `hiding_rand` are too.
+    let mut rep = test_rng();
+    let _ = AS::<P>::setup(&mut rep).unwrap();
+    let _ = IpaPC::<P>::setup(DEGREE, None, &mut rep).unwrap();
+    // AS::index / IpaPC::trim take no rng. The inputs draw their polynomial + point.
+    for _ in 0..NUM_INPUTS {
+        let _ = DensePolynomial::<P::ScalarField>::rand(DEGREE, &mut rep);
+        let _ = P::ScalarField::rand(&mut rep);
+    }
+    // `generate_prover_randomness`: rlp coeff0, coeff1, commitment_randomness.
+    let rep_rlp_0 = P::ScalarField::rand(&mut rep);
+    let rep_rlp_1 = P::ScalarField::rand(&mut rep);
+    let rep_cr = P::ScalarField::rand(&mut rep);
+    assert_eq!(rep_rlp_0, rlp_coeffs[0], "replay schedule: rlp coeff0 mismatch");
+    assert_eq!(rep_rlp_1, rlp_coeffs[1], "replay schedule: rlp coeff1 mismatch");
+    assert_eq!(rep_cr, commitment_randomness, "replay schedule: commitment_randomness mismatch");
+    // `compute_new_accumulator` → `IpaPC::open` (hiding): the raw degree-`d` hiding
+    // polynomial then its blinder (the port applies the `−eval(point)` shift).
+    let hiding_polynomial = DensePolynomial::<P::ScalarField>::rand(DEGREE, &mut rep);
+    let hiding_rand = P::ScalarField::rand(&mut rep);
+
     // The zk decider's size-`d` MSM scalars: the dense `compute_coeffs` of the
     // accumulator's (hiding) succinct check — the decider accepts iff
     // `MSM(ck.comm_key, decider_coeffs) == accumulator.final_comm_key`. These are
@@ -248,6 +276,8 @@ where
     println!("  \"random_linear_polynomial\": {},", fr_list_json(&rlp_coeffs));
     println!("  \"random_linear_polynomial_commitment\": {},", point_json(&rlp_commitment));
     println!("  \"commitment_randomness\": \"{}\",", fe_hex(&commitment_randomness));
+    println!("  \"hiding_polynomial\": {},", fr_list_json(hiding_polynomial.coeffs()));
+    println!("  \"hiding_rand\": \"{}\",", fe_hex(&hiding_rand));
     println!("  \"inputs\": [{}],", inputs_json.join(","));
     println!("  \"accumulator\": {},", accumulator_zk_json(&accumulator.instance));
     println!("  \"decider_coeffs\": {}", fr_list_json(&decider_coeffs));

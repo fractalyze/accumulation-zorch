@@ -131,6 +131,24 @@ def combine_check_polynomials(cv: Curve, addends: list[tuple[int, list[int]]]) -
     return fe_values(combined)
 
 
+def combine_check_polynomials_zk(
+    cv: Curve, addends: list[tuple[int, list[int]]], rlp_coeffs: list[int],
+) -> list[int]:
+    """`combine_succinct_check_polynomials` (zk): the dense combined check
+    polynomial `rlp(X) + Σ lc_challenge_j · h_j(X)` — the no-zk linear combination
+    plus the degree-1 random linear polynomial `rlp(X) = c0 + c1·X` (added into the
+    two low coefficients)."""
+    n = 1 << len(addends[0][1])
+    combined = np.zeros(n, dtype=cv.fr)
+    for lc_challenge, check_poly in addends:
+        coeffs = np.array(ipa_pc.compute_coeffs(cv, check_poly), dtype=cv.fr)
+        combined = combined + np.array([int(lc_challenge)], dtype=cv.fr) * coeffs
+    c0, c1 = _rlp_pair(rlp_coeffs)
+    combined[0] = combined[0] + np.array([c0], dtype=cv.fr)[0]
+    combined[1] = combined[1] + np.array([c1], dtype=cv.fr)[0]
+    return fe_values(combined)
+
+
 def _rlp_pair(rlp_coeffs: list[int]) -> tuple[int, int]:
     """The degree-1 `random_linear_polynomial` coefficients `(c0, c1)`, padded with
     zero to length 2 (arkworks resizes `coeffs` to 2 before absorbing / using
@@ -253,6 +271,28 @@ def prove_zk_instance(
     point = compute_new_challenge_zk(cv, params, combined, addends, rlp_coeffs)
     evaluation = combined_evaluation_zk(cv, addends, point, rlp_coeffs)
     return AccumulatorInstance(randomized, point, evaluation)
+
+
+def prove_zk_accumulator(
+    cv: Curve, params, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
+    succinct_checks: list[SuccinctCheck], rlp_coeffs: list[int], rlp_commitment: np.ndarray,
+    commitment_randomness: int, hiding_poly_raw: list[int], hiding_rand: int,
+) -> Accumulator:  # type: ignore[no-untyped-def]
+    """The full AS zk prove: the instance fields (randomized commitment, new point,
+    evaluation) plus `compute_new_accumulator`'s **hiding** IPA open of the combined
+    check polynomial `rlp(X) + Σ lc_j·h_j(X)` at the new point — the complete new
+    accumulator (with the hiding `ipa_proof`) arkworks `prove` returns. `svk_h` /
+    `s` are the verifier key's IPA fold base / hiding generator; `hiding_poly_raw` /
+    `hiding_rand` are the IPA open's replayed hiding randomness."""
+    _, combined, randomized, addends = combine_zk(
+        cv, params, succinct_checks, rlp_coeffs, rlp_commitment, s, commitment_randomness)
+    point = compute_new_challenge_zk(cv, params, combined, addends, rlp_coeffs)
+    evaluation = combined_evaluation_zk(cv, addends, point, rlp_coeffs)
+    coeffs = combine_check_polynomials_zk(cv, addends, rlp_coeffs)
+    ipa_proof = ipa_pc.open_zk(
+        cv, params, svk_h, s, generators, randomized, point, coeffs,
+        hiding_poly_raw, hiding_rand, commitment_randomness)
+    return Accumulator(randomized, point, evaluation, ipa_proof)
 
 
 def prove_no_zk_accumulator(

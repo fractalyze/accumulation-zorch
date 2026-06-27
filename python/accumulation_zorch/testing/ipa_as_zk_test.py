@@ -102,6 +102,51 @@ def test_as_prove_zk_accumulator_instance_matches_arkworks() -> None:
               f"byte-matches arkworks ({d['num_inputs']} inputs)")
 
 
+def test_as_prove_zk_full_accumulator_matches_arkworks() -> None:
+    """Slice 5c: the FULL new accumulator, including the hiding IPA opening proof
+    (`l_vec`/`r_vec`/`final_comm_key`/`c` + `hiding_comm`/`rand`) produced by the
+    zk `IpaPC::open` fold over the combined check polynomial `rlp(X) + Σ lc_j·h_j(X)`.
+    The open's hiding polynomial + blinder are the fixture's replayed
+    `hiding_polynomial` / `hiding_rand`."""
+    for cv, as_fixture, sponge_fixture in _CURVES:
+        params = _params(cv, sponge_fixture)
+        d = json.loads(as_fixture.read_text())
+        inputs = [_parse_input(cv, inp) for inp in d["inputs"]]
+        svk_h = _point(cv, d["h"])
+        s = _point(cv, d["s"])
+        generators = [_point(cv, g) for g in d["generators"]]
+        rlp_coeffs = [_fr(h) for h in d["random_linear_polynomial"]]
+        rlp_commitment = _point(cv, d["random_linear_polynomial_commitment"])
+        commitment_randomness = _fr(d["commitment_randomness"])
+        hiding_poly = [_fr(h) for h in d["hiding_polynomial"]]
+        hiding_rand = _fr(d["hiding_rand"])
+
+        succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
+        acc = ipa_pc_as.prove_zk_accumulator(
+            cv, params, svk_h, s, generators, succinct_checks, rlp_coeffs, rlp_commitment,
+            commitment_randomness, hiding_poly, hiding_rand)
+        want = d["accumulator"]
+
+        def _pt(p: Any) -> str:
+            return curve.point_to_bytes(cv, p).hex()
+
+        assert _pt(acc.commitment) == _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment"
+        assert cv.fr(acc.point).tobytes().hex() == want["point"], f"[{cv.name}] point"
+        assert cv.fr(acc.evaluation).tobytes().hex() == want["evaluation"], f"[{cv.name}] evaluation"
+        for i, want_l in enumerate(want["l_vec"]):
+            got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
+            assert got == wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}"
+        for i, want_r in enumerate(want["r_vec"]):
+            got, wnt = _pt(acc.ipa_proof.r_vec[i]), _pt(_point(cv, want_r))
+            assert got == wnt, f"[{cv.name}] ipa_proof.r_vec[{i}]: {got} != {wnt}"
+        assert _pt(acc.ipa_proof.final_comm_key) == _pt(_point(cv, want["final_comm_key"])), f"[{cv.name}] final_comm_key"
+        assert cv.fr(acc.ipa_proof.c).tobytes().hex() == want["c"], f"[{cv.name}] c"
+        assert _pt(acc.ipa_proof.hiding_comm) == _pt(_point(cv, want["hiding_comm"])), f"[{cv.name}] hiding_comm"
+        assert cv.fr(acc.ipa_proof.rand).tobytes().hex() == want["rand"], f"[{cv.name}] rand"
+        print(f"  [{cv.name}] full zk AS accumulator (instance + hiding IPA proof: "
+              f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks")
+
+
 def test_decide_zk_size_d_msm_matches_final_comm_key() -> None:
     """Slice 5d (zk Decide): the decider's size-`d` MSM
     `final_key = Σ generators_i · compute_coeffs(zk_succinct_check(acc))_i` must
@@ -146,11 +191,12 @@ def test_decider_coeffs_fixture_matches_port_zk() -> None:
 
 
 def main() -> None:
-    print("slice-5b/5d IPA-PC zk accumulation prove + decide byte-match (Pallas + Vesta):")
+    print("slice-5b/5c/5d IPA-PC zk accumulation prove + decide byte-match (Pallas + Vesta):")
     test_as_prove_zk_accumulator_instance_matches_arkworks()
+    test_as_prove_zk_full_accumulator_matches_arkworks()
     test_decide_zk_size_d_msm_matches_final_comm_key()
     test_decider_coeffs_fixture_matches_port_zk()
-    print("ALL SLICE-5b/5d IPA-PC-AS ZK CHECKS PASSED")
+    print("ALL SLICE-5b/5c/5d IPA-PC-AS ZK CHECKS PASSED")
 
 
 if __name__ == "__main__":
