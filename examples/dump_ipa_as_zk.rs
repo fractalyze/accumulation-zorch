@@ -108,13 +108,18 @@ where
     format!("[{}]", v.join(","))
 }
 
-/// A no-zk `InputInstance` (an AS input) as JSON.
-fn instance_json<P: SWModelParameters>(inst: &InputInstance<GroupAffine<P>>) -> String
+/// An `InputInstance` as JSON. AS inputs pass `hiding = None`; the new accumulator
+/// passes `Some((hiding_comm, rand))` — its hiding IPA opening's two extra fields,
+/// which the port's zk succinct check (and thus the zk decider MSM) reads.
+fn instance_json<P: SWModelParameters>(
+    inst: &InputInstance<GroupAffine<P>>,
+    hiding: Option<(GroupAffine<P>, P::ScalarField)>,
+) -> String
 where
     P::BaseField: PrimeField,
 {
-    format!(
-        "{{\"commitment\":{},\"point\":\"{}\",\"evaluation\":\"{}\",\"l_vec\":{},\"r_vec\":{},\"final_comm_key\":{},\"c\":\"{}\"}}",
+    let mut fields = format!(
+        "\"commitment\":{},\"point\":\"{}\",\"evaluation\":\"{}\",\"l_vec\":{},\"r_vec\":{},\"final_comm_key\":{},\"c\":\"{}\"",
         point_json(&inst.ipa_commitment.commitment().comm),
         fe_hex(&inst.point),
         fe_hex(&inst.evaluation),
@@ -122,25 +127,11 @@ where
         points_json(&inst.ipa_proof.r_vec),
         point_json(&inst.ipa_proof.final_comm_key),
         fe_hex(&inst.ipa_proof.c),
-    )
-}
-
-/// The new accumulator (zk) as JSON: the `instance_json` fields PLUS its hiding
-/// IPA opening's `hiding_comm` / `rand` — the two extra inputs the port's zk
-/// succinct check (and thus the zk decider MSM) reads off the accumulator.
-fn accumulator_zk_json<P: SWModelParameters>(inst: &InputInstance<GroupAffine<P>>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    let base = instance_json(inst);
-    let hiding_comm = inst.ipa_proof.hiding_comm.expect("zk accumulator has hiding_comm");
-    let rand = inst.ipa_proof.rand.expect("zk accumulator has rand");
-    format!(
-        "{},\"hiding_comm\":{},\"rand\":\"{}\"}}",
-        &base[..base.len() - 1], // drop the closing brace to append the hiding fields
-        point_json(&hiding_comm),
-        fe_hex(&rand),
-    )
+    );
+    if let Some((hiding_comm, rand)) = hiding {
+        fields += &format!(",\"hiding_comm\":{},\"rand\":\"{}\"", point_json(&hiding_comm), fe_hex(&rand));
+    }
+    format!("{{{}}}", fields)
 }
 
 fn dump<P>(curve: &str)
@@ -263,7 +254,12 @@ where
     .expect("accumulator hiding opening must verify");
     let decider_coeffs = acc_check_poly.compute_coeffs();
 
-    let inputs_json: Vec<String> = inputs.iter().map(|inp| instance_json(&inp.instance)).collect();
+    let inputs_json: Vec<String> =
+        inputs.iter().map(|inp| instance_json(&inp.instance, None)).collect();
+    let acc_hiding = (
+        acc_inst.ipa_proof.hiding_comm.expect("zk accumulator has hiding_comm"),
+        acc_inst.ipa_proof.rand.expect("zk accumulator has rand"),
+    );
 
     println!("{{");
     println!("  \"note\": \"IPA-PC accumulation prove (zk) fixtures ({} curve)\",", curve);
@@ -279,7 +275,7 @@ where
     println!("  \"hiding_polynomial\": {},", fr_list_json(hiding_polynomial.coeffs()));
     println!("  \"hiding_rand\": \"{}\",", fe_hex(&hiding_rand));
     println!("  \"inputs\": [{}],", inputs_json.join(","));
-    println!("  \"accumulator\": {},", accumulator_zk_json(&accumulator.instance));
+    println!("  \"accumulator\": {},", instance_json(acc_inst, Some(acc_hiding)));
     println!("  \"decider_coeffs\": {}", fr_list_json(&decider_coeffs));
     println!("}}");
 }

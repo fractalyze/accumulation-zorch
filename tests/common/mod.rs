@@ -50,7 +50,7 @@ where
     GroupAffine::<C::Params>::new(x, y, false)
 }
 
-fn fr_vec<C: PastaCurve>(arr: &Value) -> Vec<Fr<C>> {
+pub fn fr_vec<C: PastaCurve>(arr: &Value) -> Vec<Fr<C>> {
     arr.as_array().unwrap().iter().map(|h| fr_from_hex::<C>(h.as_str().unwrap())).collect()
 }
 

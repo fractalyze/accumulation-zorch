@@ -36,7 +36,7 @@ import numpy as np
 
 from . import absorbable, curve, ipa_pc, sponge
 from .curve import Curve
-from .field import fe_values
+from .field import fe_values, fr_add, fr_mul
 
 # ark `ipa_pc_as` AS-level domain (`ASForIpaPCDomain`).
 AS_DOMAIN = b"AS-FOR-IPA-PC-2020"
@@ -138,11 +138,7 @@ def combine_check_polynomials_zk(
     polynomial `rlp(X) + Σ lc_challenge_j · h_j(X)` — the no-zk linear combination
     plus the degree-1 random linear polynomial `rlp(X) = c0 + c1·X` (added into the
     two low coefficients)."""
-    n = 1 << len(addends[0][1])
-    combined = np.zeros(n, dtype=cv.fr)
-    for lc_challenge, check_poly in addends:
-        coeffs = np.array(ipa_pc.compute_coeffs(cv, check_poly), dtype=cv.fr)
-        combined = combined + np.array([int(lc_challenge)], dtype=cv.fr) * coeffs
+    combined = np.array(combine_check_polynomials(cv, addends), dtype=cv.fr)
     c0, c1 = _rlp_pair(rlp_coeffs)
     combined[0] = combined[0] + np.array([c0], dtype=cv.fr)[0]
     combined[1] = combined[1] + np.array([c1], dtype=cv.fr)[0]
@@ -215,15 +211,11 @@ def combined_evaluation_zk(
     cv: Curve, addends: list[tuple[int, list[int]]], point: int, rlp_coeffs: list[int],
 ) -> int:
     """`combined_check_polynomial.evaluate(point)` (zk) = `rlp(point) + Σ lc_j·h_j
-    (point)` — the combined check polynomial now includes the degree-1 random
-    linear polynomial `rlp(X) = c0 + c1·X`."""
+    (point)` — the no-zk linear combination plus the degree-1 random linear
+    polynomial `rlp(X) = c0 + c1·X` evaluated at the point."""
     c0, c1 = _rlp_pair(rlp_coeffs)
-    acc = (np.array([c0], dtype=cv.fr)
-           + np.array([c1], dtype=cv.fr) * np.array([int(point)], dtype=cv.fr))
-    for lc_challenge, check_poly in addends:
-        h_at_point = np.array([ipa_pc.evaluate(cv, check_poly, point)], dtype=cv.fr)
-        acc = acc + np.array([int(lc_challenge)], dtype=cv.fr) * h_at_point
-    return int(np.asarray(acc[0]).astype(object))
+    rlp_eval = fr_add(cv, c0, fr_mul(cv, c1, point))
+    return fr_add(cv, combined_evaluation(cv, addends, point), rlp_eval)
 
 
 class AccumulatorInstance(NamedTuple):

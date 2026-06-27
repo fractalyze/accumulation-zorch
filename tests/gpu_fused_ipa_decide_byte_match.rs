@@ -30,7 +30,7 @@ use accumulation_zorch::gpu::{Pallas, PastaCurve, Vesta};
 use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
 use ark_ff::PrimeField;
-use common::{fr_from_hex, point_from_json};
+use common::{fr_vec, point_from_json};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -58,12 +58,7 @@ where
     // `final_comm_key` it must reproduce.
     let generators: Vec<Affine<C>> =
         d["generators"].as_array().unwrap().iter().map(point_from_json::<C>).collect();
-    let coeffs: Vec<Fr<C>> = d["decider_coeffs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|h| fr_from_hex::<C>(h.as_str().unwrap()))
-        .collect();
+    let coeffs: Vec<Fr<C>> = fr_vec::<C>(&d["decider_coeffs"]);
     let want = point_from_json::<C>(&d["accumulator"]["final_comm_key"]);
 
     let mlirbc = std::fs::read(artifacts.join(artifact))
