@@ -37,9 +37,10 @@ Run (from the repo's `python/` dir, in the accumulation-zorch venv):
 
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
+
+from absl.testing import absltest
 
 from accumulation_zorch import curve, nark, sponge
 
@@ -87,29 +88,26 @@ def _prove(d: Any) -> nark.NarkZkProof:
     )
 
 
-def test_recursion_nark_zk_proof_matches_arkworks() -> None:
-    d = _load()
-    proof = nark.serialize_zk_proof(cv, _prove(d))
-    assert proof.hex() == d["proof_hex"], (
-        f"[vesta] recursion zk NARK proof diverged "
-        f"(got {len(proof)}B, want {len(d['proof_hex'])//2}B)"
-    )
-    print(
-        f"  [vesta] recursion zk NARK proof byte-matches arkworks "
-        f"({d['num_constraints']} constraints, {d['num_vars']} vars, {len(proof)} bytes)"
-    )
+class RecursionNarkZkTest(absltest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        if not _FIXTURE.exists():
+            self.skipTest(
+                f"no fixture at {_FIXTURE} "
+                "(generate it: cargo test --features recursion --test recursion_step dump_recursion_nark_zk)")
 
-
-def main() -> None:
-    print("slice-3 recursion-circuit zk NARK prove byte-match (Vesta, unforked sponge):")
-    if not _FIXTURE.exists():
-        print(f"  SKIP — no fixture at {_FIXTURE}")
-        print("  (generate it: cargo test --features recursion --test recursion_step dump_recursion_nark_zk)")
-        return
-    test_recursion_nark_zk_proof_matches_arkworks()
-    print("SLICE-3 RECURSION NARK-ZK CHECK PASSED")
+    def test_recursion_nark_zk_proof_matches_arkworks(self) -> None:
+        d = _load()
+        proof = nark.serialize_zk_proof(cv, _prove(d))
+        self.assertEqual(proof.hex(), d["proof_hex"], (
+            f"[vesta] recursion zk NARK proof diverged "
+            f"(got {len(proof)}B, want {len(d['proof_hex'])//2}B)"
+        ))
+        print(
+            f"  [vesta] recursion zk NARK proof byte-matches arkworks "
+            f"({d['num_constraints']} constraints, {d['num_vars']} vars, {len(proof)} bytes)"
+        )
 
 
 if __name__ == "__main__":
-    main()
-    sys.exit(0)
+    absltest.main()

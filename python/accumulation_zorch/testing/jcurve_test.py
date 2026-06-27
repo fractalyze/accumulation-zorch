@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from absl.testing import absltest
 
 from accumulation_zorch import curve, jcurve
 
@@ -63,22 +64,17 @@ def _load() -> Any:
     return d, a_dense, z, bases
 
 
-def test_jit_commitment_matches_arkworks_comm_a() -> None:
-    """`comm_a = commit(A·z)` via the jit `M·z`-then-`lax.msm` core byte-matches
-    the arkworks-pinned `comm_a` (the leading 33B of the no-zk NARK proof)."""
-    d, a_dense, z, bases = _load()
-    want_hex = d["proof_hex"][0:66]  # comm_a = first 33B of the proof
-    point = jcurve.commit_dense(a_dense, z, bases)
-    got_hex = curve.point_to_bytes(cv, np.asarray(point)).hex()
-    assert got_hex == want_hex, f"comm_a: got {got_hex} want {want_hex}"
-    print(f"  jit commit(A·z) byte-matches arkworks comm_a ({len(got_hex)//2} bytes)")
-
-
-def main() -> None:
-    print("slice-1 jit-commitment tracer byte-match:")
-    test_jit_commitment_matches_arkworks_comm_a()
-    print("SLICE-1 TRACER PASSED")
+class JcurveTest(absltest.TestCase):
+    def test_jit_commitment_matches_arkworks_comm_a(self) -> None:
+        """`comm_a = commit(A·z)` via the jit `M·z`-then-`lax.msm` core byte-matches
+        the arkworks-pinned `comm_a` (the leading 33B of the no-zk NARK proof)."""
+        d, a_dense, z, bases = _load()
+        want_hex = d["proof_hex"][0:66]  # comm_a = first 33B of the proof
+        point = jcurve.commit_dense(a_dense, z, bases)
+        got_hex = curve.point_to_bytes(cv, np.asarray(point)).hex()
+        self.assertEqual(got_hex, want_hex, f"comm_a: got {got_hex} want {want_hex}")
+        print(f"  jit commit(A·z) byte-matches arkworks comm_a ({len(got_hex)//2} bytes)")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

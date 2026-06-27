@@ -29,9 +29,10 @@ Run (from the repo's `python/` dir, in the accumulation-zorch venv):
 
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
+
+from absl.testing import absltest
 
 from accumulation_zorch import curve, nark
 
@@ -65,50 +66,45 @@ def _load() -> Any:
     return d, a, b, c, input_, witness, generators
 
 
-def test_recursion_nark_no_zk_proof_matches_arkworks() -> None:
-    d, a, b, c, input_, witness, generators = _load()
-    proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
-    got = proof.hex()
-    assert got == d["proof_hex"], (
-        f"[vesta] recursion NARK proof diverged "
-        f"(got {len(got)//2}B, want {len(d['proof_hex'])//2}B)"
-    )
-    print(
-        f"  [vesta] recursion no-zk NARK proof byte-matches arkworks "
-        f"({d['num_constraints']} constraints, {d['num_vars']} vars, {len(proof)} bytes)"
-    )
+class RecursionNarkTest(absltest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        if not _FIXTURE.exists():
+            self.skipTest(
+                f"no fixture at {_FIXTURE} "
+                "(generate it: cargo test --features recursion --test recursion_step dump_recursion_nark)")
 
+    def test_recursion_nark_no_zk_proof_matches_arkworks(self) -> None:
+        d, a, b, c, input_, witness, generators = _load()
+        proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
+        got = proof.hex()
+        self.assertEqual(got, d["proof_hex"], (
+            f"[vesta] recursion NARK proof diverged "
+            f"(got {len(got)//2}B, want {len(d['proof_hex'])//2}B)"
+        ))
+        print(
+            f"  [vesta] recursion no-zk NARK proof byte-matches arkworks "
+            f"({d['num_constraints']} constraints, {d['num_vars']} vars, {len(proof)} bytes)"
+        )
 
-def test_recursion_nark_no_zk_fused_proof_matches_arkworks() -> None:
-    """The fused on-device variant at recursion scale: `prove_no_zk_fused` reduces
-    `M·z` **in-trace** via `jfield.sparse_matvec` (`segment_sum` over the ~140K
-    sparse nonzeros) instead of host-side, and commits with `lax.msm`. This is the
-    Slice-3 criterion — the export-shaped no-zk NARK core byte-matches the golden
-    at the real ~22.5K-constraint scale, so the GPU export (next) reproduces the
-    crate's `R1CSNark::prove`."""
-    d, a, b, c, input_, witness, generators = _load()
-    proof = nark.prove_no_zk_fused(cv, a, b, c, input_, witness, generators)
-    assert proof.hex() == d["proof_hex"], (
-        f"[vesta] fused recursion NARK proof diverged from arkworks "
-        f"(got {len(proof)}B, want {len(d['proof_hex'])//2}B)"
-    )
-    print(
-        f"  [vesta] fused (on-device sparse M·z) recursion no-zk NARK proof "
-        f"byte-matches arkworks ({d['num_constraints']} constraints, {len(proof)} bytes)"
-    )
-
-
-def main() -> None:
-    print("slice-2/3 recursion-circuit NARK no-zk prove byte-match (Vesta):")
-    if not _FIXTURE.exists():
-        print(f"  SKIP — no fixture at {_FIXTURE}")
-        print("  (generate it: cargo test --features recursion --test recursion_step dump_recursion_nark)")
-        return
-    test_recursion_nark_no_zk_proof_matches_arkworks()
-    test_recursion_nark_no_zk_fused_proof_matches_arkworks()
-    print("SLICE-2/3 RECURSION NARK CHECKS PASSED")
+    def test_recursion_nark_no_zk_fused_proof_matches_arkworks(self) -> None:
+        """The fused on-device variant at recursion scale: `prove_no_zk_fused` reduces
+        `M·z` **in-trace** via `jfield.sparse_matvec` (`segment_sum` over the ~140K
+        sparse nonzeros) instead of host-side, and commits with `lax.msm`. This is the
+        Slice-3 criterion — the export-shaped no-zk NARK core byte-matches the golden
+        at the real ~22.5K-constraint scale, so the GPU export (next) reproduces the
+        crate's `R1CSNark::prove`."""
+        d, a, b, c, input_, witness, generators = _load()
+        proof = nark.prove_no_zk_fused(cv, a, b, c, input_, witness, generators)
+        self.assertEqual(proof.hex(), d["proof_hex"], (
+            f"[vesta] fused recursion NARK proof diverged from arkworks "
+            f"(got {len(proof)}B, want {len(d['proof_hex'])//2}B)"
+        ))
+        print(
+            f"  [vesta] fused (on-device sparse M·z) recursion no-zk NARK proof "
+            f"byte-matches arkworks ({d['num_constraints']} constraints, {len(proof)} bytes)"
+        )
 
 
 if __name__ == "__main__":
-    main()
-    sys.exit(0)
+    absltest.main()

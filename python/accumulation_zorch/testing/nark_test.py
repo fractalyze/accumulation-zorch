@@ -24,6 +24,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from absl.testing import absltest
+
 from accumulation_zorch import curve, nark
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
@@ -58,54 +60,45 @@ def _load(cv: curve.Curve, fixture: Path) -> Any:
     return d, a, b, c, input_, witness, generators
 
 
-def test_nark_no_zk_proof_matches_arkworks() -> None:
-    for cv, fixture in _CURVES:
-        d, a, b, c, input_, witness, generators = _load(cv, fixture)
-        proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
-        got = proof.hex()
-        assert got == d["proof_hex"], f"[{cv.name}] NARK proof:\n got  {got}\n want {d['proof_hex']}"
-        assert len(proof) == len(d["proof_hex"]) // 2
-        print(f"  [{cv.name}] no-zk NARK proof byte-matches arkworks ({len(proof)} bytes)")
+class NarkTest(absltest.TestCase):
+    def test_nark_no_zk_proof_matches_arkworks(self) -> None:
+        for cv, fixture in _CURVES:
+            d, a, b, c, input_, witness, generators = _load(cv, fixture)
+            proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
+            got = proof.hex()
+            self.assertEqual(got, d["proof_hex"], f"[{cv.name}] NARK proof:\n got  {got}\n want {d['proof_hex']}")
+            self.assertEqual(len(proof), len(d["proof_hex"]) // 2)
+            print(f"  [{cv.name}] no-zk NARK proof byte-matches arkworks ({len(proof)} bytes)")
 
+    def test_first_round_commitments_match_arkworks(self) -> None:
+        """Per-commitment anchors: each first-round commitment is one 33B field of
+        the proof, so a mismatch localizes to that matrix's matrix_vec_mul + commit."""
+        for cv, fixture in _CURVES:
+            d, a, b, c, input_, witness, generators = _load(cv, fixture)
+            want = d["proof_hex"]
+            comms = {
+                "comm_a": (a, want[0:66]),
+                "comm_b": (b, want[66:132]),
+                "comm_c": (c, want[132:198]),
+            }
+            for name, (matrix, want_hex) in comms.items():
+                z = nark.matrix_vec_mul(cv, matrix, input_, witness)
+                got_hex = curve.point_to_bytes(cv, curve.pedersen_commit(cv, generators, z)).hex()
+                self.assertEqual(got_hex, want_hex, f"[{cv.name}] {name}: {got_hex} != {want_hex}")
+                print(f"  [{cv.name}] {name} = commit(M·z) byte-matches OK")
 
-def test_first_round_commitments_match_arkworks() -> None:
-    """Per-commitment anchors: each first-round commitment is one 33B field of
-    the proof, so a mismatch localizes to that matrix's matrix_vec_mul + commit."""
-    for cv, fixture in _CURVES:
-        d, a, b, c, input_, witness, generators = _load(cv, fixture)
-        want = d["proof_hex"]
-        comms = {
-            "comm_a": (a, want[0:66]),
-            "comm_b": (b, want[66:132]),
-            "comm_c": (c, want[132:198]),
-        }
-        for name, (matrix, want_hex) in comms.items():
-            z = nark.matrix_vec_mul(cv, matrix, input_, witness)
-            got_hex = curve.point_to_bytes(cv, curve.pedersen_commit(cv, generators, z)).hex()
-            assert got_hex == want_hex, f"[{cv.name}] {name}: {got_hex} != {want_hex}"
-            print(f"  [{cv.name}] {name} = commit(M·z) byte-matches OK")
-
-
-def test_no_zk_fused_proof_matches_arkworks() -> None:
-    """The fused on-device variant (`prove_no_zk_fused`) reduces `M·z` in-trace
-    from the sparse COO (`jfield.sparse_matvec`) instead of host-side, so this is
-    the toy-scale regression that the on-device sparse reduce is byte-correct
-    before scaling it to the recursion circuit."""
-    for cv, fixture in _CURVES:
-        d, a, b, c, input_, witness, generators = _load(cv, fixture)
-        proof = nark.prove_no_zk_fused(cv, a, b, c, input_, witness, generators)
-        assert proof.hex() == d["proof_hex"], (
-            f"[{cv.name}] fused no-zk NARK proof diverged from host-side")
-        print(f"  [{cv.name}] fused (on-device sparse M·z) no-zk NARK proof byte-matches arkworks")
-
-
-def main() -> None:
-    print("slice-3 NARK no-zk prove byte-match (Pallas + Vesta):")
-    test_first_round_commitments_match_arkworks()
-    test_nark_no_zk_proof_matches_arkworks()
-    test_no_zk_fused_proof_matches_arkworks()
-    print("ALL SLICE-3 NARK CHECKS PASSED")
+    def test_no_zk_fused_proof_matches_arkworks(self) -> None:
+        """The fused on-device variant (`prove_no_zk_fused`) reduces `M·z` in-trace
+        from the sparse COO (`jfield.sparse_matvec`) instead of host-side, so this is
+        the toy-scale regression that the on-device sparse reduce is byte-correct
+        before scaling it to the recursion circuit."""
+        for cv, fixture in _CURVES:
+            d, a, b, c, input_, witness, generators = _load(cv, fixture)
+            proof = nark.prove_no_zk_fused(cv, a, b, c, input_, witness, generators)
+            self.assertEqual(proof.hex(), d["proof_hex"], (
+                f"[{cv.name}] fused no-zk NARK proof diverged from host-side"))
+            print(f"  [{cv.name}] fused (on-device sparse M·z) no-zk NARK proof byte-matches arkworks")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

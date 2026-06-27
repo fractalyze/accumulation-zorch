@@ -17,6 +17,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from absl.testing import absltest
+
 from accumulation_zorch import curve, r1cs_nark_as, sponge
 
 cv = curve.PALLAS
@@ -65,46 +67,39 @@ def _prove(d: Any, a: Any, b: Any, c: Any, generators: Any, s: Any) -> tuple[byt
     )
 
 
-def test_as_zk_prove_matches_arkworks() -> None:
-    d, a, b, c, generators = _load()
-    for s in d["seeds"]:
-        seed = s["seed"]
+class AsZkTest(absltest.TestCase):
+    def test_as_zk_prove_matches_arkworks(self) -> None:
+        d, a, b, c, generators = _load()
+        for s in d["seeds"]:
+            seed = s["seed"]
+            acc_instance, acc_witness, proof = _prove(d, a, b, c, generators, s)
+            self.assertEqual(acc_instance.hex(), s["acc_instance_hex"], (
+                f"seed {seed} acc.instance:\n got  {acc_instance.hex()}\n want {s['acc_instance_hex']}"
+            ))
+            self.assertEqual(acc_witness.hex(), s["acc_witness_hex"], (
+                f"seed {seed} acc.witness:\n got  {acc_witness.hex()}\n want {s['acc_witness_hex']}"
+            ))
+            self.assertEqual(proof.hex(), s["proof_hex"], (
+                f"seed {seed} proof:\n got  {proof.hex()}\n want {s['proof_hex']}"
+            ))
+            print(f"  seed {seed}: (acc.instance {len(acc_instance)}B ‖ acc.witness "
+                  f"{len(acc_witness)}B ‖ proof {len(proof)}B) byte-matches arkworks")
+
+    def test_mutation_breaks_match(self) -> None:
+        """Perturbing the NARK witness-blinder r must change the output."""
+        d, a, b, c, generators = _load()
+        s = dict(d["seeds"][0])
+        bad_r = list(s["r"])
+        bad = bytearray(bytes.fromhex(bad_r[0]))
+        bad[0] ^= 0x01
+        bad_r[0] = bytes(bad).hex()
+        s["r"] = bad_r
         acc_instance, acc_witness, proof = _prove(d, a, b, c, generators, s)
-        assert acc_instance.hex() == s["acc_instance_hex"], (
-            f"seed {seed} acc.instance:\n got  {acc_instance.hex()}\n want {s['acc_instance_hex']}"
-        )
-        assert acc_witness.hex() == s["acc_witness_hex"], (
-            f"seed {seed} acc.witness:\n got  {acc_witness.hex()}\n want {s['acc_witness_hex']}"
-        )
-        assert proof.hex() == s["proof_hex"], (
-            f"seed {seed} proof:\n got  {proof.hex()}\n want {s['proof_hex']}"
-        )
-        print(f"  seed {seed}: (acc.instance {len(acc_instance)}B ‖ acc.witness "
-              f"{len(acc_witness)}B ‖ proof {len(proof)}B) byte-matches arkworks")
-
-
-def test_mutation_breaks_match() -> None:
-    """Perturbing the NARK witness-blinder r must change the output."""
-    d, a, b, c, generators = _load()
-    s = dict(d["seeds"][0])
-    bad_r = list(s["r"])
-    bad = bytearray(bytes.fromhex(bad_r[0]))
-    bad[0] ^= 0x01
-    bad_r[0] = bytes(bad).hex()
-    s["r"] = bad_r
-    acc_instance, acc_witness, proof = _prove(d, a, b, c, generators, s)
-    full = (acc_instance + acc_witness + proof).hex()
-    g = d["seeds"][0]
-    assert full != g["acc_instance_hex"] + g["acc_witness_hex"] + g["proof_hex"], "mutation no-op"
-    print("  mutation check: a perturbed NARK blinder diverges from the golden bytes")
-
-
-def main() -> None:
-    print("slice-6c zk R1CS-NARK-AS prove end-to-end byte-match:")
-    test_as_zk_prove_matches_arkworks()
-    test_mutation_breaks_match()
-    print("ALL SLICE-6c AS-ZK CHECKS PASSED")
+        full = (acc_instance + acc_witness + proof).hex()
+        g = d["seeds"][0]
+        self.assertNotEqual(full, g["acc_instance_hex"] + g["acc_witness_hex"] + g["proof_hex"], "mutation no-op")
+        print("  mutation check: a perturbed NARK blinder diverges from the golden bytes")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

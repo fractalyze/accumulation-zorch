@@ -27,6 +27,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+from absl.testing import absltest
 
 from accumulation_zorch import absorbable, curve, jcurve, nark, sponge
 
@@ -58,79 +59,64 @@ def _point_from_fixture(p: Any) -> Any:
     return cv.g1((x, y))
 
 
-def test_identity_point_packs_as_0_1_1() -> None:
-    want = json.loads(_ABSORB.read_text())["identity_to_field_elements_le_hex"]
-    fes = np.asarray(absorbable.point_to_field_array(cv, cv.g1((0, 0))))
-    got = [fes[i].tobytes().hex() for i in range(fes.shape[0])]
-    assert got == want, f"identity packing: {got} != {want}"
-    print("  identity point packs as [0, 1, 1] (arkworks Affine::zero) OK")
+class AbsorbTest(absltest.TestCase):
+    def test_identity_point_packs_as_0_1_1(self) -> None:
+        want = json.loads(_ABSORB.read_text())["identity_to_field_elements_le_hex"]
+        fes = np.asarray(absorbable.point_to_field_array(cv, cv.g1((0, 0))))
+        got = [fes[i].tobytes().hex() for i in range(fes.shape[0])]
+        self.assertEqual(got, want, f"identity packing: {got} != {want}")
+        print("  identity point packs as [0, 1, 1] (arkworks Affine::zero) OK")
 
+    def test_fork_matches_arkworks(self) -> None:
+        data = json.loads(_ABSORB.read_text())
+        params = _params()
+        for case in data["fork"]:
+            sp = absorbable.fork(cv, sponge.new_sponge(params), bytes.fromhex(case["domain_hex"]))
+            self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"fork {case['domain_utf8']}")
+            print(f"  fork({case['domain_utf8']}) OK")
 
-def test_fork_matches_arkworks() -> None:
-    data = json.loads(_ABSORB.read_text())
-    params = _params()
-    for case in data["fork"]:
-        sp = absorbable.fork(cv, sponge.new_sponge(params), bytes.fromhex(case["domain_hex"]))
-        assert _squeeze_hex(sp, 2) == case["squeeze"], f"fork {case['domain_utf8']}"
-        print(f"  fork({case['domain_utf8']}) OK")
+    def test_bytes_absorb_matches_arkworks(self) -> None:
+        data = json.loads(_ABSORB.read_text())
+        params = _params()
+        for case in data["bytes_absorb"]:
+            sp = absorbable.absorb_bytes(cv, sponge.new_sponge(params), bytes.fromhex(case["data_hex"]))
+            self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"bytes_absorb len={case['len']}")
+            print(f"  &[u8] absorb (len={case['len']}) OK")
 
+    def test_point_absorb_matches_arkworks(self) -> None:
+        data = json.loads(_ABSORB.read_text())
+        params = _params()
+        for case in data["point_absorb"]:
+            sp = sponge.new_sponge(params)
+            for p in case["points"]:
+                sp = absorbable.absorb_point(cv, sp, _point_from_fixture(p))
+            self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"point_absorb {case['label']}")
+            print(f"  point absorb ({case['label']}) OK")
 
-def test_bytes_absorb_matches_arkworks() -> None:
-    data = json.loads(_ABSORB.read_text())
-    params = _params()
-    for case in data["bytes_absorb"]:
-        sp = absorbable.absorb_bytes(cv, sponge.new_sponge(params), bytes.fromhex(case["data_hex"]))
-        assert _squeeze_hex(sp, 2) == case["squeeze"], f"bytes_absorb len={case['len']}"
-        print(f"  &[u8] absorb (len={case['len']}) OK")
+    def test_point_to_field_array_jax_matches_host(self) -> None:
+        """The in-jit batched affine short-Weierstrass point packing reproduces the
+        host `point_to_field_array` concatenation byte-for-byte, including the
+        arkworks identity `[0, 1, 1]` convention (the all-zero point in the batch)."""
+        g = json.loads(_ABSORB.read_text())["gamma"]
+        points = [_point_from_fixture(c) for c in g["comms"]] + [cv.g1((0, 0))]
+        host = np.concatenate([absorbable.point_to_field_array(cv, p) for p in points])
+        pack = jax.jit(lambda pts: absorbable.point_to_field_array_jax(cv, pts))
+        got = np.asarray(pack(jcurve.stack_affine(cv, points)))
+        self.assertEqual(host.tobytes(), got.tobytes(), "in-jit point packing != host packing")
+        print("  point_to_field_array_jax byte-matches host (incl identity) OK")
 
-
-def test_point_absorb_matches_arkworks() -> None:
-    data = json.loads(_ABSORB.read_text())
-    params = _params()
-    for case in data["point_absorb"]:
-        sp = sponge.new_sponge(params)
-        for p in case["points"]:
-            sp = absorbable.absorb_point(cv, sp, _point_from_fixture(p))
-        assert _squeeze_hex(sp, 2) == case["squeeze"], f"point_absorb {case['label']}"
-        print(f"  point absorb ({case['label']}) OK")
-
-
-def test_point_to_field_array_jax_matches_host() -> None:
-    """The in-jit batched affine short-Weierstrass point packing reproduces the
-    host `point_to_field_array` concatenation byte-for-byte, including the
-    arkworks identity `[0, 1, 1]` convention (the all-zero point in the batch)."""
-    g = json.loads(_ABSORB.read_text())["gamma"]
-    points = [_point_from_fixture(c) for c in g["comms"]] + [cv.g1((0, 0))]
-    host = np.concatenate([absorbable.point_to_field_array(cv, p) for p in points])
-    pack = jax.jit(lambda pts: absorbable.point_to_field_array_jax(cv, pts))
-    got = np.asarray(pack(jcurve.stack_affine(cv, points)))
-    assert host.tobytes() == got.tobytes(), "in-jit point packing != host packing"
-    print("  point_to_field_array_jax byte-matches host (incl identity) OK")
-
-
-def test_gamma_challenge_matches_arkworks() -> None:
-    g = json.loads(_ABSORB.read_text())["gamma"]
-    params = _params()
-    matrices_hash = bytes.fromhex(g["matrices_hash_hex"])
-    inputs = [int.from_bytes(bytes.fromhex(h), "little") for h in g["inputs_le_hex"]]
-    comms = [_point_from_fixture(c) for c in g["comms"]]
-    assert g["randomness"] is None, "this slice ports the no-zk gamma only"
-    gamma = nark.compute_challenge(cv, params, matrices_hash, inputs, comms, randomness=None)
-    got = cv.fr(gamma).tobytes().hex()
-    assert got == g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}"
-    print("  NARK gamma challenge byte-matches R1CSNark::compute_challenge OK")
-
-
-def main() -> None:
-    print("slice-2b Absorbable + fork + gamma byte-match:")
-    test_identity_point_packs_as_0_1_1()
-    test_fork_matches_arkworks()
-    test_bytes_absorb_matches_arkworks()
-    test_point_absorb_matches_arkworks()
-    test_point_to_field_array_jax_matches_host()
-    test_gamma_challenge_matches_arkworks()
-    print("ALL SLICE-2B ABSORBABLE CHECKS PASSED")
+    def test_gamma_challenge_matches_arkworks(self) -> None:
+        g = json.loads(_ABSORB.read_text())["gamma"]
+        params = _params()
+        matrices_hash = bytes.fromhex(g["matrices_hash_hex"])
+        inputs = [int.from_bytes(bytes.fromhex(h), "little") for h in g["inputs_le_hex"]]
+        comms = [_point_from_fixture(c) for c in g["comms"]]
+        self.assertIsNone(g["randomness"], "this slice ports the no-zk gamma only")
+        gamma = nark.compute_challenge(cv, params, matrices_hash, inputs, comms, randomness=None)
+        got = cv.fr(gamma).tobytes().hex()
+        self.assertEqual(got, g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}")
+        print("  NARK gamma challenge byte-matches R1CSNark::compute_challenge OK")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

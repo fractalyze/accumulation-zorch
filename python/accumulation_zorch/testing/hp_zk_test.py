@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from absl.testing import absltest
+
 from accumulation_zorch import curve, hp_as, sponge
 
 cv = curve.PALLAS
@@ -53,47 +55,40 @@ def _prove(d: Any) -> Any:
     )
 
 
-def test_hp_zk_prove_matches_arkworks() -> None:
-    d = json.loads(_HP_ZK.read_text())
-    instance, witness, low, high, hiding_comms = _prove(d)
+class HpZkTest(absltest.TestCase):
+    def test_hp_zk_prove_matches_arkworks(self) -> None:
+        d = json.loads(_HP_ZK.read_text())
+        instance, witness, low, high, hiding_comms = _prove(d)
 
-    acc_inst = hp_as.serialize_instance(cv, instance)
-    assert acc_inst.hex() == d["acc_instance_hex"], (
-        f"zk HP acc.instance:\n got  {acc_inst.hex()}\n want {d['acc_instance_hex']}"
-    )
-    print(f"  zk HP accumulator instance byte-matches arkworks ({len(acc_inst)} bytes)")
+        acc_inst = hp_as.serialize_instance(cv, instance)
+        self.assertEqual(acc_inst.hex(), d["acc_instance_hex"], (
+            f"zk HP acc.instance:\n got  {acc_inst.hex()}\n want {d['acc_instance_hex']}"
+        ))
+        print(f"  zk HP accumulator instance byte-matches arkworks ({len(acc_inst)} bytes)")
 
-    acc_wit = hp_as.serialize_witness_zk(cv, witness)
-    assert acc_wit.hex() == d["acc_witness_hex"], (
-        f"zk HP acc.witness:\n got  {acc_wit.hex()}\n want {d['acc_witness_hex']}"
-    )
-    print(f"  zk HP accumulator witness byte-matches arkworks ({len(acc_wit)} bytes)")
+        acc_wit = hp_as.serialize_witness_zk(cv, witness)
+        self.assertEqual(acc_wit.hex(), d["acc_witness_hex"], (
+            f"zk HP acc.witness:\n got  {acc_wit.hex()}\n want {d['acc_witness_hex']}"
+        ))
+        print(f"  zk HP accumulator witness byte-matches arkworks ({len(acc_wit)} bytes)")
 
-    proof = hp_as.serialize_proof_zk(cv, low, high, hiding_comms)
-    assert proof.hex() == d["proof_hex"], (
-        f"zk HP proof:\n got  {proof.hex()}\n want {d['proof_hex']}"
-    )
-    print(f"  zk HP proof byte-matches arkworks ({len(proof)} bytes, low={len(low)} high={len(high)})")
+        proof = hp_as.serialize_proof_zk(cv, low, high, hiding_comms)
+        self.assertEqual(proof.hex(), d["proof_hex"], (
+            f"zk HP proof:\n got  {proof.hex()}\n want {d['proof_hex']}"
+        ))
+        print(f"  zk HP proof byte-matches arkworks ({len(proof)} bytes, low={len(low)} high={len(high)})")
 
-
-def test_mutation_breaks_match() -> None:
-    """Perturbing the prover's hiding-a randomness must change the output."""
-    d = dict(json.loads(_HP_ZK.read_text()))
-    bad = bytearray(bytes.fromhex(d["hiding_a"]))
-    bad[0] ^= 0x01
-    d["hiding_a"] = bytes(bad).hex()
-    _instance, _witness, low, high, hiding_comms = _prove(d)
-    proof = hp_as.serialize_proof_zk(cv, low, high, hiding_comms)
-    assert proof.hex() != json.loads(_HP_ZK.read_text())["proof_hex"], "mutation did not change the proof"
-    print("  mutation check: a perturbed hiding randomness diverges from the golden")
-
-
-def main() -> None:
-    print("slice-6b zk HP-AS prove byte-match:")
-    test_hp_zk_prove_matches_arkworks()
-    test_mutation_breaks_match()
-    print("ALL SLICE-6b HP-ZK CHECKS PASSED")
+    def test_mutation_breaks_match(self) -> None:
+        """Perturbing the prover's hiding-a randomness must change the output."""
+        d = dict(json.loads(_HP_ZK.read_text()))
+        bad = bytearray(bytes.fromhex(d["hiding_a"]))
+        bad[0] ^= 0x01
+        d["hiding_a"] = bytes(bad).hex()
+        _instance, _witness, low, high, hiding_comms = _prove(d)
+        proof = hp_as.serialize_proof_zk(cv, low, high, hiding_comms)
+        self.assertNotEqual(proof.hex(), json.loads(_HP_ZK.read_text())["proof_hex"], "mutation did not change the proof")
+        print("  mutation check: a perturbed hiding randomness diverges from the golden")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()
