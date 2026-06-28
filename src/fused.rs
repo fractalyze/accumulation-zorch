@@ -562,8 +562,22 @@ pub fn decide_ipa_msm_fused<C: PastaCurve>(
 where
     <C::Params as ModelParameters>::BaseField: PrimeField,
 {
+    run_decide_ipa_msm::<C>(load_fused(mlirbc), coeffs, generators)
+}
+
+/// Run an already-loaded decider MSM core `exe` once (one PJRT call) and return
+/// the resulting point. Split from [`load_fused`] so the scale bench can compile
+/// the core once and time many warm runs (the run, not the compile, is the
+/// steady-state cost).
+pub fn run_decide_ipa_msm<C: PastaCurve>(
+    exe: &zkx_pjrt::Executable,
+    coeffs: &[Fr<C>],
+    generators: &[Affine<C>],
+) -> Affine<C>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
     const DECIDER_OUTPUTS: usize = 1; // the single folded `final_key` point.
-    let exe = load_fused(mlirbc);
     let coeffs_bytes = wire::scalars_to_bytes::<C::Params>(coeffs);
     let gens_bytes = wire::g1_array_to_bytes(generators);
     let inputs = [
