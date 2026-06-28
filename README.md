@@ -233,3 +233,27 @@ accumulate step:
   `lax.msm` decides both no-zk and zk accumulators (the zk-ness is in the
   host-computed coefficients). Each row gates GPU == arkworks at scale.
 - Reproduce: `bench/bench.sh decide` (sizes from `DECIDE_SIZES`).
+
+### IPA-PC — accumulate
+
+The accumulate completes the matrix: the AS **prove** (combine several inputs'
+succinct checks into one accumulator) and the **fold** (accumulate one input INTO a
+prior accumulator — `old_accumulators` non-empty, the IVC step). An accumulator is
+an `InputInstance` of the same shape as an input, so arkworks succinct-checks the
+inputs then the accumulators into one list and combines them identically — the fold
+is the prove fed `[inputs…, accumulators…]`, a prior *hiding* accumulator's succinct
+check taking the zk path. Unlike the decider, this corner carries no GPU bench, and
+that *is* the result:
+
+- The accumulate's `IpaPC::open` is **sequential** — each round's Fiat-Shamir
+  challenge is squeezed from that round's `L`/`R` fold commitments, so the per-round
+  MSMs and the Poseidon sponge interleave with a two-way data dependency (the MSMs
+  need the prior challenge; the next challenge needs the MSMs). It is **host-bound by
+  design** — accumulation *defers* verification — so the GPU-value op for IPA-PC is
+  the decider above, mirror-image to R1CS-NARK where it is the accumulate.
+- The CPU port is **curve-generic and zk-agnostic in structure**: prove and fold,
+  no-zk and zk, Pallas and Vesta all run the one combine + `IpaPC::open`, each
+  byte-matched to arkworks.
+- Reproduce: `ipa_as_test.py` (prove) and `ipa_as_fold_test.py` /
+  `ipa_as_fold_zk_test.py` (fold), the CPU byte-match (run as in
+  [Python jax prove byte-match](#python-jax-prove-byte-match-cpu)).
