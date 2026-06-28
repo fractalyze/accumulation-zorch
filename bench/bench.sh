@@ -4,10 +4,11 @@
 # prover and the arkworks CPU prover at matched sizes and print the comparison
 # as a Markdown table — exactly the tables in README.md.
 #
-#   bench/bench.sh prove   # the "Single AS prove" sweep (sizes from PROVE_SIZES)
-#   bench/bench.sh decide  # the "Decider size-d MSM" sweep (sizes from DECIDE_SIZES)
-#   bench/bench.sh fold    # the "Recursion IVC fold" point (one recursion-scale row)
-#   bench/bench.sh all     # all three (default)
+#   bench/bench.sh prove        # the "Single AS prove" sweep (sizes from PROVE_SIZES)
+#   bench/bench.sh r1cs-decide  # the R1CS-NARK decider (6 size-n MSMs; R1CS_DECIDE_SIZES)
+#   bench/bench.sh decide       # the IPA-PC "Decider size-d MSM" sweep (DECIDE_SIZES)
+#   bench/bench.sh fold         # the "Recursion IVC fold" point (one recursion-scale row)
+#   bench/bench.sh all          # all of the above (default)
 #
 # Live progress streams to stderr; the finished table(s) print to stdout only
 # once every point is measured — so `bench/bench.sh prove >table.md` captures a
@@ -20,8 +21,9 @@
 #   ZKX_PJRT_PLUGIN   path to pjrt_c_api_gpu_plugin.so
 #
 # Optional knobs:
-#   PROVE_SIZES   space-separated num_constraints for `prove` (default "4096 16384 32768")
-#   DECIDE_SIZES  space-separated MSM sizes d for `decide` (default "16384 65536 262144")
+#   PROVE_SIZES        space-separated num_constraints for `prove` (default "4096 16384 32768")
+#   R1CS_DECIDE_SIZES  space-separated MSM sizes n for `r1cs-decide` (default "16384 65536 262144")
+#   DECIDE_SIZES       space-separated MSM sizes d for `decide` (default "16384 65536 262144")
 #   ARTIFACTS_DIR scratch dir for fixtures, .mlirbc, and per-step logs
 #                 (default: $SCRATCH_DIR, else a mktemp dir)
 set -euo pipefail
@@ -158,20 +160,53 @@ bench_decide() {
   done
 }
 
+# Builds the "R1CS-NARK decider" table on stdout; progress on stderr. The R1CS-NARK
+# accumulation decider's GPU-value op is six size-`n` MSMs (`comm_{a,b,c}` + the HP
+# `test_comm_{1,2,3}`), fused into one PJRT call vs the CPU's six sequential MSMs —
+# so, like the IPA decider, it shows the GPU's MSM advantage as `n` grows. Inputs
+# are synthetic (random committer key + reduced vectors); the byte-match-at-scale
+# gate keeps it honest.
+bench_r1cs_decide() {
+  local sizes; read -r -a sizes <<<"${R1CS_DECIDE_SIZES:-16384 65536 262144}"
+  say "R1CS-NARK decider (6 size-n MSMs) — sweeping n = ${sizes[*]} (warm GPU)…"
+  echo "## R1CS-NARK decider (6 size-\`n\` MSMs)"
+  echo
+  echo '|       `n` | CPU arkworks (6 MSMs) | GPU fused (1 PJRT call, warm) | speedup |'
+  echo '| --------: | --------------------: | ----------------------------: | ------: |'
+  for n in "${sizes[@]}"; do
+    step "  n=$n lower… "
+    AS_DECIDE_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
+      "$ZKX_VENV_PYTHON" export/export_as_decide.py >"$ART/r1cs_decide_export_$n.log" 2>&1
+    step "GPU MSMs… "
+    local line cpu_ms gpu_ms
+    line=$(AS_DECIDE_SIZE="$n" AS_DECIDE_MLIRBC="$ART/as_decider_bench.mlirbc" \
+      ZKX_PJRT_PLUGIN="$ZKX_PJRT_PLUGIN" \
+      cargo test --quiet --release --features gpu --test gpu_fused_r1cs_decide_bench -- --ignored --nocapture \
+      2>"$ART/r1cs_decide_gpu_$n.log" | grep '\[bench\]')
+    cpu_ms=$(to_ms "$(printf '%s' "$line" | sed -n 's/.*CPU arkworks=\([^ ]*\).*/\1/p')")
+    gpu_ms=$(to_ms "$(printf '%s' "$line" | sed -n 's/.*min=\([^ ]*\).*/\1/p')")
+    require "r1cs-decide n=$n CPU" "$cpu_ms"; require "r1cs-decide n=$n GPU" "$gpu_ms"
+    say "$(printf '→ n=%s  CPU %.0f ms  GPU %.0f ms  %s×' "$n" "$cpu_ms" "$gpu_ms" "$(speedup "$cpu_ms" "$gpu_ms")")"
+    row "$n" "$cpu_ms" "$gpu_ms"
+  done
+}
+
 # Measure first (progress to stderr, tables captured), then print the finished
 # table(s) to stdout in one clean block.
-prove_out=""; decide_out=""; fold_out=""
+prove_out=""; decide_out=""; r1cs_decide_out=""; fold_out=""
 case "$mode" in
   prove)  prove_out=$(bench_prove) ;;
   decide) decide_out=$(bench_decide) ;;
+  r1cs-decide) r1cs_decide_out=$(bench_r1cs_decide) ;;
   fold)   fold_out=$(bench_fold) ;;
-  all)    prove_out=$(bench_prove); decide_out=$(bench_decide); fold_out=$(bench_fold) ;;
-  *) echo "usage: bench/bench.sh [prove|decide|fold|all]" >&2; exit 2 ;;
+  all)    prove_out=$(bench_prove); r1cs_decide_out=$(bench_r1cs_decide)
+          decide_out=$(bench_decide); fold_out=$(bench_fold) ;;
+  *) echo "usage: bench/bench.sh [prove|decide|r1cs-decide|fold|all]" >&2; exit 2 ;;
 esac
 
 say ""
 first=1
-for out in "$prove_out" "$decide_out" "$fold_out"; do
+for out in "$prove_out" "$r1cs_decide_out" "$decide_out" "$fold_out"; do
   [ -n "$out" ] || continue
   [ "$first" -eq 1 ] || echo
   printf '%s\n' "$out"
