@@ -30,11 +30,11 @@ Run (from the repo's `python/` dir, in the accumulation-zorch venv):
 
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from absl.testing import absltest
 
 from accumulation_zorch import curve, nark, r1cs_nark_as, sponge
 
@@ -125,18 +125,12 @@ def _check_direction(label: str, cv: Any, fixture: str, sponge_file: str) -> boo
     return True
 
 
-def test_recursion_fold_matches_arkworks() -> None:
-    ran = [_check_direction(*dirn) for dirn in _DIRECTIONS]
-    if not any(ran):
-        print("  (no fixtures present — nothing checked)")
-
-
-def main() -> None:
-    print("slice-5 recursion-circuit zk fold byte-match (both cycle directions, num_addends=3):")
-    test_recursion_fold_matches_arkworks()
-    print("SLICE-5 RECURSION FOLD-ZK CHECK DONE")
+class RecursionFoldZkTest(absltest.TestCase):
+    def test_recursion_fold_matches_arkworks(self) -> None:
+        ran = [_check_direction(*dirn) for dirn in _DIRECTIONS]
+        if not any(ran):
+            print("  (no fixtures present — nothing checked)")
 
 
 if __name__ == "__main__":
-    main()
-    sys.exit(0)
+    absltest.main()

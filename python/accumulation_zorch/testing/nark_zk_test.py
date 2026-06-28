@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from absl.testing import absltest
+
 from accumulation_zorch import curve, nark, sponge
 
 cv = curve.PALLAS
@@ -60,44 +62,35 @@ def _prove(d: Any) -> nark.NarkZkProof:
     )
 
 
-def test_hash_matrices_matches_arkworks() -> None:
-    d = _load()
-    got = nark.hash_matrices(cv, b"R1CS-NARK-2020", _matrix(d["a"]), _matrix(d["b"]), _matrix(d["c"]))
-    assert got.hex() == d["nark_matrices_hash_hex"], (
-        f"hash_matrices:\n got  {got.hex()}\n want {d['nark_matrices_hash_hex']}"
-    )
-    print(f"  hash_matrices (blake2b) byte-matches arkworks ({got.hex()[:16]}…)")
+class NarkZkTest(absltest.TestCase):
+    def test_hash_matrices_matches_arkworks(self) -> None:
+        d = _load()
+        got = nark.hash_matrices(cv, b"R1CS-NARK-2020", _matrix(d["a"]), _matrix(d["b"]), _matrix(d["c"]))
+        self.assertEqual(got.hex(), d["nark_matrices_hash_hex"], (
+            f"hash_matrices:\n got  {got.hex()}\n want {d['nark_matrices_hash_hex']}"
+        ))
+        print(f"  hash_matrices (blake2b) byte-matches arkworks ({got.hex()[:16]}…)")
 
+    def test_nark_zk_proof_matches_arkworks(self) -> None:
+        d = _load()
+        proof = nark.serialize_zk_proof(cv, _prove(d))
+        self.assertEqual(proof.hex(), d["proof_hex"], (
+            f"zk NARK proof:\n got  {proof.hex()}\n want {d['proof_hex']}"
+        ))
+        print(f"  zk NARK proof byte-matches arkworks ({len(proof)} bytes)")
 
-def test_nark_zk_proof_matches_arkworks() -> None:
-    d = _load()
-    proof = nark.serialize_zk_proof(cv, _prove(d))
-    assert proof.hex() == d["proof_hex"], (
-        f"zk NARK proof:\n got  {proof.hex()}\n want {d['proof_hex']}"
-    )
-    print(f"  zk NARK proof byte-matches arkworks ({len(proof)} bytes)")
-
-
-def test_mutation_breaks_match() -> None:
-    """Perturbing a witness-blinder (r) must change the proof bytes."""
-    d = dict(_load())
-    bad_r = list(d["r"])
-    bad = bytearray(bytes.fromhex(bad_r[0]))
-    bad[0] ^= 0x01
-    bad_r[0] = bytes(bad).hex()
-    d["r"] = bad_r
-    proof = nark.serialize_zk_proof(cv, _prove(d))
-    assert proof.hex() != _load()["proof_hex"], "mutation did not change the proof"
-    print("  mutation check: a perturbed witness-blinder diverges from the golden")
-
-
-def main() -> None:
-    print("slice-6a zk NARK prove byte-match:")
-    test_hash_matrices_matches_arkworks()
-    test_nark_zk_proof_matches_arkworks()
-    test_mutation_breaks_match()
-    print("ALL SLICE-6a NARK-ZK CHECKS PASSED")
+    def test_mutation_breaks_match(self) -> None:
+        """Perturbing a witness-blinder (r) must change the proof bytes."""
+        d = dict(_load())
+        bad_r = list(d["r"])
+        bad = bytearray(bytes.fromhex(bad_r[0]))
+        bad[0] ^= 0x01
+        bad_r[0] = bytes(bad).hex()
+        d["r"] = bad_r
+        proof = nark.serialize_zk_proof(cv, _prove(d))
+        self.assertNotEqual(proof.hex(), _load()["proof_hex"], "mutation did not change the proof")
+        print("  mutation check: a perturbed witness-blinder diverges from the golden")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

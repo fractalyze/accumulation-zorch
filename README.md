@@ -22,6 +22,27 @@ re-implements it. The fixture generators (`examples/dump_*.rs` and
 `(acc.instance ‖ acc.witness ‖ proof)` bytes, and the jax CPU port + the fused GPU
 core are each gated byte-for-byte against those golden bytes.
 
+## Accumulation schemes
+
+Two `ark-accumulation` schemes are ported, each a fused GPU core byte-identical to
+the unmodified arkworks prover over the Pasta cycle (Pallas + Vesta):
+
+- **`r1cs_nark_as`** (+ its `hp_as` Hadamard-product sub-step) — the R1CS-NARK
+  accumulation the Pasta-cycle recursion uses. The whole zk prove — every
+  commitment, the NARK + HP cores, all three Fiat-Shamir sponges — is one fused
+  PJRT call. The prover is MSM-heavy (big Pedersen witness commitments), so the
+  GPU win is the **prove** itself (the "Single AS prove" benchmark; the recursion
+  IVC fold is host-bound by design).
+- **`ipa_pc_as`** — the IPA-PC (Halo / DL-style) accumulation of BCMS20, **prove +
+  decide, no-zk and zk**. Here the prover is *field*-heavy (building the degree-`d`
+  check polynomial) with only small MSMs; the heavy size-`d` MSM is the
+  **decider** (`final_comm_key == ⟨combined_check_poly_coeffs, generators⟩`). So
+  the decider MSM is the GPU-value op — a pure MSM that scales far better than the
+  fold (the "Decider size-`d` MSM" benchmark).
+
+The in-circuit verifier gadgets are reused from `ark-accumulation` as-is (they
+have no prover MSM); the repo re-derives neither.
+
 ## Setup
 
 Clone this repo and the arkworks oracle **side by side**, then `cd` in. They must be
@@ -66,7 +87,7 @@ uv pip install --python .venv --index-strategy unsafe-best-match \
   --index-url https://fractalyze.github.io/pypi/simple/ \
   --extra-index-url https://pypi.org/simple/ \
   jax==0.0.5.dev20260624111151 jaxlib==0.0.5.dev20260624111151 \
-  zkx-cuda-pjrt==0.0.5.dev20260624111151 zk-dtypes==0.0.7 numpy
+  zkx-cuda-pjrt==0.0.5.dev20260624111151 zk-dtypes==0.0.7 numpy absl-py
 ```
 
 Point the env vars at that venv (copy-paste from the repo root):
@@ -154,6 +175,27 @@ scale). Needs an idle GPU and the `ZKX_VENV_PYTHON` / `ZKX_PJRT_PLUGIN` env from
 ```bash
 PROVE_SIZES="4096 16384 32768" bench/bench.sh prove   # or: bench/bench.sh all
 ```
+
+### Decider size-`d` MSM (IPA-PC accumulation)
+
+The IPA-PC accumulation's GPU-value op is the **decider's** size-`d` MSM
+(`final_key = Σ generatorsᵢ·coeffsᵢ`). Its prover is field-heavy with only small
+MSMs, so the heavy MSM is the decide, not the prove — and being a pure MSM it
+scales far better than the recursion fold below:
+
+|     `d` | CPU arkworks (release) | GPU fused (1 PJRT call, warm) |   speedup |
+| ------: | ---------------------: | ----------------------------: | --------: |
+|  16 384 |                  83 ms |                         16 ms |  **5.3×** |
+|  65 536 |                 279 ms |                         18 ms | **15.5×** |
+| 262 144 |                 988 ms |                         28 ms | **34.9×** |
+
+- The GPU MSM is a **~16-18 ms floor** at these sizes (the Pippenger
+  bucket-reduction kernel), so 4× the points (2¹⁴→2¹⁶) barely moves it while the
+  CPU MSM is **O(d)** — the win grows from 5.3× to 34.9× across the sweep.
+- The decider MSM core is curve-specific but zk-agnostic: the same lowered
+  `lax.msm` decides both no-zk and zk accumulators (the zk-ness is in the
+  host-computed coefficients). Each row gates GPU == arkworks at scale.
+- Reproduce: `bench/bench.sh decide` (sizes from `DECIDE_SIZES`).
 
 ### Recursion IVC fold (the accumulation step)
 

@@ -27,6 +27,7 @@ from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
+from absl.testing import absltest
 
 from accumulation_zorch import absorbable, curve, jsponge, nark, sponge
 
@@ -74,37 +75,30 @@ def _n_elems(k: int) -> int:
     return (num_bits + sponge.FQ_CAPACITY - 1) // sponge.FQ_CAPACITY
 
 
-def test_gamma_challenge_matches_arkworks() -> None:
-    g = json.loads(_ABSORB.read_text())["gamma"]
-    assert g["randomness"] is None
-    sp = _gamma_sponge(_params(), g)
-    _, elems = sp.squeeze(_n_elems(1))
-    fr = jsponge.challenges_from_fq(jnp.asarray(elems), 1, _SIZE, cv)
-    got = np.asarray(fr)[0].tobytes().hex()
-    assert got == g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}"
-    print("  jit gamma challenge byte-matches R1CSNark::compute_challenge OK")
+class JspongeTest(absltest.TestCase):
+    def test_gamma_challenge_matches_arkworks(self) -> None:
+        g = json.loads(_ABSORB.read_text())["gamma"]
+        self.assertIsNone(g["randomness"])
+        sp = _gamma_sponge(_params(), g)
+        _, elems = sp.squeeze(_n_elems(1))
+        fr = jsponge.challenges_from_fq(jnp.asarray(elems), 1, _SIZE, cv)
+        got = np.asarray(fr)[0].tobytes().hex()
+        self.assertEqual(got, g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}")
+        print("  jit gamma challenge byte-matches R1CSNark::compute_challenge OK")
 
-
-def test_matches_cpu_squeeze_across_element_boundary() -> None:
-    """k=1,2,3 vs the CPU `squeeze_challenges`; k≥2 crosses the 254-bit Fq
-    element boundary."""
-    params = _params()
-    for k in (1, 2, 3):
-        base = absorbable.absorb_bytes(cv, sponge.new_sponge(params), bytes([k, 7, 9]))
-        _, want = sponge.squeeze_challenges(base, k)  # CPU Python-loop ints
-        _, elems = base.squeeze(_n_elems(k))
-        fr = jsponge.challenges_from_fq(jnp.asarray(elems), k, _SIZE, cv)
-        got = [int.from_bytes(np.asarray(fr)[i].tobytes(), "little") for i in range(k)]
-        assert got == want, f"k={k}: {got} != {want}"
-        print(f"  k={k} ({_n_elems(k)} Fq elems) matches CPU squeeze_challenges OK")
-
-
-def main() -> None:
-    print("slice-2 jit Fiat-Shamir squeeze byte-match:")
-    test_gamma_challenge_matches_arkworks()
-    test_matches_cpu_squeeze_across_element_boundary()
-    print("ALL SLICE-2 JSPONGE CHECKS PASSED")
+    def test_matches_cpu_squeeze_across_element_boundary(self) -> None:
+        """k=1,2,3 vs the CPU `squeeze_challenges`; k≥2 crosses the 254-bit Fq
+        element boundary."""
+        params = _params()
+        for k in (1, 2, 3):
+            base = absorbable.absorb_bytes(cv, sponge.new_sponge(params), bytes([k, 7, 9]))
+            _, want = sponge.squeeze_challenges(base, k)  # CPU Python-loop ints
+            _, elems = base.squeeze(_n_elems(k))
+            fr = jsponge.challenges_from_fq(jnp.asarray(elems), k, _SIZE, cv)
+            got = [int.from_bytes(np.asarray(fr)[i].tobytes(), "little") for i in range(k)]
+            self.assertEqual(got, want, f"k={k}: {got} != {want}")
+            print(f"  k={k} ({_n_elems(k)} Fq elems) matches CPU squeeze_challenges OK")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()
