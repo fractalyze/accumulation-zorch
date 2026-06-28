@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from absl.testing import absltest
 
 from accumulation_zorch import curve, nark, r1cs_nark_as, sponge
 
@@ -85,45 +86,38 @@ def _fold(d: Any, s: Any, params: Any) -> tuple[bytes, bytes, bytes]:
         acc_hp_a_vec, acc_hp_b_vec, acc_hp_rand)
 
 
-def test_fold_end_to_end_matches_arkworks() -> None:
-    d = json.loads(_FIXTURE.read_text())
-    params = _params()
-    for s in d["seeds"]:
-        acc_instance, acc_witness, proof = _fold(d, s, params)
-        assert acc_instance.hex() == s["golden_instance_hex"], (
-            f"[seed {s['seed']}] folded acc.instance:\n got  {acc_instance.hex()}"
-            f"\n want {s['golden_instance_hex']}")
-        assert acc_witness.hex() == s["golden_witness_hex"], (
-            f"[seed {s['seed']}] folded acc.witness:\n got  {acc_witness.hex()}"
-            f"\n want {s['golden_witness_hex']}")
-        assert proof.hex() == s["golden_proof_hex"], (
-            f"[seed {s['seed']}] fold proof:\n got  {proof.hex()}\n want {s['golden_proof_hex']}")
-        print(f"  [seed {s['seed']}] (acc.instance {len(acc_instance)}B ‖ acc.witness "
-              f"{len(acc_witness)}B ‖ proof {len(proof)}B) byte-matches arkworks")
+class AsFoldZkE2eTest(absltest.TestCase):
+    def test_fold_end_to_end_matches_arkworks(self) -> None:
+        d = json.loads(_FIXTURE.read_text())
+        params = _params()
+        for s in d["seeds"]:
+            acc_instance, acc_witness, proof = _fold(d, s, params)
+            self.assertEqual(acc_instance.hex(), s["golden_instance_hex"], (
+                f"[seed {s['seed']}] folded acc.instance:\n got  {acc_instance.hex()}"
+                f"\n want {s['golden_instance_hex']}"))
+            self.assertEqual(acc_witness.hex(), s["golden_witness_hex"], (
+                f"[seed {s['seed']}] folded acc.witness:\n got  {acc_witness.hex()}"
+                f"\n want {s['golden_witness_hex']}"))
+            self.assertEqual(proof.hex(), s["golden_proof_hex"], (
+                f"[seed {s['seed']}] fold proof:\n got  {proof.hex()}\n want {s['golden_proof_hex']}"))
+            print(f"  [seed {s['seed']}] (acc.instance {len(acc_instance)}B ‖ acc.witness "
+                  f"{len(acc_witness)}B ‖ proof {len(proof)}B) byte-matches arkworks")
 
-
-def test_mutation_breaks_match() -> None:
-    """Perturbing the old accumulator's HP witness randomness must change the
-    folded witness (it feeds the combined HP randomness, not the instance — whose
-    HP commitments fold the fixed `acc_comms` inputs)."""
-    d = json.loads(_FIXTURE.read_text())
-    s = dict(d["seeds"][0])
-    accw = dict(s["acc_prev_witness"])
-    bad = bytearray(bytes.fromhex(accw["hp_rand_1"]))
-    bad[0] ^= 0x01
-    accw["hp_rand_1"] = bytes(bad).hex()
-    s["acc_prev_witness"] = accw
-    _i, acc_witness, _p = _fold(d, s, _params())
-    assert acc_witness.hex() != d["seeds"][0]["golden_witness_hex"], "mutation did not change the fold"
-    print("  mutation check: a perturbed acc HP randomness diverges from the golden witness")
-
-
-def main() -> None:
-    print("slice-4 end-to-end zk IVC fold byte-match (Pallas, num_addends=3):")
-    test_fold_end_to_end_matches_arkworks()
-    test_mutation_breaks_match()
-    print("ALL SLICE-4 FOLD E2E CHECKS PASSED")
+    def test_mutation_breaks_match(self) -> None:
+        """Perturbing the old accumulator's HP witness randomness must change the
+        folded witness (it feeds the combined HP randomness, not the instance — whose
+        HP commitments fold the fixed `acc_comms` inputs)."""
+        d = json.loads(_FIXTURE.read_text())
+        s = dict(d["seeds"][0])
+        accw = dict(s["acc_prev_witness"])
+        bad = bytearray(bytes.fromhex(accw["hp_rand_1"]))
+        bad[0] ^= 0x01
+        accw["hp_rand_1"] = bytes(bad).hex()
+        s["acc_prev_witness"] = accw
+        _i, acc_witness, _p = _fold(d, s, _params())
+        self.assertNotEqual(acc_witness.hex(), d["seeds"][0]["golden_witness_hex"], "mutation did not change the fold")
+        print("  mutation check: a perturbed acc HP randomness diverges from the golden witness")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

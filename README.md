@@ -87,7 +87,7 @@ uv pip install --python .venv --index-strategy unsafe-best-match \
   --index-url https://fractalyze.github.io/pypi/simple/ \
   --extra-index-url https://pypi.org/simple/ \
   jax==0.0.5.dev20260624111151 jaxlib==0.0.5.dev20260624111151 \
-  zkx-cuda-pjrt==0.0.5.dev20260624111151 zk-dtypes==0.0.7 numpy
+  zkx-cuda-pjrt==0.0.5.dev20260624111151 zk-dtypes==0.0.7 numpy absl-py
 ```
 
 Point the env vars at that venv (copy-paste from the repo root):

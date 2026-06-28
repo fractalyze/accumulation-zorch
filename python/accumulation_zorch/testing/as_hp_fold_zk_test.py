@@ -33,6 +33,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+from absl.testing import absltest
 
 from accumulation_zorch import absorbable, curve, hp_as, jcurve, jfield, nark, sponge
 
@@ -130,45 +131,41 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
     return core(bases_h, id_pt, old_hp_comms, old_a, old_b, old_rand)
 
 
-def test_hp_fold_matches_arkworks() -> None:
-    d = json.loads(_FIXTURE.read_text())
-    params = _params()
-    for s in d["seeds"]:
-        gi, gw = s["golden_instance"], s["golden_witness"]
-        instance, a_open, b_open, rand = _hp_fold(d, s, params)
+class AsHpFoldZkTest(absltest.TestCase):
+    def test_hp_fold_matches_arkworks(self) -> None:
+        d = json.loads(_FIXTURE.read_text())
+        params = _params()
+        for s in d["seeds"]:
+            gi, gw = s["golden_instance"], s["golden_witness"]
+            instance, a_open, b_open, rand = _hp_fold(d, s, params)
 
-        # Combined HP instance: hp_comm_1/2/3.
-        for name, idx, want in (("hp_comm_1", 0, gi["hp_comm_1"]),
-                                ("hp_comm_2", 1, gi["hp_comm_2"]),
-                                ("hp_comm_3", 2, gi["hp_comm_3"])):
-            got_hex = curve.point_to_bytes(cv, np.asarray(instance[idx])).hex()
-            want_hex = curve.point_to_bytes(cv, _point(want)).hex()
-            assert got_hex == want_hex, (
-                f"[seed {s['seed']}] combined {name} diverged:\n got  {got_hex}\n want {want_hex}")
+            # Combined HP instance: hp_comm_1/2/3.
+            for name, idx, want in (("hp_comm_1", 0, gi["hp_comm_1"]),
+                                    ("hp_comm_2", 1, gi["hp_comm_2"]),
+                                    ("hp_comm_3", 2, gi["hp_comm_3"])):
+                got_hex = curve.point_to_bytes(cv, np.asarray(instance[idx])).hex()
+                want_hex = curve.point_to_bytes(cv, _point(want)).hex()
+                self.assertEqual(got_hex, want_hex, (
+                    f"[seed {s['seed']}] combined {name} diverged:\n got  {got_hex}\n want {want_hex}"))
 
-        # Combined HP witness: a_vec, b_vec, randomness (rand_1, rand_2, rand_3).
-        got_a = [np.asarray(v).tobytes().hex() for v in a_open]
-        want_a = [cv.fr(_fr(h)).tobytes().hex() for h in gw["hp_a_vec"]]
-        assert got_a == want_a, (
-            f"[seed {s['seed']}] combined hp_a_vec diverged:\n got  {got_a}\n want {want_a}")
-        got_b = [np.asarray(v).tobytes().hex() for v in b_open]
-        want_b = [cv.fr(_fr(h)).tobytes().hex() for h in gw["hp_b_vec"]]
-        assert got_b == want_b, (
-            f"[seed {s['seed']}] combined hp_b_vec diverged:\n got  {got_b}\n want {want_b}")
-        got_r = [np.asarray(rand[i]).tobytes().hex() for i in range(3)]
-        want_r = [cv.fr(_fr(gw[k])).tobytes().hex() for k in ("hp_rand_1", "hp_rand_2", "hp_rand_3")]
-        assert got_r == want_r, (
-            f"[seed {s['seed']}] combined hp_rand diverged:\n got  {got_r}\n want {want_r}")
+            # Combined HP witness: a_vec, b_vec, randomness (rand_1, rand_2, rand_3).
+            got_a = [np.asarray(v).tobytes().hex() for v in a_open]
+            want_a = [cv.fr(_fr(h)).tobytes().hex() for h in gw["hp_a_vec"]]
+            self.assertEqual(got_a, want_a, (
+                f"[seed {s['seed']}] combined hp_a_vec diverged:\n got  {got_a}\n want {want_a}"))
+            got_b = [np.asarray(v).tobytes().hex() for v in b_open]
+            want_b = [cv.fr(_fr(h)).tobytes().hex() for h in gw["hp_b_vec"]]
+            self.assertEqual(got_b, want_b, (
+                f"[seed {s['seed']}] combined hp_b_vec diverged:\n got  {got_b}\n want {want_b}"))
+            got_r = [np.asarray(rand[i]).tobytes().hex() for i in range(3)]
+            want_r = [cv.fr(_fr(gw[k])).tobytes().hex() for k in ("hp_rand_1", "hp_rand_2", "hp_rand_3")]
+            self.assertEqual(got_r, want_r, (
+                f"[seed {s['seed']}] combined hp_rand diverged:\n got  {got_r}\n want {want_r}"))
 
-        print(f"  [seed {s['seed']}] combined HP instance + witness byte-matches arkworks "
-              f"(num_addends=3, old-accumulator fold)")
-    print("ALL SLICE-4 HP-FOLD CHECKS PASSED")
-
-
-def main() -> None:
-    print("slice-4 HP-level old-accumulator fold byte-match (Pallas, num_addends=3):")
-    test_hp_fold_matches_arkworks()
+            print(f"  [seed {s['seed']}] combined HP instance + witness byte-matches arkworks "
+                  f"(num_addends=3, old-accumulator fold)")
+        print("ALL SLICE-4 HP-FOLD CHECKS PASSED")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

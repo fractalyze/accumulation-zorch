@@ -27,6 +27,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+from absl.testing import absltest
 
 from accumulation_zorch import absorbable, curve, jcurve, jfield, nark, r1cs_nark_as, sponge
 
@@ -159,45 +160,41 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
     return core(bases_h, acc_comms)
 
 
-def test_as_fold_instance_matches_arkworks() -> None:
-    d = json.loads(_FIXTURE.read_text())
-    params = _params()
-    for s in d["seeds"]:
-        gi, gw = s["golden_instance"], s["golden_witness"]
-        cin, cca, ccb, ccc, cbw, csig = _combined_instance(d, s, params)
+class AsFoldZkTest(absltest.TestCase):
+    def test_as_fold_instance_matches_arkworks(self) -> None:
+        d = json.loads(_FIXTURE.read_text())
+        params = _params()
+        for s in d["seeds"]:
+            gi, gw = s["golden_instance"], s["golden_witness"]
+            cin, cca, ccb, ccc, cbw, csig = _combined_instance(d, s, params)
 
-        # Combined instance: r1cs_input (canonical-LE fr bytes) + comm_a/b/c.
-        got_input = [np.asarray(v).tobytes().hex() for v in cin]
-        want_input = [cv.fr(_fr(h)).tobytes().hex() for h in gi["r1cs_input"]]
-        assert got_input == want_input, (
-            f"[seed {s['seed']}] combined r1cs_input diverged:\n got  {got_input}\n want {want_input}")
-        for name, got_pt, want in (("comm_a", cca, gi["comm_a"]),
-                                    ("comm_b", ccb, gi["comm_b"]),
-                                    ("comm_c", ccc, gi["comm_c"])):
-            got_hex = curve.point_to_bytes(cv, np.asarray(got_pt)).hex()
-            want_hex = curve.point_to_bytes(cv, _point(want)).hex()
-            assert got_hex == want_hex, (
-                f"[seed {s['seed']}] combined {name} diverged:\n got  {got_hex}\n want {want_hex}")
+            # Combined instance: r1cs_input (canonical-LE fr bytes) + comm_a/b/c.
+            got_input = [np.asarray(v).tobytes().hex() for v in cin]
+            want_input = [cv.fr(_fr(h)).tobytes().hex() for h in gi["r1cs_input"]]
+            self.assertEqual(got_input, want_input, (
+                f"[seed {s['seed']}] combined r1cs_input diverged:\n got  {got_input}\n want {want_input}"))
+            for name, got_pt, want in (("comm_a", cca, gi["comm_a"]),
+                                        ("comm_b", ccb, gi["comm_b"]),
+                                        ("comm_c", ccc, gi["comm_c"])):
+                got_hex = curve.point_to_bytes(cv, np.asarray(got_pt)).hex()
+                want_hex = curve.point_to_bytes(cv, _point(want)).hex()
+                self.assertEqual(got_hex, want_hex, (
+                    f"[seed {s['seed']}] combined {name} diverged:\n got  {got_hex}\n want {want_hex}"))
 
-        # Combined witness: blinded witness + sigma_{a,b,c}.
-        got_bw = [np.asarray(v).tobytes().hex() for v in cbw]
-        want_bw = [cv.fr(_fr(h)).tobytes().hex() for h in gw["r1cs_blinded_witness"]]
-        assert got_bw == want_bw, (
-            f"[seed {s['seed']}] combined blinded_witness diverged:\n got  {got_bw}\n want {want_bw}")
-        got_sig = [np.asarray(csig[i]).tobytes().hex() for i in range(3)]
-        want_sig = [cv.fr(_fr(gw[k])).tobytes().hex() for k in ("sigma_a", "sigma_b", "sigma_c")]
-        assert got_sig == want_sig, (
-            f"[seed {s['seed']}] combined sigmas diverged:\n got  {got_sig}\n want {want_sig}")
+            # Combined witness: blinded witness + sigma_{a,b,c}.
+            got_bw = [np.asarray(v).tobytes().hex() for v in cbw]
+            want_bw = [cv.fr(_fr(h)).tobytes().hex() for h in gw["r1cs_blinded_witness"]]
+            self.assertEqual(got_bw, want_bw, (
+                f"[seed {s['seed']}] combined blinded_witness diverged:\n got  {got_bw}\n want {want_bw}"))
+            got_sig = [np.asarray(csig[i]).tobytes().hex() for i in range(3)]
+            want_sig = [cv.fr(_fr(gw[k])).tobytes().hex() for k in ("sigma_a", "sigma_b", "sigma_c")]
+            self.assertEqual(got_sig, want_sig, (
+                f"[seed {s['seed']}] combined sigmas diverged:\n got  {got_sig}\n want {want_sig}"))
 
-        print(f"  [seed {s['seed']}] combined instance + witness byte-matches arkworks "
-              f"(num_addends=3, beta=[1,c1,c2])")
-    print("ALL SLICE-4 AS-FOLD INSTANCE+WITNESS CHECKS PASSED")
-
-
-def main() -> None:
-    print("slice-4 multi-addend AS instance fold byte-match (Pallas, num_addends=3):")
-    test_as_fold_instance_matches_arkworks()
+            print(f"  [seed {s['seed']}] combined instance + witness byte-matches arkworks "
+                  f"(num_addends=3, beta=[1,c1,c2])")
+        print("ALL SLICE-4 AS-FOLD INSTANCE+WITNESS CHECKS PASSED")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

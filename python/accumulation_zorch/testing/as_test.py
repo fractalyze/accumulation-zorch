@@ -21,6 +21,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from absl.testing import absltest
+
 from accumulation_zorch import curve, r1cs_nark_as, sponge
 
 cv = curve.PALLAS
@@ -66,53 +68,46 @@ def _prove(d: Any, a: Any, b: Any, c: Any, generators: Any, seed_entry: Any) -> 
     )
 
 
-def test_as_no_zk_prove_matches_arkworks() -> None:
-    d, a, b, c, generators = _load()
-    for seed_entry in d["seeds"]:
-        seed = seed_entry["seed"]
+class AsTest(absltest.TestCase):
+    def test_as_no_zk_prove_matches_arkworks(self) -> None:
+        d, a, b, c, generators = _load()
+        for seed_entry in d["seeds"]:
+            seed = seed_entry["seed"]
+            acc_instance, acc_witness, proof = _prove(d, a, b, c, generators, seed_entry)
+
+            self.assertEqual(acc_instance.hex(), seed_entry["acc_instance_hex"], (
+                f"seed {seed} acc.instance:\n got  {acc_instance.hex()}\n want {seed_entry['acc_instance_hex']}"
+            ))
+            self.assertEqual(acc_witness.hex(), seed_entry["acc_witness_hex"], (
+                f"seed {seed} acc.witness:\n got  {acc_witness.hex()}\n want {seed_entry['acc_witness_hex']}"
+            ))
+            self.assertEqual(proof.hex(), seed_entry["proof_hex"], (
+                f"seed {seed} proof:\n got  {proof.hex()}\n want {seed_entry['proof_hex']}"
+            ))
+
+            full = (acc_instance + acc_witness + proof).hex()
+            want_full = seed_entry["acc_instance_hex"] + seed_entry["acc_witness_hex"] + seed_entry["proof_hex"]
+            self.assertEqual(full, want_full)
+            print(f"  seed {seed}: (acc.instance {len(acc_instance)}B ‖ acc.witness "
+                  f"{len(acc_witness)}B ‖ proof {len(proof)}B) byte-matches arkworks")
+
+    def test_mutation_breaks_match(self) -> None:
+        """Perturbing a blinded-witness element must break the byte-match."""
+        d, a, b, c, generators = _load()
+        seed_entry = dict(d["seeds"][0])
+        bad_w = list(seed_entry["blinded_witness"])
+        bad = bytearray(bytes.fromhex(bad_w[0]))
+        bad[0] ^= 0x01
+        bad_w[0] = bytes(bad).hex()
+        seed_entry["blinded_witness"] = bad_w
+
         acc_instance, acc_witness, proof = _prove(d, a, b, c, generators, seed_entry)
-
-        assert acc_instance.hex() == seed_entry["acc_instance_hex"], (
-            f"seed {seed} acc.instance:\n got  {acc_instance.hex()}\n want {seed_entry['acc_instance_hex']}"
-        )
-        assert acc_witness.hex() == seed_entry["acc_witness_hex"], (
-            f"seed {seed} acc.witness:\n got  {acc_witness.hex()}\n want {seed_entry['acc_witness_hex']}"
-        )
-        assert proof.hex() == seed_entry["proof_hex"], (
-            f"seed {seed} proof:\n got  {proof.hex()}\n want {seed_entry['proof_hex']}"
-        )
-
         full = (acc_instance + acc_witness + proof).hex()
-        want_full = seed_entry["acc_instance_hex"] + seed_entry["acc_witness_hex"] + seed_entry["proof_hex"]
-        assert full == want_full
-        print(f"  seed {seed}: (acc.instance {len(acc_instance)}B ‖ acc.witness "
-              f"{len(acc_witness)}B ‖ proof {len(proof)}B) byte-matches arkworks")
-
-
-def test_mutation_breaks_match() -> None:
-    """Perturbing a blinded-witness element must break the byte-match."""
-    d, a, b, c, generators = _load()
-    seed_entry = dict(d["seeds"][0])
-    bad_w = list(seed_entry["blinded_witness"])
-    bad = bytearray(bytes.fromhex(bad_w[0]))
-    bad[0] ^= 0x01
-    bad_w[0] = bytes(bad).hex()
-    seed_entry["blinded_witness"] = bad_w
-
-    acc_instance, acc_witness, proof = _prove(d, a, b, c, generators, seed_entry)
-    full = (acc_instance + acc_witness + proof).hex()
-    golden = d["seeds"][0]
-    want = golden["acc_instance_hex"] + golden["acc_witness_hex"] + golden["proof_hex"]
-    assert full != want, "mutation did not change the output — byte-match is not sensitive"
-    print("  mutation check: a perturbed witness diverges from the golden bytes")
-
-
-def main() -> None:
-    print("slice-5 R1CS-NARK-AS no-zk prove end-to-end byte-match:")
-    test_as_no_zk_prove_matches_arkworks()
-    test_mutation_breaks_match()
-    print("ALL SLICE-5 AS CHECKS PASSED")
+        golden = d["seeds"][0]
+        want = golden["acc_instance_hex"] + golden["acc_witness_hex"] + golden["proof_hex"]
+        self.assertNotEqual(full, want, "mutation did not change the output — byte-match is not sensitive")
+        print("  mutation check: a perturbed witness diverges from the golden bytes")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()

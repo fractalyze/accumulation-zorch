@@ -18,6 +18,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from absl.testing import absltest
+
 from accumulation_zorch import curve, hp_as, sponge
 
 cv = curve.PALLAS
@@ -50,29 +52,24 @@ def _load() -> Any:
     return d, generators, instances, a_vecs, b_vecs
 
 
-def test_hp_no_zk_prove_matches_arkworks() -> None:
-    d, generators, instances, a_vecs, b_vecs = _load()
-    instance, _witness, low, high = hp_as.prove_no_zk(
-        cv, generators, instances, a_vecs, b_vecs, d["supported_num_elems"], _params()
-    )
+class HpTest(absltest.TestCase):
+    def test_hp_no_zk_prove_matches_arkworks(self) -> None:
+        d, generators, instances, a_vecs, b_vecs = _load()
+        instance, _witness, low, high = hp_as.prove_no_zk(
+            cv, generators, instances, a_vecs, b_vecs, d["supported_num_elems"], _params()
+        )
 
-    proof = hp_as.serialize_proof(cv, low, high)
-    assert proof.hex() == d["proof_hex"], f"HP proof:\n got  {proof.hex()}\n want {d['proof_hex']}"
-    print(f"  HP no-zk proof byte-matches arkworks ({len(proof)} bytes, "
-          f"low={len(low)} high={len(high)})")
+        proof = hp_as.serialize_proof(cv, low, high)
+        self.assertEqual(proof.hex(), d["proof_hex"], f"HP proof:\n got  {proof.hex()}\n want {d['proof_hex']}")
+        print(f"  HP no-zk proof byte-matches arkworks ({len(proof)} bytes, "
+              f"low={len(low)} high={len(high)})")
 
-    acc = hp_as.serialize_instance(cv, instance)
-    assert acc.hex() == d["acc_instance_hex"], (
-        f"HP accumulator instance:\n got  {acc.hex()}\n want {d['acc_instance_hex']}"
-    )
-    print(f"  HP combined accumulator instance byte-matches arkworks ({len(acc)} bytes)")
-
-
-def main() -> None:
-    print("slice-4 HP-AS no-zk prove byte-match:")
-    test_hp_no_zk_prove_matches_arkworks()
-    print("ALL SLICE-4 HP CHECKS PASSED")
+        acc = hp_as.serialize_instance(cv, instance)
+        self.assertEqual(acc.hex(), d["acc_instance_hex"], (
+            f"HP accumulator instance:\n got  {acc.hex()}\n want {d['acc_instance_hex']}"
+        ))
+        print(f"  HP combined accumulator instance byte-matches arkworks ({len(acc)} bytes)")
 
 
 if __name__ == "__main__":
-    main()
+    absltest.main()
