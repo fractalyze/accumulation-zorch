@@ -64,7 +64,7 @@ jobs:
       matrix:
         shard:
           - name: accumulation
-            tests: "as_test.py as_zk_test.py absorb_test.py"
+            tests: "as_test.py as_zk_test.py as_decide_test.py absorb_test.py"
           - name: folding
             tests: "as_fold_zk_test.py as_fold_zk_e2e_test.py sponge_test.py jsponge_test.py"
           - name: hp
