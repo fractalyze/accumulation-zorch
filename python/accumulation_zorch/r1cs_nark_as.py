@@ -30,7 +30,7 @@ multiple addends), where they get a real byte-output anchor.
 
 import functools
 import struct
-from typing import Any
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -378,6 +378,61 @@ def prove_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_inp
     proof = _serialize_proof_zk(cv, low, high, hiding_comms, r1cs_r_input,
                                 (np.asarray(comm_r_a), np.asarray(comm_r_b), np.asarray(comm_r_c)))
     return acc_instance, acc_witness, proof
+
+
+# --- decide (the accumulation decider, no-zk + zk) ---------------------------
+
+
+class Accumulator(NamedTuple):
+    """The decider's view of an accumulator — the `(instance, witness)` fields
+    `ASForR1CSNark::decide` + `ASForHadamardProducts::decide` read. `sigmas` /
+    `hp_rand` are the zk Pedersen randomizers (`None` on the no-zk path, where the
+    commitments are non-hiding)."""
+    r1cs_input: list[int]            # instance.r1cs_input
+    blinded_witness: list[int]       # witness.r1cs_blinded_witness
+    hp_a_vec: list[int]              # witness.hp_witness.a_vec
+    hp_b_vec: list[int]              # witness.hp_witness.b_vec
+    sigmas: tuple[int, int, int] | None       # witness.randomness.{sigma_a,sigma_b,sigma_c}
+    hp_rand: tuple[int, int, int] | None       # witness.hp_witness.randomness.{rand_1,rand_2,rand_3}
+
+
+def decide(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
+           generators: list[np.ndarray], hiding: np.ndarray | None,
+           acc: Accumulator) -> tuple[np.ndarray, np.ndarray, np.ndarray,
+                                      np.ndarray, np.ndarray, np.ndarray]:
+    """`ASForR1CSNark::decide` recomputed (CPU group-reduction oracle, the fused
+    GPU core's target — the byte-match counterpart of :func:`ipa_pc_as.decide_final_key`).
+
+    Steps (BCLMS20), over `z = r1cs_input ‖ r1cs_blinded_witness`:
+
+    1. `comm_M = commit(M·z, σ_M)` for `M ∈ {A, B, C}` — the three size-`n`
+       Pedersen commitments (`σ_M` the zk randomizer, `None` ⇒ non-hiding).
+    2. the `hp_as` decide check: with the HP witness `(a_vec, b_vec)` and
+       `product = a_vec ∘ b_vec`, recompute `test_comm_{1,2,3} =
+       commit(a_vec, ρ₁), commit(b_vec, ρ₂), commit(product, ρ₃)`.
+
+    The decider accepts iff these six commitments equal the accumulator's stored
+    `comm_{a,b,c}` and `hp_instance.comm_{1,2,3}`; they are returned here so the
+    byte-match (and the GPU core) can compare against the golden bytes. The MSMs
+    reuse the prove core's `commit` machinery (`curve.pedersen_commit`), per #10."""
+    z_a = nark.matrix_vec_mul(cv, a, acc.r1cs_input, acc.blinded_witness)
+    z_b = nark.matrix_vec_mul(cv, b, acc.r1cs_input, acc.blinded_witness)
+    z_c = nark.matrix_vec_mul(cv, c, acc.r1cs_input, acc.blinded_witness)
+    sigma_a, sigma_b, sigma_c = acc.sigmas if acc.sigmas is not None else (None, None, None)
+    comm_a = curve.pedersen_commit(cv, generators[:len(z_a)], z_a, hiding, sigma_a)
+    comm_b = curve.pedersen_commit(cv, generators[:len(z_b)], z_b, hiding, sigma_b)
+    comm_c = curve.pedersen_commit(cv, generators[:len(z_c)], z_c, hiding, sigma_c)
+
+    # HP decide check: product is the element-wise (Hadamard) a_vec ∘ b_vec. This
+    # is the host oracle, so it uses a vectorized numpy `fr` multiply (the `fr`
+    # dtype reduces mod r) — host arithmetic, not jax, and not a per-element
+    # `fr_mul` (which would dispatch to jax once per element).
+    product = fe_values(np.array(acc.hp_a_vec, dtype=cv.fr) * np.array(acc.hp_b_vec, dtype=cv.fr))
+    rand_1, rand_2, rand_3 = acc.hp_rand if acc.hp_rand is not None else (None, None, None)
+    hp_comm_1 = curve.pedersen_commit(cv, generators[:len(acc.hp_a_vec)], acc.hp_a_vec, hiding, rand_1)
+    hp_comm_2 = curve.pedersen_commit(cv, generators[:len(acc.hp_b_vec)], acc.hp_b_vec, hiding, rand_2)
+    hp_comm_3 = curve.pedersen_commit(cv, generators[:len(product)], product, hiding, rand_3)
+    return comm_a, comm_b, comm_c, hp_comm_1, hp_comm_2, hp_comm_3
 
 
 # --- zk fold (one input folded into one prior accumulator, num_addends=3) ----

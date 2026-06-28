@@ -145,13 +145,20 @@ cargo test --features gpu --test gpu_fused_no_zk_prove_byte_match -- --ignored -
 
 ## Benchmark
 
-Two operations, two stories. Numbers are RTX-5090-class GPU; the fused GPU output
+Every accumulation scheme has two operations with opposite GPU stories:
+**accumulate** (the per-step prove / IVC fold, which *defers* verification) and
+**decide** (the deferred check, run once at the end). The two schemes sit at
+opposite ends — R1CS-NARK's prover is MSM-heavy (so **accumulate** already wins on
+GPU), while IPA-PC's prover is field-heavy with only small MSMs (so the GPU win is
+the **decider**) — but both deciders are MSM-bound, and that is where the GPU
+advantage is largest. Numbers are RTX-5090-class GPU; the fused GPU output
 **byte-matches arkworks at every size**.
 
-### Single AS prove (one input)
+### R1CS-NARK — accumulate
 
-Fused GPU prove (one PJRT call, warm) vs the arkworks AS prove (CPU, `--release`),
-as the circuit size `n` (`num_constraints`) grows:
+**Single AS prove (one input).** Fused GPU prove (one PJRT call, warm) vs the
+arkworks AS prove (CPU, `--release`), as the circuit size `n` (`num_constraints`)
+grows:
 
 |    `n` | CPU arkworks (release) | GPU fused (1 PJRT call) |   speedup |
 | -----: | ---------------------: | ----------------------: | --------: |
@@ -165,23 +172,53 @@ as the circuit size `n` (`num_constraints`) grows:
   MSMs and the composite sponge are the optimization target.
 - The CPU prove is ~**O(n)** (MSM-bound). **Crossover ≈ n ≈ 8 K**; the GPU win grows
   with size.
+- Reproduce: `PROVE_SIZES="4096 16384 32768" bench/bench.sh prove` (or
+  `bench/bench.sh all`). Needs an idle GPU + the `ZKX_VENV_PYTHON` /
+  `ZKX_PJRT_PLUGIN` env from [Setup](#setup).
 
-Reproduce — [`bench/bench.sh`](bench/bench.sh) runs the whole sweep and prints
-this table. Per size it wraps the arkworks CPU prove + off-tree fixture dump, the
-CPU core lowering, and the warm GPU bench (which also gates the byte-match at
-scale). Needs an idle GPU and the `ZKX_VENV_PYTHON` / `ZKX_PJRT_PLUGIN` env from
-[Setup](#setup):
+**Recursion IVC fold.** The actual PCD step — fold one verifier-circuit NARK proof
+into a prior accumulator (`num_addends = 3`), at recursion scale (`n = 77 556`):
 
-```bash
-PROVE_SIZES="4096 16384 32768" bench/bench.sh prove   # or: bench/bench.sh all
-```
+| operation   | CPU arkworks (release) | GPU fused (1 PJRT call, warm) |   speedup |
+| ----------- | ---------------------: | ----------------------------: | --------: |
+| zk IVC fold |               2 447 ms |                      1 712 ms | **1.43×** |
 
-### Decider size-`d` MSM (IPA-PC accumulation)
+The fold's GPU win is smaller than the single prove's because per-step accumulation
+is **light by design** (it defers verification) and the fold bakes its `M·z` reduces
+host-side — the zkx GPU emitter cannot lower the i256 `scatter`-add that survives
+constant-folding at recursion scale, so part of the work stays on CPU
+(Amdahl-capped). Reproduce: `bench/bench.sh fold`.
 
-The IPA-PC accumulation's GPU-value op is the **decider's** size-`d` MSM
-(`final_key = Σ generatorsᵢ·coeffsᵢ`). Its prover is field-heavy with only small
-MSMs, so the heavy MSM is the decide, not the prove — and being a pure MSM it
-scales far better than the recursion fold below:
+### R1CS-NARK — decide
+
+The deferred verification the accumulate step set up: recompute the six size-`n`
+Pedersen commitments — `comm_{a,b,c} = commit(M·z, σ)` and the `hp_as` check's
+`test_comm_{1,2,3} = commit(a_vec, ρ₁), commit(b_vec, ρ₂), commit(a_vec∘b_vec, ρ₃)`
+— and accept iff they equal the accumulator's stored commitments. The six MSMs run
+as **one** fused PJRT call vs the CPU's six sequential variable-base MSMs:
+
+|     `n` | CPU arkworks (6 MSMs) | GPU fused (1 PJRT call, warm) | speedup |
+| ------: | --------------------: | ----------------------------: | ------: |
+|  16 384 |                530 ms |                        18 ms |  **29×** |
+|  65 536 |              1 698 ms |                        26 ms |  **65×** |
+| 262 144 |              6 300 ms |                        54 ms | **117×** |
+
+- The GPU is a slow-growing floor (18 → 54 ms over 16× the points) while the CPU is
+  **O(6·n)**; the win grows from 29× to 117×. Fusing the six MSMs into one call (vs
+  six separate CPU MSMs) compounds the per-MSM GPU advantage — the largest GPU win
+  of any operation here.
+- One lowered core is **curve-generic and zk-agnostic**: the same
+  `as_decider_<curve>.mlirbc` decides both the no-zk and zk accumulators (the
+  randomizers `σ` / `ρ` are runtime inputs, 0 on the no-zk path). Each row gates
+  GPU == arkworks at scale.
+- Reproduce: `bench/bench.sh r1cs-decide` (sizes from `R1CS_DECIDE_SIZES`).
+
+### IPA-PC — decide
+
+The IPA-PC prover is *field*-heavy (building the degree-`d` check polynomial) with
+only small MSMs, so — mirror-image to R1CS-NARK — the GPU-value op is the
+**decider's** size-`d` MSM (`final_key = Σ generatorsᵢ·coeffsᵢ`), not the
+accumulate step:
 
 |     `d` | CPU arkworks (release) | GPU fused (1 PJRT call, warm) |   speedup |
 | ------: | ---------------------: | ----------------------------: | --------: |
@@ -196,25 +233,3 @@ scales far better than the recursion fold below:
   `lax.msm` decides both no-zk and zk accumulators (the zk-ness is in the
   host-computed coefficients). Each row gates GPU == arkworks at scale.
 - Reproduce: `bench/bench.sh decide` (sizes from `DECIDE_SIZES`).
-
-### Recursion IVC fold (the accumulation step)
-
-The actual PCD step — fold one verifier-circuit NARK proof into a prior accumulator
-(`num_addends = 3`), at recursion scale (`n = 77 556`):
-
-| operation   | CPU arkworks (release) | GPU fused (1 PJRT call, warm) |   speedup |
-| ----------- | ---------------------: | ----------------------------: | --------: |
-| zk IVC fold |               2 447 ms |                      1 712 ms | **1.43×** |
-
-The fold's GPU win is smaller than the single prove's because per-step accumulation
-is **light by design** (it defers verification) and the fold bakes its `M·z` reduces
-host-side — the zkx GPU emitter cannot lower the i256 `scatter`-add that survives
-constant-folding at recursion scale,
-so part of the work stays on CPU (Amdahl-capped).
-
-Reproduce — `bench/bench.sh fold` (arkworks CPU fold timing → recursion
-fold-fixture dump → fold-core lowering → warm GPU fold bench):
-
-```bash
-bench/bench.sh fold
-```

@@ -1,6 +1,8 @@
-//! R1CS-NARK-AS prove (no-zk) end-to-end fixtures for the jax port.
-//! This is the acceptance criterion: the ported `prove` must
-//! reproduce the serialized `(acc.instance ‖ acc.witness ‖ proof)` that
+//! R1CS-NARK-AS prove (no-zk) end-to-end fixtures for the jax port, over either
+//! Pasta cycle curve (Pallas or Vesta).
+//!
+//! This is the acceptance criterion: the ported `prove` must reproduce the
+//! serialized `(acc.instance ‖ acc.witness ‖ proof)` that
 //! `src/oracle.rs`'s `prove_byte_identical_to_arkworks_no_zk` test pins to
 //! arkworks — seeds {0, 42}, num_inputs=5, num_constraints=10.
 //!
@@ -8,8 +10,16 @@
 //! draw order) so the golden bytes are the oracle's bytes. Per seed it dumps the
 //! replay inputs (the single input's `r1cs_input` and `blinded_witness`) and the
 //! golden output split into `acc.instance` / `acc.witness` / `proof` for
-//! localization. The seed-independent structural inputs (matrices a/b/c, the
-//! committer-key generators, `supported_num_elems`) are dumped once.
+//! localization, plus the **decider oracle**: it runs the unmodified arkworks
+//! `ASForR1CSNark::decide` on the produced accumulator and asserts it accepts, so
+//! the fixture is emitted only for an accumulator arkworks decides `true`. The
+//! decider recomputes `comm_{a,b,c}` (the size-`n` MSMs the jax decide port
+//! reproduces) and accepts iff they equal the accumulator's stored commitments —
+//! which live in `acc_instance_hex` — so no extra golden is dumped beyond the
+//! `decide` flag.
+//!
+//! The seed-independent structural inputs (matrices a/b/c, the committer-key
+//! generators, `supported_num_elems`) are dumped once.
 //!
 //! The no-zk single-input path draws no randomness; `gamma`, `hash_matrices`,
 //! and the `beta` absorb are no-ops for these bytes (beta = [1] when there is a
@@ -17,10 +27,16 @@
 //! the zk path. So the Python side recomputes `comm_a/b/c` from the
 //! matrices + assignments (the NARK prove path) rather than reading them.
 //!
-//! Run: `cargo run --example dump_as > python/testdata/as_fixtures.json`
+//! Generic over the curve (`PastaCurve`-style, no per-curve copy) — the curve is
+//! a CLI arg, defaulting to Pallas:
+//!
+//!   cargo run --example dump_as -- pallas > python/testdata/as_fixtures.json
+//!   cargo run --example dump_as -- vesta  > python/testdata/as_vesta_fixtures.json
 
-use ark_ff::{BigInteger, PrimeField, UniformRand, Zero};
-use ark_pallas::{Affine, Fr};
+use ark_ec::models::ModelParameters;
+use ark_ec::short_weierstrass_jacobian::GroupAffine;
+use ark_ec::SWModelParameters;
+use ark_ff::{BigInteger, Field, PrimeField, UniformRand, Zero};
 use ark_poly_commit::trivial_pc::PedersenCommitment;
 use ark_relations::lc;
 use ark_relations::r1cs::{
@@ -28,17 +44,18 @@ use ark_relations::r1cs::{
     SynthesisError, SynthesisMode,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_sponge::CryptographicSponge;
+use ark_sponge::{Absorbable, CryptographicSponge};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 
 use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark;
 use ark_accumulation::r1cs_nark_as::{ASForR1CSNark, InputInstance};
 use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
 
-type G = Affine;
-type CF = ark_pallas::Fq;
-type Sponge = ark_sponge::poseidon::PoseidonSponge<CF>;
-type AS = ASForR1CSNark<G, Sponge>;
+/// `ConstraintF<G>` (the sponge / constraint field), re-derived (it is
+/// `pub(crate)` upstream). For the Pasta curves the base field is already prime.
+type CF<P> = <<P as ModelParameters>::BaseField as Field>::BasePrimeField;
+type Sponge<P> = ark_sponge::poseidon::PoseidonSponge<CF<P>>;
+type AS<P> = ASForR1CSNark<GroupAffine<P>, Sponge<P>>;
 
 const NUM_INPUTS: usize = 5;
 const NUM_CONSTRAINTS: usize = 10;
@@ -47,15 +64,15 @@ const SEEDS: [u64; 2] = [0, 42];
 /// `a · b = c`, padded to `NUM_INPUTS` public inputs and `NUM_CONSTRAINTS`
 /// repeats of the multiplication constraint — the circuit `oracle.rs` drives.
 #[derive(Clone)]
-struct DummyCircuit {
-    a: Option<Fr>,
-    b: Option<Fr>,
+struct DummyCircuit<F: Field> {
+    a: Option<F>,
+    b: Option<F>,
     num_inputs: usize,
     num_constraints: usize,
 }
 
-impl ConstraintSynthesizer<Fr> for DummyCircuit {
-    fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
+impl<F: Field> ConstraintSynthesizer<F> for DummyCircuit<F> {
+    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
         let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
         let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
         let c = cs.new_input_variable(|| {
@@ -82,8 +99,8 @@ fn hex(bytes: &[u8]) -> String {
     s
 }
 
-/// Canonical-LE 32-byte hex of an Fr element.
-fn fr_hex(f: &Fr) -> String {
+/// Canonical-LE 32-byte hex of a field element.
+fn fe_hex<F: PrimeField>(f: &F) -> String {
     hex(&f.into_repr().to_bytes_le())
 }
 
@@ -93,19 +110,19 @@ fn ser_hex<T: CanonicalSerialize>(v: &T) -> String {
     hex(&b)
 }
 
-fn fr_list_json(xs: &[Fr]) -> String {
-    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fr_hex(f))).collect();
+fn fr_list_json<F: PrimeField>(xs: &[F]) -> String {
+    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fe_hex(f))).collect();
     format!("[{}]", v.join(","))
 }
 
 /// `[[coeff_le_hex, var_index], ...]` per row — the sparse `Matrix<Fr>` layout.
-fn matrix_json(m: &Matrix<Fr>) -> String {
+fn matrix_json<F: PrimeField>(m: &Matrix<F>) -> String {
     let rows: Vec<String> = m
         .iter()
         .map(|row| {
             let entries: Vec<String> = row
                 .iter()
-                .map(|(coeff, idx)| format!("[\"{}\",{}]", fr_hex(coeff), idx))
+                .map(|(coeff, idx)| format!("[\"{}\",{}]", fe_hex(coeff), idx))
                 .collect();
             format!("[{}]", entries.join(","))
         })
@@ -113,7 +130,10 @@ fn matrix_json(m: &Matrix<Fr>) -> String {
     format!("[{}]", rows.join(","))
 }
 
-fn point_json(p: &Affine) -> String {
+fn point_json<P: SWModelParameters>(p: &GroupAffine<P>) -> String
+where
+    P::BaseField: PrimeField,
+{
     let (x, y) = if p.is_zero() {
         (hex(&[0u8; 32]), hex(&[0u8; 32]))
     } else {
@@ -122,34 +142,43 @@ fn point_json(p: &Affine) -> String {
     format!("{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}", x, y)
 }
 
-/// One seeded no-zk accumulation step, mirroring `oracle.rs`'s `prove_bytes!`.
-/// Returns the replay inputs and the golden serialized accumulator + proof.
-fn run_seed(seed: u64) -> (Vec<Fr>, Vec<Fr>, String, String, String) {
+/// One seeded no-zk accumulation step, mirroring `oracle.rs`'s `prove_bytes!`,
+/// followed by the arkworks decider on the produced accumulator. Returns the
+/// replay inputs, the golden serialized accumulator + proof, and the decider's
+/// verdict (asserted `true` by the caller).
+fn run_seed<P>(seed: u64) -> (Vec<P::ScalarField>, Vec<P::ScalarField>, String, String, String, bool)
+where
+    P: SWModelParameters,
+    P::BaseField: PrimeField,
+    GroupAffine<P>: Absorbable<CF<P>>,
+    CF<P>: PrimeField + Absorbable<CF<P>>,
+{
     let mut rng = StdRng::seed_from_u64(seed);
 
     // NARK setup + index over a freshly sampled circuit (draws a, b).
-    let nark_pp = R1CSNark::<G, Sponge>::setup();
-    let index_circuit = DummyCircuit {
-        a: Some(Fr::rand(&mut rng)),
-        b: Some(Fr::rand(&mut rng)),
+    let nark_pp = R1CSNark::<GroupAffine<P>, Sponge<P>>::setup();
+    let index_circuit = DummyCircuit::<P::ScalarField> {
+        a: Some(P::ScalarField::rand(&mut rng)),
+        b: Some(P::ScalarField::rand(&mut rng)),
         num_inputs: NUM_INPUTS,
         num_constraints: NUM_CONSTRAINTS,
     };
-    let (ipk, ivk) = R1CSNark::<G, Sponge>::index(&nark_pp, index_circuit).unwrap();
+    let (ipk, ivk) = R1CSNark::<GroupAffine<P>, Sponge<P>>::index(&nark_pp, index_circuit).unwrap();
 
-    // Accumulation-scheme setup + index (no-zk setup draws no randomness).
-    let as_pp = AS::setup(&mut rng).unwrap();
-    let (pk, _vk, _dk) = AS::index(&as_pp, &(), &(ipk.clone(), ivk.clone())).unwrap();
+    // Accumulation-scheme setup + index (no-zk setup draws no randomness). The
+    // decider key `dk` (discarded by the prove-only dumps) drives the decider.
+    let as_pp = AS::<P>::setup(&mut rng).unwrap();
+    let (pk, _vk, dk) = AS::<P>::index(&as_pp, &(), &(ipk.clone(), ivk.clone())).unwrap();
 
     // Build one accumulation input by running the NARK prover (draws a, b).
-    let circuit = DummyCircuit {
-        a: Some(Fr::rand(&mut rng)),
-        b: Some(Fr::rand(&mut rng)),
+    let circuit = DummyCircuit::<P::ScalarField> {
+        a: Some(P::ScalarField::rand(&mut rng)),
+        b: Some(P::ScalarField::rand(&mut rng)),
         num_inputs: NUM_INPUTS,
         num_constraints: NUM_CONSTRAINTS,
     };
-    let nark_sponge = ASForR1CSNark::<G, Sponge>::nark_sponge(&Sponge::new());
-    let nark_proof = R1CSNark::<G, Sponge>::prove(
+    let nark_sponge = ASForR1CSNark::<GroupAffine<P>, Sponge<P>>::nark_sponge(&Sponge::<P>::new());
+    let nark_proof = R1CSNark::<GroupAffine<P>, Sponge<P>>::prove(
         &ipk,
         circuit.clone(),
         false,
@@ -173,7 +202,7 @@ fn run_seed(seed: u64) -> (Vec<Fr>, Vec<Fr>, String, String, String) {
         (cs.instance_assignment.clone(), cs.witness_assignment.clone())
     };
 
-    let input = Input::<CF, Sponge, AS> {
+    let input = Input::<CF<P>, Sponge<P>, AS<P>> {
         instance: InputInstance {
             r1cs_input: r1cs_input.clone(),
             first_round_message: nark_proof.first_msg.clone(),
@@ -181,16 +210,22 @@ fn run_seed(seed: u64) -> (Vec<Fr>, Vec<Fr>, String, String, String) {
         witness: nark_proof.second_msg,
     };
     let inputs = vec![input];
-    let no_accumulators: Vec<Accumulator<CF, Sponge, AS>> = Vec::new();
+    let no_accumulators: Vec<Accumulator<CF<P>, Sponge<P>, AS<P>>> = Vec::new();
 
-    let (accumulator, proof) = AS::prove(
+    let (accumulator, proof) = AS::<P>::prove(
         &pk,
-        Input::<CF, Sponge, AS>::map_to_refs(&inputs),
-        Accumulator::<CF, Sponge, AS>::map_to_refs(&no_accumulators),
+        Input::<CF<P>, Sponge<P>, AS<P>>::map_to_refs(&inputs),
+        Accumulator::<CF<P>, Sponge<P>, AS<P>>::map_to_refs(&no_accumulators),
         MakeZK::Disabled,
         None,
     )
     .unwrap();
+
+    // The decider oracle: recompute comm_{a,b,c} + the HP check and accept iff
+    // they equal the accumulator's stored commitments. The jax decide port
+    // reproduces this; the produced fixture is valid only if arkworks accepts.
+    let decided = AS::<P>::decide(&dk, accumulator.as_ref(), None::<Sponge<P>>).unwrap();
+    assert!(decided, "arkworks decider must accept the produced accumulator (seed {})", seed);
 
     (
         r1cs_input,
@@ -198,21 +233,28 @@ fn run_seed(seed: u64) -> (Vec<Fr>, Vec<Fr>, String, String, String) {
         ser_hex(&accumulator.instance),
         ser_hex(&accumulator.witness),
         ser_hex(&proof),
+        decided,
     )
 }
 
-fn main() {
+fn dump<P>(curve: &str)
+where
+    P: SWModelParameters,
+    P::BaseField: PrimeField,
+    GroupAffine<P>: Absorbable<CF<P>>,
+    CF<P>: PrimeField + Absorbable<CF<P>>,
+{
     // Seed-independent structural inputs: matrices a/b/c + committer key. The
     // matrices depend only on the circuit shape (coefficients are 1), so derive
     // them from a value-free Setup synthesis; the committer key is deterministic
     // in num_constraints.
-    let shape_circuit = DummyCircuit {
+    let shape_circuit = DummyCircuit::<P::ScalarField> {
         a: None,
         b: None,
         num_inputs: NUM_INPUTS,
         num_constraints: NUM_CONSTRAINTS,
     };
-    let mcs = ConstraintSystem::<Fr>::new_ref();
+    let mcs = ConstraintSystem::<P::ScalarField>::new_ref();
     mcs.set_optimization_goal(OptimizationGoal::Constraints);
     mcs.set_mode(SynthesisMode::Setup);
     shape_circuit.generate_constraints(mcs.clone()).unwrap();
@@ -222,36 +264,46 @@ fn main() {
 
     // Committer-key generators (recovered from the key's uncompressed form,
     // as dump_nark.rs does).
-    let cpp = PedersenCommitment::<Affine>::setup(num_constraints);
-    let ck = PedersenCommitment::<Affine>::trim(&cpp, num_constraints);
+    let cpp = PedersenCommitment::<GroupAffine<P>>::setup(num_constraints);
+    let ck = PedersenCommitment::<GroupAffine<P>>::trim(&cpp, num_constraints);
     let supported_num_elems = ck.supported_num_elems();
-    let generators = {
+    // generators + the hiding generator: the decider's fused GPU core commits over
+    // `generators ‖ hiding` (the randomizer rides as the trailing MSM term, 0 on the
+    // no-zk path), so the hiding base is dumped even though the no-zk commitments
+    // are non-hiding.
+    let (generators, hiding) = {
         let mut b = Vec::new();
         ck.serialize_uncompressed(&mut b).unwrap();
         let mut r = &b[..];
-        Vec::<Affine>::deserialize_uncompressed(&mut r).unwrap()
+        let g = Vec::<GroupAffine<P>>::deserialize_uncompressed(&mut r).unwrap();
+        let h = GroupAffine::<P>::deserialize_uncompressed(&mut r).unwrap();
+        (g, h)
     };
-    let gens_json: Vec<String> = generators.iter().map(point_json).collect();
+    let gens_json: Vec<String> = generators.iter().map(point_json::<P>).collect();
 
     let seeds_json: Vec<String> = SEEDS
         .iter()
         .map(|&seed| {
-            let (r1cs_input, blinded_witness, acc_inst, acc_wit, proof) = run_seed(seed);
+            let (r1cs_input, blinded_witness, acc_inst, acc_wit, proof, decided) =
+                run_seed::<P>(seed);
             format!(
                 "{{\"seed\":{},\"r1cs_input\":{},\"blinded_witness\":{},\
-                 \"acc_instance_hex\":\"{}\",\"acc_witness_hex\":\"{}\",\"proof_hex\":\"{}\"}}",
+                 \"acc_instance_hex\":\"{}\",\"acc_witness_hex\":\"{}\",\"proof_hex\":\"{}\",\
+                 \"decide\":{}}}",
                 seed,
                 fr_list_json(&r1cs_input),
                 fr_list_json(&blinded_witness),
                 acc_inst,
                 acc_wit,
                 proof,
+                decided,
             )
         })
         .collect();
 
     println!("{{");
-    println!("  \"note\": \"R1CS-NARK-AS no-zk prove fixtures\",");
+    println!("  \"note\": \"R1CS-NARK-AS no-zk prove + decide fixtures ({} curve)\",", curve);
+    println!("  \"curve\": \"{}\",", curve);
     println!("  \"num_inputs\": {},", NUM_INPUTS);
     println!("  \"num_constraints\": {},", num_constraints);
     println!("  \"supported_num_elems\": {},", supported_num_elems);
@@ -259,6 +311,15 @@ fn main() {
     println!("  \"b\": {},", matrix_json(&matrices.b));
     println!("  \"c\": {},", matrix_json(&matrices.c));
     println!("  \"generators\": [{}],", gens_json.join(","));
+    println!("  \"hiding\": {},", point_json::<P>(&hiding));
     println!("  \"seeds\": [{}]", seeds_json.join(","));
     println!("}}");
+}
+
+fn main() {
+    match std::env::args().nth(1).as_deref().unwrap_or("pallas") {
+        "pallas" => dump::<ark_pallas::PallasParameters>("pallas"),
+        "vesta" => dump::<ark_vesta::VestaParameters>("vesta"),
+        other => panic!("unknown curve {} (expected pallas|vesta)", other),
+    }
 }
