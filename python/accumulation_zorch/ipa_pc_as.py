@@ -303,6 +303,28 @@ def prove_no_zk_accumulator(
     return Accumulator(combined_commitment, point, evaluation, ipa_proof)
 
 
+def prove_no_zk_fold(
+    cv: Curve, params, svk_h: np.ndarray, generators: list[np.ndarray],
+    input_insts: list[Any], acc_prev_insts: list[Any],
+) -> Accumulator:  # type: ignore[no-untyped-def]
+    """The AS no-zk **fold**: accumulate inputs INTO prior accumulators
+    (`old_accumulators` non-empty), arkworks' `prove` with a non-empty
+    `old_accumulators`.
+
+    The fold reuses the no-fold prove wholesale. arkworks'
+    `succinct_check_inputs_and_accumulators` succinct-checks the inputs first, then
+    the accumulators, into ONE list; an accumulator is an `InputInstance` of the
+    same shape as an input, so each is checked and combined identically. The fold is
+    therefore exactly :func:`prove_no_zk_accumulator` fed
+    `[inputs..., accumulators...]` — no new combine/challenge logic, just the prior
+    accumulators appended (after the inputs) as further addends."""
+    succinct_checks = (
+        [succinct_check_input(cv, params, i) for i in input_insts]
+        + [succinct_check_input(cv, params, a) for a in acc_prev_insts]
+    )
+    return prove_no_zk_accumulator(cv, params, svk_h, generators, succinct_checks)
+
+
 def decide_final_key(cv: Curve, params, generators: list[np.ndarray], inst: Any) -> np.ndarray:
     """The AS decider's size-`d` MSM (`IpaPC::check`'s final check): run the
     accumulator's succinct check, densely expand its check polynomial, and
