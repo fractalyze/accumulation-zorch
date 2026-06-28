@@ -1,7 +1,7 @@
 //! Scale benchmark for the **R1CS-NARK accumulation decider** — the scheme's
 //! GPU-value op (the six size-`n` Pedersen commitments `comm_{a,b,c}` +
 //! `test_comm_{1,2,3}`, MSMs over `generators ‖ hiding`). Times the warm GPU
-//! `fused::run_decide_r1cs_bench` (one PJRT call computing all six MSMs +
+//! `fused::run_decide_r1cs` (one PJRT call computing all six MSMs +
 //! the HP Hadamard product) against the arkworks CPU variable-base MSM at a
 //! configurable size, with a byte-match-at-scale gate (GPU == CPU). Like the
 //! IPA-PC decider (and unlike the host-bound recursion fold), the decider is pure
@@ -77,7 +77,7 @@ fn gpu_fused_r1cs_decide_bench() {
     // byte-match-at-scale correctness gate (all six commitments).
     let mlirbc = std::fs::read(&mlirbc_path).expect("read mlirbc");
     let exe = fused::load_fused(&mlirbc);
-    let got = fused::run_decide_r1cs_bench::<Pallas>(exe, &bases_h, &av, &bv, &cv, &rand6);
+    let got = fused::run_decide_r1cs::<Pallas>(exe, &bases_h, &av, &bv, &cv, &rand6);
     assert_eq!(got.len(), 6, "decider returned {} commitments, expected 6", got.len());
     for (i, (g, c)) in got.iter().zip(&cpu).enumerate() {
         assert_eq!(g, c, "decider commitment {i} GPU != CPU at n={n}");
@@ -86,7 +86,7 @@ fn gpu_fused_r1cs_decide_bench() {
     let mut times = Vec::with_capacity(iters);
     for _ in 0..iters {
         let t = Instant::now();
-        let _ = fused::run_decide_r1cs_bench::<Pallas>(exe, &bases_h, &av, &bv, &cv, &rand6);
+        let _ = fused::run_decide_r1cs::<Pallas>(exe, &bases_h, &av, &bv, &cv, &rand6);
         times.push(t.elapsed());
     }
     times.sort();

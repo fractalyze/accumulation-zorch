@@ -1,6 +1,6 @@
 //! End-to-end GPU byte-match for the **R1CS-NARK accumulation decider** fused
 //! core — the decider's six size-`n` MSMs run as **one** PJRT call
-//! (`crate::fused::decide_r1cs_fused`) must reproduce the accumulator's arkworks
+//! (`crate::fused::run_decide_r1cs`) must reproduce the accumulator's arkworks
 //! `comm_{a,b,c}` and `hp_instance.comm_{1,2,3}` byte-for-byte, over **both** Pasta
 //! cycle curves and both the no-zk and zk accumulators.
 //!

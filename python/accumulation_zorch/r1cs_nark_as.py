@@ -423,10 +423,11 @@ def decide(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
     comm_b = curve.pedersen_commit(cv, generators[:len(z_b)], z_b, hiding, sigma_b)
     comm_c = curve.pedersen_commit(cv, generators[:len(z_c)], z_c, hiding, sigma_c)
 
-    # HP decide check: product is the element-wise (Hadamard) a_vec ∘ b_vec; the
-    # fr dtype reduces mod r, so no manual modulus.
-    product = fe_values(jnp.asarray(np.array(acc.hp_a_vec, dtype=cv.fr))
-                        * jnp.asarray(np.array(acc.hp_b_vec, dtype=cv.fr)))
+    # HP decide check: product is the element-wise (Hadamard) a_vec ∘ b_vec. This
+    # is the host oracle, so it uses a vectorized numpy `fr` multiply (the `fr`
+    # dtype reduces mod r) — host arithmetic, not jax, and not a per-element
+    # `fr_mul` (which would dispatch to jax once per element).
+    product = fe_values(np.array(acc.hp_a_vec, dtype=cv.fr) * np.array(acc.hp_b_vec, dtype=cv.fr))
     rand_1, rand_2, rand_3 = acc.hp_rand if acc.hp_rand is not None else (None, None, None)
     hp_comm_1 = curve.pedersen_commit(cv, generators[:len(acc.hp_a_vec)], acc.hp_a_vec, hiding, rand_1)
     hp_comm_2 = curve.pedersen_commit(cv, generators[:len(acc.hp_b_vec)], acc.hp_b_vec, hiding, rand_2)
