@@ -325,6 +325,29 @@ def prove_no_zk_fold(
     return prove_no_zk_accumulator(cv, params, svk_h, generators, succinct_checks)
 
 
+def prove_zk_fold(
+    cv: Curve, params, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
+    input_insts: list[Any], acc_prev_insts: list[Any], rlp_coeffs: list[int],
+    rlp_commitment: np.ndarray, commitment_randomness: int, hiding_poly_raw: list[int],
+    hiding_rand: int,
+) -> Accumulator:  # type: ignore[no-untyped-def]
+    """The AS zk **fold**: accumulate (no-zk) inputs INTO prior *hiding* accumulators.
+
+    The fold mirrors the no-zk one (:func:`prove_no_zk_fold`) — inputs first, then
+    accumulators, into one succinct-check list combined identically — with one
+    wrinkle: a prior accumulator from a zk prove carries a hiding IPA opening, so
+    its succinct check is the **zk** path (:func:`succinct_check_input_zk`, folding
+    the hiding seed with `s` and the proof's `hiding_comm`/`rand`), while the new
+    inputs stay no-zk. The combined list then runs through the same zk prove."""
+    succinct_checks = (
+        [succinct_check_input(cv, params, i) for i in input_insts]
+        + [succinct_check_input_zk(cv, params, s, a) for a in acc_prev_insts]
+    )
+    return prove_zk_accumulator(
+        cv, params, svk_h, s, generators, succinct_checks, rlp_coeffs, rlp_commitment,
+        commitment_randomness, hiding_poly_raw, hiding_rand)
+
+
 def decide_final_key(cv: Curve, params, generators: list[np.ndarray], inst: Any) -> np.ndarray:
     """The AS decider's size-`d` MSM (`IpaPC::check`'s final check): run the
     accumulator's succinct check, densely expand its check polynomial, and
@@ -362,4 +385,16 @@ def succinct_check_input(cv: Curve, params, inst: Any) -> SuccinctCheck:
     pair the resulting check polynomial with the input's `final_comm_key`."""
     check_poly = ipa_pc.succinct_check_challenges(
         cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec)
+    return SuccinctCheck(check_poly, inst.final_comm_key)
+
+
+def succinct_check_input_zk(cv: Curve, params, s: np.ndarray, inst: Any) -> SuccinctCheck:
+    """Run the **zk/hiding** succinct check on one hiding instance — a prior
+    accumulator from a zk prove (its `ipa_proof` carries `hiding_comm`/`rand`). The
+    zk succinct check folds the hiding seed using the verifier key's hiding
+    generator `s` and the proof's `hiding_comm`/`rand` before deriving the round
+    challenges. Used to fold a prior zk accumulator into the next step."""
+    check_poly = ipa_pc.succinct_check_challenges_zk(
+        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec,
+        s, inst.hiding_comm, inst.rand)
     return SuccinctCheck(check_poly, inst.final_comm_key)
