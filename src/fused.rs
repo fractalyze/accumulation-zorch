@@ -604,3 +604,115 @@ fn serialize_each<T: CanonicalSerialize>(items: &[T], out: &mut Vec<u8>) {
         it.serialize(&mut *out).unwrap();
     }
 }
+
+/// The six commitments the R1CS-NARK accumulation decider recomputes:
+/// `[comm_a, comm_b, comm_c, test_comm_1, test_comm_2, test_comm_3]` — the three
+/// size-`n` `commit(M·z, σ_M)` and the `hp_as` decide check's
+/// `commit(a_vec, ρ₁), commit(b_vec, ρ₂), commit(a_vec∘b_vec, ρ₃)`. The decider
+/// accepts iff these equal the accumulator's stored `comm_{a,b,c}` /
+/// `hp_instance.comm_{1,2,3}`.
+pub const DECIDE_R1CS_OUTPUTS: usize = 6;
+
+/// Run the fused **R1CS-NARK accumulation decider** core (`export_as_decide.py`)
+/// once on the GPU and return its six recomputed commitments. The decider's
+/// GPU-value work is the six size-`n` MSMs (the R1CS-NARK counterpart of the
+/// IPA-PC size-`d` MSM, #10); this lowers the three `M·z` reduces + the HP
+/// Hadamard product + the six `commit_hiding` MSMs to one PJRT call. The committer
+/// key `bases_h = generators ‖ hiding`, the assignment `z = r1cs_input ‖
+/// r1cs_blinded_witness`, and the six randomizers `rand6 = (σ_a,σ_b,σ_c,ρ₁,ρ₂,ρ₃)`
+/// (all 0 on the no-zk path) are runtime inputs, so one lowered
+/// `as_decider_<curve>.mlirbc` decides any accumulator of the baked circuit shape.
+/// Byte-identical to the host `r1cs_nark_as.decide` and (the byte-match gate) to
+/// the accumulator's arkworks-stored commitments.
+pub fn decide_r1cs_fused<C: PastaCurve>(
+    mlirbc: &[u8],
+    bases_h: &[Affine<C>],
+    z: &[Fr<C>],
+    hp_a: &[Fr<C>],
+    hp_b: &[Fr<C>],
+    rand6: &[Fr<C>],
+) -> Vec<Affine<C>>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
+    run_decide_r1cs::<C>(load_fused(mlirbc), bases_h, z, hp_a, hp_b, rand6)
+}
+
+/// Run an already-loaded R1CS decider core `exe` once and return the six
+/// commitments. Split from [`load_fused`] so a benchmark can compile once and time
+/// many warm runs. `hp_a`/`hp_b` are the accumulator's HP witness vectors (a
+/// runtime input, not `M·z` — on the zk path they are the folded openings); on the
+/// no-zk path they coincide with `A·z`/`B·z`.
+pub fn run_decide_r1cs<C: PastaCurve>(
+    exe: &zkx_pjrt::Executable,
+    bases_h: &[Affine<C>],
+    z: &[Fr<C>],
+    hp_a: &[Fr<C>],
+    hp_b: &[Fr<C>],
+    rand6: &[Fr<C>],
+) -> Vec<Affine<C>>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
+    let bases_bytes = wire::g1_array_to_bytes(bases_h);
+    let z_bytes = wire::scalars_to_bytes::<C::Params>(z);
+    let hp_a_bytes = wire::scalars_to_bytes::<C::Params>(hp_a);
+    let hp_b_bytes = wire::scalars_to_bytes::<C::Params>(hp_b);
+    let rand_bytes = wire::scalars_to_bytes::<C::Params>(rand6);
+    // Inputs in the core's `_core(bases_h, z, hp_a, hp_b, rand6)` argument order.
+    let args = [
+        (bases_bytes.as_slice(), vec![bases_h.len() as i64], C::G1_AFFINE),
+        (z_bytes.as_slice(), vec![z.len() as i64], C::SF),
+        (hp_a_bytes.as_slice(), vec![hp_a.len() as i64], C::SF),
+        (hp_b_bytes.as_slice(), vec![hp_b.len() as i64], C::SF),
+        (rand_bytes.as_slice(), vec![rand6.len() as i64], C::SF),
+    ];
+    // Safety: `exe` compiled by this same (leaked) client; the five inputs match
+    // the decider core's argument list (`export/export_as_decide.py`).
+    let out = unsafe { crate::gpu::session().run(exe, &args, DECIDE_R1CS_OUTPUTS) };
+    assert_eq!(
+        out.len(),
+        DECIDE_R1CS_OUTPUTS,
+        "R1CS decider core returned {} leaves, expected {DECIDE_R1CS_OUTPUTS}",
+        out.len()
+    );
+    out.iter().map(|leaf| parse_point::<C>(leaf)).collect()
+}
+
+/// Run an already-loaded R1CS decider **bench** core (`export_as_decide.py`'s
+/// size-`n` pure-MSM core) once and return the six commitments. Takes the three
+/// pre-reduced vectors `A·z` / `B·z` / `C·z` directly (the matvec is excluded; the
+/// six size-`n` MSMs are the measured GPU-value work).
+pub fn run_decide_r1cs_bench<C: PastaCurve>(
+    exe: &zkx_pjrt::Executable,
+    bases_h: &[Affine<C>],
+    av: &[Fr<C>],
+    bv: &[Fr<C>],
+    cv: &[Fr<C>],
+    rand6: &[Fr<C>],
+) -> Vec<Affine<C>>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
+    let bases_bytes = wire::g1_array_to_bytes(bases_h);
+    let av_b = wire::scalars_to_bytes::<C::Params>(av);
+    let bv_b = wire::scalars_to_bytes::<C::Params>(bv);
+    let cv_b = wire::scalars_to_bytes::<C::Params>(cv);
+    let rand_bytes = wire::scalars_to_bytes::<C::Params>(rand6);
+    // Inputs in the bench core's `_core(bases_h, av, bv, cv_vec, rand6)` order.
+    let args = [
+        (bases_bytes.as_slice(), vec![bases_h.len() as i64], C::G1_AFFINE),
+        (av_b.as_slice(), vec![av.len() as i64], C::SF),
+        (bv_b.as_slice(), vec![bv.len() as i64], C::SF),
+        (cv_b.as_slice(), vec![cv.len() as i64], C::SF),
+        (rand_bytes.as_slice(), vec![rand6.len() as i64], C::SF),
+    ];
+    let out = unsafe { crate::gpu::session().run(exe, &args, DECIDE_R1CS_OUTPUTS) };
+    assert_eq!(
+        out.len(),
+        DECIDE_R1CS_OUTPUTS,
+        "R1CS decider bench core returned {} leaves, expected {DECIDE_R1CS_OUTPUTS}",
+        out.len()
+    );
+    out.iter().map(|leaf| parse_point::<C>(leaf)).collect()
+}

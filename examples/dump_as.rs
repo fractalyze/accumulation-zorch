@@ -267,11 +267,17 @@ where
     let cpp = PedersenCommitment::<GroupAffine<P>>::setup(num_constraints);
     let ck = PedersenCommitment::<GroupAffine<P>>::trim(&cpp, num_constraints);
     let supported_num_elems = ck.supported_num_elems();
-    let generators = {
+    // generators + the hiding generator: the decider's fused GPU core commits over
+    // `generators ‖ hiding` (the randomizer rides as the trailing MSM term, 0 on the
+    // no-zk path), so the hiding base is dumped even though the no-zk commitments
+    // are non-hiding.
+    let (generators, hiding) = {
         let mut b = Vec::new();
         ck.serialize_uncompressed(&mut b).unwrap();
         let mut r = &b[..];
-        Vec::<GroupAffine<P>>::deserialize_uncompressed(&mut r).unwrap()
+        let g = Vec::<GroupAffine<P>>::deserialize_uncompressed(&mut r).unwrap();
+        let h = GroupAffine::<P>::deserialize_uncompressed(&mut r).unwrap();
+        (g, h)
     };
     let gens_json: Vec<String> = generators.iter().map(point_json::<P>).collect();
 
@@ -305,6 +311,7 @@ where
     println!("  \"b\": {},", matrix_json(&matrices.b));
     println!("  \"c\": {},", matrix_json(&matrices.c));
     println!("  \"generators\": [{}],", gens_json.join(","));
+    println!("  \"hiding\": {},", point_json::<P>(&hiding));
     println!("  \"seeds\": [{}]", seeds_json.join(","));
     println!("}}");
 }
