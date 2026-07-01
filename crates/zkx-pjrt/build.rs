@@ -1,7 +1,9 @@
 fn main() {
-    // Vendored PJRT C API headers (self-contained, see third_party/pjrt). The header
-    // `#include`s the bazel-generated `zkx/pjrt/c/pjrt_c_api_data_types.h`, also vendored;
-    // the include root is `third_party/pjrt` so that relative include resolves.
+    // Vendored PJRT C API header (self-contained, see third_party/pjrt), copied from
+    // fractalyze/xla's `xla/pjrt/c/pjrt_c_api.h` at the plugin's pin. The zkx buffer-type
+    // enum (Pasta / BN254 / … curves) is inline in the header, so there is no separate
+    // data-types include. The include root is `third_party/pjrt`, kept for the vendored
+    // layout (the header itself only pulls in system C headers).
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let header = std::env::var("ZKX_PJRT_HEADER")
         .unwrap_or_else(|_| format!("{manifest}/third_party/pjrt/zkx/pjrt/c/pjrt_c_api.h"));
@@ -9,9 +11,6 @@ fn main() {
         .unwrap_or_else(|_| format!("{manifest}/third_party/pjrt"));
     println!("cargo:rerun-if-env-changed=ZKX_PJRT_HEADER");
     println!("cargo:rerun-if-changed={header}");
-    // pjrt_c_api.h `#include`s this generated data-types header; track it too so
-    // edits to the buffer-type enum (e.g. adding Pasta curves) re-run bindgen.
-    println!("cargo:rerun-if-changed={manifest}/third_party/pjrt/zkx/pjrt/c/pjrt_c_api_data_types.h");
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     bindgen::Builder::default()
         .header(&header)
