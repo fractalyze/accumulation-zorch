@@ -86,22 +86,23 @@ uv venv --python 3.11 .venv
 uv pip install --python .venv --index-strategy unsafe-best-match \
   --index-url https://fractalyze.github.io/pypi/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  jax==0.0.5.dev20260624111151 jaxlib==0.0.5.dev20260624111151 \
-  zkx-cuda-pjrt==0.0.5.dev20260624111151 zk-dtypes==0.0.7 numpy absl-py
+  jax==0.10.0.dev20260701084712 jaxlib==0.10.0.dev20260701084712 \
+  jax-cuda12-pjrt==0.10.0.dev20260701084712 jax-cuda12-plugin==0.10.0.dev20260701084712 \
+  zk-dtypes==0.0.7 numpy absl-py
 ```
 
 Point the env vars at that venv (copy-paste from the repo root):
 
 ```bash
 export ZKX_VENV_PYTHON=$PWD/.venv/bin/python
-export ZKX_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/jax_plugins/cuda/pjrt_c_api_gpu_plugin.so
+export ZKX_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/jax_plugins/xla_cuda12/xla_cuda_plugin.so
 ```
 
-> Use the **`0.0.5.dev`** jax line, not `0.10.0.dev` — only the `0.0.5.dev` fork
-> registers the Pasta curve dtypes (`pallas_sf` etc.), and `zk-dtypes==0.0.7` carries
-> them (`0.0.6` does not). This exact pin set is verified to byte-match arkworks on
-> GPU (single prove, zk + no-zk). `PYTHONPATH=python` resolves both
-> `accumulation_zorch` and the vendored `zorch`.
+> The `0.10.0.dev` jax fork registers the Pasta curve dtypes (`pallas_sf` etc.);
+> `zk-dtypes==0.0.7` carries them (`0.0.6` does not). `PYTHONPATH=python` resolves both
+> `accumulation_zorch` and the vendored `zorch`. This pin set byte-matches arkworks:
+> the CPU suite is 24/24, and the prover byte-matches on GPU via the Python prove
+> (`JAX_PLATFORMS=cuda`).
 
 ## Reproduce
 
@@ -142,6 +143,12 @@ JAX_PLATFORMS=cpu PYTHONPATH=python \
 cargo test --features gpu --test gpu_fused_prove_byte_match -- --ignored --test-threads=1 --nocapture
 cargo test --features gpu --test gpu_fused_no_zk_prove_byte_match -- --ignored --test-threads=1 --nocapture
 ```
+
+> On the jax `0.10.0.dev` stack this `cargo test` harness is temporarily broken: the
+> vendored `crates/zkx-pjrt` shim bindgens an older PJRT C API, so it aborts against the
+> standard-split 0.10 plugin (tracked in #16). The prover itself byte-matches arkworks on
+> 0.10 GPU — run the Python prove directly (`JAX_PLATFORMS=cuda PYTHONPATH=python
+> $ZKX_VENV_PYTHON python/accumulation_zorch/testing/as_zk_test.py`) until #16 lands.
 
 ## Benchmark
 

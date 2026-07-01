@@ -84,15 +84,15 @@ jobs:
           enable-cache: true
 
       # The zkx Pasta jax fork registers the Pasta curve dtypes; the CPU backend
-      # needs no GPU plugin (so `zkx-cuda-pjrt` is omitted vs the README's GPU
-      # setup). Pins match README.md.
+      # needs no GPU plugin (so `jax-cuda12-pjrt`/`jax-cuda12-plugin` are omitted
+      # vs the README's GPU setup). Pins match README.md.
       - name: Create venv + install the zkx Pasta jax fork (CPU)
         run: |
           uv venv --python 3.11 .venv
           uv pip install --python .venv --index-strategy unsafe-best-match \
             --index-url https://fractalyze.github.io/pypi/simple/ \
             --extra-index-url https://pypi.org/simple/ \
-            jax==0.0.5.dev20260624111151 jaxlib==0.0.5.dev20260624111151 \
+            jax==0.10.0.dev20260701084712 jaxlib==0.10.0.dev20260701084712 \
             zk-dtypes==0.0.7 numpy absl-py
 
       # Each absltest case exits non-zero on a byte-match failure. CPU-forced; the
