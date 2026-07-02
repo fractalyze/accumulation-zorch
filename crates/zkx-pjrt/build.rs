@@ -10,6 +10,7 @@ fn main() {
     let inc = std::env::var("XLA_PJRT_INCLUDE")
         .unwrap_or_else(|_| format!("{manifest}/third_party/pjrt"));
     println!("cargo:rerun-if-env-changed=XLA_PJRT_HEADER");
+    println!("cargo:rerun-if-env-changed=XLA_PJRT_INCLUDE");
     println!("cargo:rerun-if-changed={header}");
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     bindgen::Builder::default()
