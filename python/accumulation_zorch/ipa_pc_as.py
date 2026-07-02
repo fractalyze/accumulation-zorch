@@ -34,7 +34,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from . import absorbable, curve, ipa_pc, sponge
+from . import absorbable, curve, ipa_open, ipa_pc, sponge
 from .curve import Curve
 from .field import fe_values, fr_add, fr_mul
 
@@ -281,7 +281,9 @@ def prove_zk_accumulator(
     point = compute_new_challenge_zk(cv, params, combined, addends, rlp_coeffs)
     evaluation = combined_evaluation_zk(cv, addends, point, rlp_coeffs)
     coeffs = combine_check_polynomials_zk(cv, addends, rlp_coeffs)
-    ipa_proof = ipa_pc.open_zk(
+    # Drive zorch's `pcs/ipa` hiding fold (via `ipa_open`) instead of the local
+    # `ipa_pc.open_zk`; the returned `IpaProof` is byte-identical.
+    ipa_proof = ipa_open.open_zk(
         cv, params, svk_h, s, generators, randomized, point, coeffs,
         hiding_poly_raw, hiding_rand, commitment_randomness)
     return Accumulator(randomized, point, evaluation, ipa_proof)
@@ -299,7 +301,9 @@ def prove_no_zk_accumulator(
     point = compute_new_challenge(cv, params, combined_commitment, addends)
     evaluation = combined_evaluation(cv, addends, point)
     coeffs = combine_check_polynomials(cv, addends)
-    ipa_proof = ipa_pc.open_no_zk(cv, params, svk_h, combined_commitment, point, coeffs, generators)
+    # Drive zorch's `pcs/ipa` fold (via `ipa_open`) instead of the local
+    # `ipa_pc.open_no_zk`; the returned `IpaProof` is byte-identical (Task 3 spike).
+    ipa_proof = ipa_open.open_no_zk(cv, params, svk_h, combined_commitment, point, coeffs, generators)
     return Accumulator(combined_commitment, point, evaluation, ipa_proof)
 
 

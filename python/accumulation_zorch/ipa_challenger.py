@@ -103,11 +103,12 @@ def _fr32(cv: Curve, value: Array | int) -> bytes:
 )
 @dataclass(frozen=True)
 class ArkIpaChallenger:
-    """The arkworks-faithful `IpaChallenger` (no-zk). A JAX pytree: `state` (the
-    fresh `"IPA-PC-2020"`-forked Poseidon sponge's field state) and `prev` (the
-    previous round challenge, an ``fr`` scalar) are the data leaves the fold's
-    `lax.scan` carries; `cv` / `params` / the forked sponge's absorb `mode`+`pos`
-    are the static aux meta.
+    """The arkworks-faithful `IpaChallenger` — and, via :meth:`hiding_challenge`,
+    the `ZkIpaChallenger` for the hiding open. A JAX pytree: `state` (the fresh
+    `"IPA-PC-2020"`-forked Poseidon sponge's field state) and `prev` (the previous
+    round challenge, an ``fr`` scalar) are the data leaves the fold's `lax.scan`
+    carries; `cv` / `params` / the forked sponge's absorb `mode`+`pos` are the
+    static aux meta.
 
     Each round rebuilds the working sponge from the carried `state` (no re-fork of
     the domain), absorbs that round's inputs, and squeezes one truncated-128
@@ -181,6 +182,30 @@ class ArkIpaChallenger:
         sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(r).reshape(1))
         u = self._squeeze(sp)
         return ArkIpaChallenger(self.state, u, cv, self.params, self.mode, self.pos), u
+
+    def hiding_challenge(
+        self, commitment: Array, hiding_comm: Array, point: Array, value: Array
+    ) -> tuple[ArkIpaChallenger, Array]:
+        """The zk/hiding opening's one pre-fold challenge (`ZkIpaChallenger`),
+        byte-exact to `ipa_pc.succinct_check_challenges_zk`'s hiding-challenge
+        derivation: a fresh `"IPA-PC-2020"` sponge absorbs `commitment`, then
+        `hiding_comm`, then ``to_bytes![point, value]``, and squeezes one
+        truncated-128 challenge. It is `seed` with the extra `hiding_comm` point
+        absorbed between the commitment and the point/value bytes — the arkworks
+        hiding fold's `commitment + hc·hiding_comm − s·rand` challenge. Squeezed once
+        (it does not enter the per-round challenge list); the returned challenger's
+        `state` is unchanged (the fold's subsequent `seed` starts fresh)."""
+        cv = self.cv
+        sp = self._sponge()
+        sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(commitment).reshape(1))
+        sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(hiding_comm).reshape(1))
+        sp = sp.absorb(
+            jnp.asarray(
+                absorbable.u8_batch_field_array(cv, _fr32(cv, point) + _fr32(cv, value))
+            )
+        )
+        hc = self._squeeze(sp)
+        return ArkIpaChallenger(self.state, hc, cv, self.params, self.mode, self.pos), hc
 
 
 def ark_challenger(cv: Curve, params: Any) -> ArkIpaChallenger:
