@@ -144,11 +144,12 @@ cargo test --features gpu --test gpu_fused_prove_byte_match -- --ignored --test-
 cargo test --features gpu --test gpu_fused_no_zk_prove_byte_match -- --ignored --test-threads=1 --nocapture
 ```
 
-> On the jax `0.10.0.dev` stack this `cargo test` harness is temporarily broken: the
-> vendored `crates/zkx-pjrt` shim bindgens an older PJRT C API, so it aborts against the
-> standard-split 0.10 plugin (tracked in #16). The prover itself byte-matches arkworks on
-> 0.10 GPU — run the Python prove directly (`JAX_PLATFORMS=cuda PYTHONPATH=python
-> $ZKX_VENV_PYTHON python/accumulation_zorch/testing/as_zk_test.py`) until #16 lands.
+> On the jax `0.10.0.dev` stack this `cargo test` harness runs (the `crates/zkx-pjrt` shim
+> was updated for the 0.10 PJRT C API, #16) but is not yet fully green: `seed 0` byte-matches
+> arkworks, while `seed 42` and the no-zk core diverge from a value-specific
+> exported-core/compile issue — not the shim — tracked in #18. The prover itself byte-matches
+> arkworks on 0.10 GPU for every seed via the Python prove (`JAX_PLATFORMS=cuda
+> PYTHONPATH=python $ZKX_VENV_PYTHON python/accumulation_zorch/testing/as_zk_test.py`).
 
 ## Benchmark
 

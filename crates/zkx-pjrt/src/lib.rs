@@ -15,12 +15,13 @@ use std::mem::{size_of, zeroed};
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-/// Path to the `zkx_gpu` plugin `.so`, from env `ZKX_PJRT_PLUGIN`. The plugin
-/// ships in the matched zkx wheel (`jax_plugins/zkx_gpu/pjrt_c_api_gpu_plugin.so`);
-/// see the README for the install + env-var setup.
+/// Path to the GPU PJRT plugin `.so`, from env `ZKX_PJRT_PLUGIN`. On the jax 0.10
+/// stack the plugin ships in the `jax-cuda12-pjrt` wheel at
+/// `jax_plugins/xla_cuda12/xla_cuda_plugin.so`; see the README for the install +
+/// env-var setup.
 pub fn plugin_path() -> String {
     std::env::var("ZKX_PJRT_PLUGIN")
-        .expect("set ZKX_PJRT_PLUGIN to the zkx_gpu pjrt_c_api_gpu_plugin.so")
+        .expect("set ZKX_PJRT_PLUGIN to the jax_plugins/xla_cuda12/xla_cuda_plugin.so")
 }
 
 pub struct Pjrt {
@@ -28,7 +29,7 @@ pub struct Pjrt {
     pub api: *const sys::PJRT_Api,
 }
 
-// zkx custom buffer element types (zkx/pjrt/c/pjrt_c_api_data_types.h). The
+// zkx custom buffer element types (inline in the vendored `pjrt_c_api.h`). The
 // element type carries the per-element byte size (sf=32, g1=64, g2=128), so
 // buffer `dims` are logical element counts, not byte shapes.
 pub const BN254_SF: sys::PJRT_Buffer_Type = sys::PJRT_Buffer_Type_PJRT_Buffer_Type_BN254_SF;
@@ -190,6 +191,16 @@ impl Client {
     ) -> Vec<*mut sys::PJRT_Buffer> {
         let mut opts: sys::PJRT_ExecuteOptions = zeroed();
         opts.struct_size = size_of::<sys::PJRT_ExecuteOptions>();
+
+        // Mark every input non-donatable. The crate reuses resident input buffers
+        // across executions (`Session`/`Buffer`), so PJRT must not donate them: a
+        // `may-alias` hint on the compiled core would otherwise let the client reuse an
+        // input's device memory for an output, clobbering a buffer a later run still
+        // needs. jax sets this list for the same reason. Kept alive until after the
+        // Execute call below.
+        let non_donatable: Vec<i64> = (0..inputs.len() as i64).collect();
+        opts.non_donatable_input_indices = non_donatable.as_ptr();
+        opts.num_non_donatable_input_indices = non_donatable.len();
 
         // argument_lists: [num_devices=1][num_args]
         let args_inner: Vec<*mut sys::PJRT_Buffer> = inputs.to_vec();
