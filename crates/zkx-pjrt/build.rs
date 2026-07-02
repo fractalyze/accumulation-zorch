@@ -5,11 +5,11 @@ fn main() {
     // data-types include. The include root is `third_party/pjrt`, kept for the vendored
     // layout (the header itself only pulls in system C headers).
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let header = std::env::var("ZKX_PJRT_HEADER")
+    let header = std::env::var("XLA_PJRT_HEADER")
         .unwrap_or_else(|_| format!("{manifest}/third_party/pjrt/zkx/pjrt/c/pjrt_c_api.h"));
-    let inc = std::env::var("ZKX_PJRT_INCLUDE")
+    let inc = std::env::var("XLA_PJRT_INCLUDE")
         .unwrap_or_else(|_| format!("{manifest}/third_party/pjrt"));
-    println!("cargo:rerun-if-env-changed=ZKX_PJRT_HEADER");
+    println!("cargo:rerun-if-env-changed=XLA_PJRT_HEADER");
     println!("cargo:rerun-if-changed={header}");
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     bindgen::Builder::default()

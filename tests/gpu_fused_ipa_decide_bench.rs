@@ -12,7 +12,7 @@
 //! `lax.msm` lowered at size `n`:
 //!
 //!     IPA_DECIDER_SIZE=65536 export/export_ipa.py            # -> ipa_decider_msm_bench.mlirbc
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
 //!     IPA_DECIDER_SIZE=65536 IPA_DECIDER_MLIRBC=.../ipa_decider_msm_bench.mlirbc \
 //!       cargo test --release --features gpu --test gpu_fused_ipa_decide_bench -- --ignored --nocapture
 #![cfg(feature = "gpu")]
@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 #[test]
-#[ignore = "scale bench: needs ZKX_PJRT_PLUGIN + IPA_DECIDER_SIZE + IPA_DECIDER_MLIRBC + a GPU"]
+#[ignore = "scale bench: needs XLA_PJRT_PLUGIN + IPA_DECIDER_SIZE + IPA_DECIDER_MLIRBC + a GPU"]
 fn gpu_fused_ipa_decide_bench() {
     let n: usize =
         std::env::var("IPA_DECIDER_SIZE").expect("set IPA_DECIDER_SIZE").parse().expect("size");

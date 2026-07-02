@@ -67,7 +67,7 @@ parallel = [
     "ark-poly-commit/parallel", "ark-std/parallel", "rayon",
 ]
 # Enables `GpuBackend` (the Pasta GPU MSM prover). At runtime it additionally
-# needs a zkx_gpu plugin carrying the Pasta MSM (`ZKX_PJRT_PLUGIN`) and an
+# needs a zkx_gpu plugin carrying the Pasta MSM (`XLA_PJRT_PLUGIN`) and an
 # exported `lax.msm` core; compiling the backend needs neither.
 gpu = ["dep:zkx-pjrt"]
 # Enables the Pasta-cycle recursion step: the reused arkworks

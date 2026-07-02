@@ -15,13 +15,13 @@ use std::mem::{size_of, zeroed};
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-/// Path to the GPU PJRT plugin `.so`, from env `ZKX_PJRT_PLUGIN`. On the jax 0.10
+/// Path to the GPU PJRT plugin `.so`, from env `XLA_PJRT_PLUGIN`. On the jax 0.10
 /// stack the plugin ships in the `jax-cuda12-pjrt` wheel at
 /// `jax_plugins/xla_cuda12/xla_cuda_plugin.so`; see the README for the install +
 /// env-var setup.
 pub fn plugin_path() -> String {
-    std::env::var("ZKX_PJRT_PLUGIN")
-        .expect("set ZKX_PJRT_PLUGIN to the jax_plugins/xla_cuda12/xla_cuda_plugin.so")
+    std::env::var("XLA_PJRT_PLUGIN")
+        .expect("set XLA_PJRT_PLUGIN to the jax_plugins/xla_cuda12/xla_cuda_plugin.so")
 }
 
 pub struct Pjrt {

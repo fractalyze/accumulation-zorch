@@ -19,7 +19,7 @@
 //! Hardware-gated; run only when the GPU is idle (the MSM is tiny — 8 terms — so
 //! both curves run in one process well under the plugin's VRAM pool):
 //!
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
 //!       cargo test --features gpu --test gpu_fused_ipa_decide_byte_match -- --ignored --test-threads=1 --nocapture
 #![cfg(feature = "gpu")]
 
@@ -73,7 +73,7 @@ where
 }
 
 #[test]
-#[ignore = "needs ZKX_PJRT_PLUGIN + artifacts/ipa_decider_msm_{pallas,vesta}.mlirbc + a GPU"]
+#[ignore = "needs XLA_PJRT_PLUGIN + artifacts/ipa_decider_msm_{pallas,vesta}.mlirbc + a GPU"]
 fn gpu_fused_ipa_decide_byte_match() {
     println!("fused jax-exported IPA-PC accumulation DECIDER MSM GPU byte-match (no-zk + zk, Pallas + Vesta):");
     println!("  [pallas, no-zk]");

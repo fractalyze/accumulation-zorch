@@ -10,7 +10,7 @@
 //!
 //!     AS_ZK_NUM_CONSTRAINTS=16384 cargo run --release --example dump_as_zk > fix.json
 //!     AS_ZK_FIXTURE=fix.json export/export_prove.py   # -> prove_zk_general.mlirbc
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
 //!     AS_ZK_FIXTURE=.../fix.json FUSED_MLIRBC=.../prove_zk_general.mlirbc \
 //!       cargo test --release --features gpu --test gpu_fused_bench -- --ignored --nocapture
 #![cfg(feature = "gpu")]
@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 #[test]
-#[ignore = "scale bench: needs ZKX_PJRT_PLUGIN + AS_ZK_FIXTURE + FUSED_MLIRBC + a GPU"]
+#[ignore = "scale bench: needs XLA_PJRT_PLUGIN + AS_ZK_FIXTURE + FUSED_MLIRBC + a GPU"]
 fn gpu_fused_bench() {
     let fixture = PathBuf::from(std::env::var("AS_ZK_FIXTURE").expect("set AS_ZK_FIXTURE"));
     let mlirbc_path = PathBuf::from(std::env::var("FUSED_MLIRBC").expect("set FUSED_MLIRBC"));

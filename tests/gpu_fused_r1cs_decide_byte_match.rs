@@ -15,7 +15,7 @@
 //!
 //! Hardware-gated; run only when the GPU is idle:
 //!
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
 //!       cargo test --features gpu --test gpu_fused_r1cs_decide_byte_match -- --ignored --test-threads=1 --nocapture
 #![cfg(feature = "gpu")]
 
@@ -147,7 +147,7 @@ where
 }
 
 #[test]
-#[ignore = "needs ZKX_PJRT_PLUGIN + artifacts/as_decider_{pallas,vesta}.mlirbc + a GPU"]
+#[ignore = "needs XLA_PJRT_PLUGIN + artifacts/as_decider_{pallas,vesta}.mlirbc + a GPU"]
 fn gpu_fused_r1cs_decide_byte_match() {
     println!("fused jax-exported R1CS-NARK accumulation DECIDER GPU byte-match (no-zk + zk, Pallas + Vesta):");
     println!("  [pallas, no-zk]");
