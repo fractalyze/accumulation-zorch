@@ -1,12 +1,14 @@
 """Adapter: produce accumulation-zorch's `ipa_pc.IpaProof` by driving zorch's
-`pcs/ipa` fold — the zorch-integration replacement for the local `ipa_pc.open_*`
-folds (Task 4 / Phase 2).
+`pcs/ipa` fold — the replacement for accumulation-zorch's former local port of
+arkworks' `ipa_pc::open_individual_opening_challenges` (Task 4 / Phase 2; the
+local port was deleted in Task 5 once this adapter was byte-matching through
+the standing gate — `ipa_as_test.py`/`ipa_as_zk_test.py`, the full accumulator
+vs golden arkworks bytes).
 
 The accumulation prover (`ipa_pc_as`) needs an `IpaProof(l_vec, r_vec,
 final_comm_key, c[, hiding_comm, rand])`. zorch's `zorch.pcs.ipa.prover._open_one`
 / `_open_one_zk` produce the *same* proof from a uniform per-round basis fold (a
-`lax.scan`), byte-identical to accumulation-zorch's deferred (BCLMS) even/odd fold
-— the Task-3 spike (`testing/ipa_zorch_spike_test.py`) pins that equivalence. This
+`lax.scan`), byte-identical to arkworks' deferred (BCLMS) even/odd fold. This
 module is the thin translation between the two shapes:
 
 * Inputs map onto zorch's `IpaKey` as ``basis = generators[:len(coeffs)]``,
@@ -14,17 +16,16 @@ module is the thin translation between the two shapes:
   ``h' = U·ξ₀`` itself), and ``s = None`` (no-zk) / the hiding generator (zk). The
   fold is driven by the arkworks-faithful `ipa_challenger.ark_challenger`, so every
   squeezed challenge — hence every `L_j`/`R_j` and the collapsed `a` — is
-  byte-identical to the local `open_*` fold.
+  byte-identical to arkworks' fold.
 * zorch's `IpaProof` carries no folded generator (the fold collapses the basis
   inside its `lax.scan` and drops it), so the accumulator's `final_comm_key` is
   recovered the way zorch's verifier settles a claim (`verifier.settle`): re-derive
   the round challenges through the challenger over the proof's own `L_j`/`R_j`, then
   pay the one size-`n` MSM ``G_final = ⟨challenge_vector(u), G⟩``.
 
-The two `open_*` functions here mirror `ipa_pc.open_no_zk` / `ipa_pc.open_zk`
-signatures exactly, so `ipa_pc_as` swaps the call site with no other change. The
-local `ipa_pc.open_*` folds stay in place (untouched — Task 5 removes them); this
-module is the one that `ipa_pc_as` now calls.
+The two `open_*` functions here mirror arkworks' `ipa_pc::open_individual_opening_challenges`
+(no-zk / zk) signatures, so `ipa_pc_as` calls them directly — this is the sole
+IPA-fold implementation left in the tree.
 """
 
 from __future__ import annotations
@@ -97,8 +98,9 @@ def open_no_zk(
     cv: Curve, params: Any, svk_h: np.ndarray, combined_commitment: np.ndarray,
     point: int, coeffs: list[int], generators: list[np.ndarray],
 ) -> ipa_pc.IpaProof:
-    """Drop-in for `ipa_pc.open_no_zk`, driving zorch's `_open_one`: the IPA fold
-    producing `(l_vec, r_vec, final_comm_key, c)` byte-identical to the local fold.
+    """Drop-in for arkworks' `ipa_pc::open_individual_opening_challenges` (no-zk),
+    driving zorch's `_open_one`: the IPA fold producing `(l_vec, r_vec,
+    final_comm_key, c)` byte-identical to arkworks' fold.
 
     `coeffs` is the combined check polynomial (length `d+1 = 2^log_d`),
     `generators` the committer key `comm_key`, `combined_commitment` seeds the
@@ -123,9 +125,10 @@ def open_zk(
     combined_commitment: np.ndarray, point: int, coeffs: list[int],
     hiding_poly_raw: list[int], hiding_rand: int, commitment_randomness: int,
 ) -> ipa_pc.IpaProof:
-    """Drop-in for `ipa_pc.open_zk`, driving zorch's `_open_one_zk`: the hiding
-    prelude + shared fold producing `(l_vec, r_vec, final_comm_key, c, hiding_comm,
-    rand)` byte-identical to the local zk fold.
+    """Drop-in for arkworks' `ipa_pc::open_individual_opening_challenges` (zk),
+    driving zorch's `_open_one_zk`: the hiding prelude + shared fold producing
+    `(l_vec, r_vec, final_comm_key, c, hiding_comm, rand)` byte-identical to
+    arkworks' zk fold.
 
     `combined_commitment` is the (randomized) accumulator commitment the hiding
     open randomizes; `s` the succinct verifier key's hiding generator;

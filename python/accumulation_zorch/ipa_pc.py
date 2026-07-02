@@ -32,7 +32,7 @@ import numpy as np
 
 from . import absorbable, curve, sponge
 from .curve import Curve
-from .field import fe_value, fe_values, fr_add, fr_mul
+from .field import fe_value, fe_values
 
 # ark `ipa_pc` domain (`IpaPCDomain`): every fresh succinct-check sponge is a
 # `DomainSeparatedSponge` forked with this label before anything is absorbed.
@@ -163,88 +163,15 @@ def evaluate(cv: Curve, challenges: list[int], point: int) -> int:
     return fe_value(product)
 
 
-# --- IPA open (the prover fold) — `open_individual_opening_challenges`, no-zk ---
+# --- IPA opening proof shape ---
 #
-# The prover produces the proof the verifier's succinct_check consumes. It carries
-# `coeffs` (the combined polynomial), `z = [1, x, x², …, x^d]`, and the generators
-# `comm_key`, folding them log d times. The per-round Fiat-Shamir is IDENTICAL to
-# succinct_check (same fresh "IPA-PC-2020" sponge, same seed + per-round absorbs);
-# the round challenges of the produced proof are exactly its succinct check's. The
-# only intricacy is arkworks' even/odd deferred generator fold (the BCLMS trick):
-# on an even round the `comm_key` fold is deferred (unless `n == 2`), and folded
-# two levels deep on the next odd round — the L/R commitment MSMs absorb that
-# deferred fold. This must be reproduced exactly to be byte-identical.
-
-
-def _msm(cv: Curve, bases: list[np.ndarray], scalars: list[int]) -> np.ndarray:
-    """`cm_commit` — the variable-base MSM `Σ bases_i · scalars_i` (no hiding), the
-    CPU group-reduction oracle (`curve.pedersen_commit`)."""
-    return curve.pedersen_commit(cv, bases, scalars)
-
-
-def _inner_product(cv: Curve, a: list[int], b: list[int]) -> int:
-    """`inner_product` — `Σ a_i · b_i` in `fr` (a jax `fr` dot, reduced mod r)."""
-    return fe_value(np.dot(np.array(a, dtype=cv.fr), np.array(b, dtype=cv.fr)))
-
-
-def _affine(cv: Curve, point: np.ndarray) -> np.ndarray:
-    """Normalize a (possibly jacobian) group result back to an affine point array."""
-    return np.asarray(point, dtype=cv.g1)
-
-
-def _even_commitment_step(cv, comm_key, h_prime, coeffs_l, coeffs_r, z_l, z_r):  # type: ignore[no-untyped-def]
-    """`even_commitment_step`: split the FULL `comm_key`; `L = <coeffs_r, key_l> +
-    h'·<coeffs_r, z_l>`, `R = <coeffs_l, key_r> + h'·<coeffs_l, z_r>`."""
-    n = len(comm_key)
-    key_l, key_r = comm_key[: n // 2], comm_key[n // 2:]
-    l = _msm(cv, key_l + [h_prime], list(coeffs_r) + [_inner_product(cv, coeffs_r, z_l)])
-    r = _msm(cv, key_r + [h_prime], list(coeffs_l) + [_inner_product(cv, coeffs_l, z_r)])
-    return l, r
-
-
-def _odd_commitment_step(cv, comm_key, h_prime, rc, coeffs_l, coeffs_r, z_l, z_r):  # type: ignore[no-untyped-def]
-    """`odd_commitment_step`: the deferred-fold case — a 4-way `comm_key` split,
-    with `rc·coeffs` fused into the L/R MSMs alongside the bare `coeffs` and the
-    `h'` inner-product cross term."""
-    n = len(comm_key)
-    key_l, key_r = comm_key[: n // 2], comm_key[n // 2:]
-    key_l_1, key_l_2 = key_l[: n // 4], key_l[n // 4:]
-    key_r_1, key_r_2 = key_r[: n // 4], key_r[n // 4:]
-    rc_coeffs_r = [fr_mul(cv, rc, c) for c in coeffs_r]
-    rc_coeffs_l = [fr_mul(cv, rc, c) for c in coeffs_l]
-    l = _msm(cv, key_l_1 + key_r_1 + [h_prime],
-             list(coeffs_r) + rc_coeffs_r + [_inner_product(cv, coeffs_r, z_l)])
-    r = _msm(cv, key_l_2 + key_r_2 + [h_prime],
-             list(coeffs_l) + rc_coeffs_l + [_inner_product(cv, coeffs_l, z_r)])
-    return l, r
-
-
-def _even_folding_step(cv, comm_key, rc):  # type: ignore[no-untyped-def]
-    """`even_folding_step`: fold `key ← key_lo + rc·key_hi` only at `n == 2`;
-    otherwise carry the generators unchanged (the fold is deferred to the next
-    odd round)."""
-    n = len(comm_key)
-    if n != 2:
-        return list(comm_key)
-    key_l, key_r = comm_key[: n // 2], comm_key[n // 2:]
-    return [_affine(cv, key_l[k] + key_r[k] * cv.fr(int(rc))) for k in range(len(key_l))]
-
-
-def _odd_folding_step(cv, comm_key, prev_rc, rc):  # type: ignore[no-untyped-def]
-    """`odd_folding_step`: the deferred two-level fold. At `n == 2` fold with
-    `prev_rc`; otherwise `key_l_1 + rc·key_l_2 + prev_rc·key_r_1 + (prev_rc·rc)·key_r_2`."""
-    n = len(comm_key)
-    key_l, key_r = comm_key[: n // 2], comm_key[n // 2:]
-    if n == 2:
-        return [_affine(cv, key_l[k] + key_r[k] * cv.fr(int(prev_rc))) for k in range(len(key_l))]
-    key_l_1, key_l_2 = key_l[: n // 4], key_l[n // 4:]
-    key_r_1, key_r_2 = key_r[: n // 4], key_r[n // 4:]
-    prc_rc = fr_mul(cv, prev_rc, rc)
-    return [
-        _affine(cv, key_l_1[k] + key_l_2[k] * cv.fr(int(rc))
-                + key_r_1[k] * cv.fr(int(prev_rc)) + key_r_2[k] * cv.fr(int(prc_rc)))
-        for k in range(len(key_l_1))
-    ]
+# The prover's IPA fold (arkworks' `open_individual_opening_challenges`, no-zk
+# and zk) used to be ported here, reproducing arkworks' deferred even/odd
+# (BCLMS) generator fold by hand. That port is gone: the fold is now provided
+# by zorch's `pcs.ipa` prover, driven through the `ipa_open.py` adapter
+# (`ipa_open.open_no_zk` / `ipa_open.open_zk`), which `ipa_pc_as` calls
+# instead. `IpaProof` is the shared proof shape both that adapter and
+# `ipa_pc_as` use.
 
 
 class IpaProof(NamedTuple):
@@ -257,130 +184,3 @@ class IpaProof(NamedTuple):
     c: int
     hiding_comm: np.ndarray | None = None
     rand: int | None = None
-
-
-def _open_fold(
-    cv: Curve, params, svk_h: np.ndarray, combined_commitment: np.ndarray,
-    point: int, coeffs: list[int], generators: list[np.ndarray],
-) -> tuple:  # type: ignore[no-untyped-def]
-    """The IPA fold producing `(l_vec, r_vec, final_comm_key, c)` from a combined
-    commitment + combined polynomial coefficients — shared by the no-zk and zk
-    opens (the zk path differs only in the hiding prelude that produces these
-    inputs). `combined_v = Σ coeffs_i·point^i` seeds the Fiat-Shamir (the zk hiding
-    polynomial evaluates to 0 at the point, so this equals the pre-hiding value)."""
-    d = len(generators) - 1
-    z = [pow(int(point), k, cv.fr_modulus) for k in range(d + 1)]
-    combined_v = _inner_product(cv, coeffs, z)
-
-    # Seed challenge ξ₀ + h' = svk.h·ξ₀ (the inner-product cross-term base).
-    sp = _new(cv, params)
-    sp = absorbable.absorb_point(cv, sp, combined_commitment)
-    sp = absorbable.absorb_bytes(cv, sp, _fr32(point) + _fr32(combined_v))
-    round_challenge = _squeeze_challenge(cv, sp)
-    h_prime = _affine(cv, svk_h * cv.fr(int(round_challenge)))
-
-    comm_key = list(generators)
-    coeffs = list(coeffs)
-    l_vec: list[np.ndarray] = []
-    r_vec: list[np.ndarray] = []
-    n = d + 1
-    i = 0
-    while n > 1:
-        half = n // 2
-        coeffs_l, coeffs_r = coeffs[:half], coeffs[half:]
-        z_l, z_r = z[:half], z[half:]
-        if i % 2 == 0:
-            l, r = _even_commitment_step(cv, comm_key, h_prime, coeffs_l, coeffs_r, z_l, z_r)
-        else:
-            l, r = _odd_commitment_step(cv, comm_key, h_prime, round_challenge,
-                                        coeffs_l, coeffs_r, z_l, z_r)
-        l_vec.append(l)
-        r_vec.append(r)
-
-        sp = _new(cv, params)
-        sp = absorbable.absorb_bytes(cv, sp, int(round_challenge).to_bytes(_CHALLENGE_BYTES, "little"))
-        sp = absorbable.absorb_point(cv, sp, l)
-        sp = absorbable.absorb_point(cv, sp, r)
-        prev_round_challenge = round_challenge
-        round_challenge = _squeeze_challenge(cv, sp)
-        rc_inv = pow(int(round_challenge), -1, cv.fr_modulus)
-
-        coeffs = [fr_add(cv, coeffs_l[k], fr_mul(cv, rc_inv, coeffs_r[k]))
-                  for k in range(half)]
-        z = [fr_add(cv, z_l[k], fr_mul(cv, round_challenge, z_r[k]))
-             for k in range(half)]
-
-        if i % 2 == 0:
-            comm_key = _even_folding_step(cv, comm_key, round_challenge)
-        else:
-            comm_key = _odd_folding_step(cv, comm_key, prev_round_challenge, round_challenge)
-        i += 1
-        n //= 2
-
-    return l_vec, r_vec, comm_key[0], coeffs[0]
-
-
-def open_no_zk(
-    cv: Curve, params, svk_h: np.ndarray, combined_commitment: np.ndarray,
-    point: int, coeffs: list[int], generators: list[np.ndarray],
-) -> "IpaProof":  # type: ignore[no-untyped-def]
-    """`IpaPC::open_individual_opening_challenges` (no-zk, single combined poly):
-    the IPA fold producing `(l_vec, r_vec, final_comm_key, c)`.
-
-    `coeffs` is the combined check polynomial (length `d+1 = 2^log_d`);
-    `generators` the committer-key `comm_key`; `combined_commitment` seeds the
-    Fiat-Shamir."""
-    l_vec, r_vec, final_comm_key, c = _open_fold(
-        cv, params, svk_h, combined_commitment, point, coeffs, generators)
-    return IpaProof(l_vec, r_vec, final_comm_key, c)
-
-
-def open_zk(
-    cv: Curve, params, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
-    combined_commitment: np.ndarray, point: int, coeffs: list[int],
-    hiding_poly_raw: list[int], hiding_rand: int, commitment_randomness: int,
-) -> "IpaProof":  # type: ignore[no-untyped-def]
-    """`IpaPC::open_individual_opening_challenges` (zk, single combined poly): the
-    hiding prelude then the shared IPA fold. Before folding, the combined
-    polynomial is masked by a random degree-`d` `hiding_polynomial` (shifted to
-    evaluate to 0 at `point`, so the claimed value is unchanged):
-
-    * `hiding_commitment = Σ generators_i·hiding_poly_i + s·hiding_rand`.
-    * `hiding_challenge` is squeezed from a fresh IPA-PC sponge absorbing
-      `combined_commitment, hiding_commitment, to_bytes![point, combined_v]`.
-    * `combined_poly += hiding_challenge·hiding_poly`,
-      `combined_rand = commitment_randomness + hiding_challenge·hiding_rand`,
-      `combined_commitment += hiding_commitment·hiding_challenge − s·combined_rand`.
-
-    `hiding_poly_raw` is arkworks' `P::rand(d, rng)` (pre-shift); `hiding_rand` /
-    `commitment_randomness` its blinders. Returns the proof with
-    `hiding_comm`/`rand` set."""
-    d = len(generators) - 1
-    z = [pow(int(point), k, cv.fr_modulus) for k in range(d + 1)]
-    combined_v = _inner_product(cv, coeffs, z)
-
-    # Shift the raw hiding polynomial to evaluate to 0 at `point` (subtract the
-    # constant `raw(point)` — only the degree-0 coefficient changes).
-    raw = [int(c) for c in hiding_poly_raw] + [0] * (d + 1 - len(hiding_poly_raw))
-    raw_eval = _inner_product(cv, raw, z)
-    hiding_poly = list(raw)
-    hiding_poly[0] = fe_value(np.array([raw[0]], dtype=cv.fr) - np.array([raw_eval], dtype=cv.fr))
-
-    hiding_commitment = curve.pedersen_commit(
-        cv, generators, hiding_poly, hiding=s, randomizer=int(hiding_rand))
-
-    sp = _new(cv, params)
-    sp = absorbable.absorb_point(cv, sp, combined_commitment)
-    sp = absorbable.absorb_point(cv, sp, hiding_commitment)
-    sp = absorbable.absorb_bytes(cv, sp, _fr32(point) + _fr32(combined_v))
-    hc = _squeeze_challenge(cv, sp)
-
-    mod_coeffs = [fr_add(cv, coeffs[k], fr_mul(cv, hc, hiding_poly[k])) for k in range(d + 1)]
-    combined_rand = fr_add(cv, commitment_randomness, fr_mul(cv, hc, hiding_rand))
-    neg_rand = (-int(combined_rand)) % cv.fr_modulus
-    mod_commitment = curve.pedersen_commit(
-        cv, [combined_commitment, hiding_commitment, s], [1, int(hc), neg_rand])
-
-    l_vec, r_vec, final_comm_key, c = _open_fold(
-        cv, params, svk_h, mod_commitment, point, mod_coeffs, generators)
-    return IpaProof(l_vec, r_vec, final_comm_key, c, hiding_comm=hiding_commitment, rand=int(combined_rand))
