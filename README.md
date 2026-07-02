@@ -144,12 +144,11 @@ cargo test --features gpu --test gpu_fused_prove_byte_match -- --ignored --test-
 cargo test --features gpu --test gpu_fused_no_zk_prove_byte_match -- --ignored --test-threads=1 --nocapture
 ```
 
-> On the jax `0.10.0.dev` stack this `cargo test` harness runs (the `crates/zkx-pjrt` shim
-> was updated for the 0.10 PJRT C API, #16) but is not yet fully green: `seed 0` byte-matches
-> arkworks, while `seed 42` and the no-zk core diverge from a value-specific
-> exported-core/compile issue — not the shim — tracked in #18. The prover itself byte-matches
-> arkworks on 0.10 GPU for every seed via the Python prove (`JAX_PLATFORMS=cuda
-> PYTHONPATH=python $XLA_VENV_PYTHON python/accumulation_zorch/testing/as_zk_test.py`).
+> Both harnesses byte-match arkworks for every seed. They need a `jax-cuda12` plugin built
+> from xla including the batched shared-`bases` MSM fix (fractalyze/xla#161); the pinned
+> `0.10.0.dev20260701084712` wheel predates it, so until a newer wheel ships build the plugin
+> from fixed xla (`bazel build --config=cuda_clang //xla/pjrt/c:pjrt_c_api_gpu_plugin.so`) and
+> point `XLA_PJRT_PLUGIN` at `bazel-bin/xla/pjrt/c/pjrt_c_api_gpu_plugin.so`.
 
 ## Benchmark
 
