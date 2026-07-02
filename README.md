@@ -86,8 +86,8 @@ uv venv --python 3.11 .venv
 uv pip install --python .venv --index-strategy unsafe-best-match \
   --index-url https://fractalyze.github.io/pypi/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  jax==0.10.0.dev20260701084712 jaxlib==0.10.0.dev20260701084712 \
-  jax-cuda12-pjrt==0.10.0.dev20260701084712 jax-cuda12-plugin==0.10.0.dev20260701084712 \
+  jax==0.10.0.dev20260702143130 jaxlib==0.10.0.dev20260702143130 \
+  jax-cuda12-pjrt==0.10.0.dev20260702143130 jax-cuda12-plugin==0.10.0.dev20260702143130 \
   zk-dtypes==0.0.7 numpy absl-py
 ```
 
@@ -143,12 +143,6 @@ JAX_PLATFORMS=cpu PYTHONPATH=python \
 cargo test --features gpu --test gpu_fused_prove_byte_match -- --ignored --test-threads=1 --nocapture
 cargo test --features gpu --test gpu_fused_no_zk_prove_byte_match -- --ignored --test-threads=1 --nocapture
 ```
-
-> Both harnesses byte-match arkworks for every seed. They need a `jax-cuda12` plugin built
-> from xla including the batched shared-`bases` MSM fix (fractalyze/xla#161); the pinned
-> `0.10.0.dev20260701084712` wheel predates it, so until a newer wheel ships build the plugin
-> from fixed xla (`bazel build --config=cuda_clang //xla/pjrt/c:pjrt_c_api_gpu_plugin.so`) and
-> point `XLA_PJRT_PLUGIN` at `bazel-bin/xla/pjrt/c/pjrt_c_api_gpu_plugin.so`.
 
 ## Benchmark
 
