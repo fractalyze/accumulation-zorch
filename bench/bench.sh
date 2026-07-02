@@ -17,8 +17,8 @@
 # Prereqs are the README "GPU + jax tier": an **idle** NVIDIA GPU, plus the two
 # env vars the README Setup already exports —
 #
-#   ZKX_VENV_PYTHON   the zkx Pasta jax venv interpreter (e.g. $PWD/.venv/bin/python)
-#   ZKX_PJRT_PLUGIN   path to pjrt_c_api_gpu_plugin.so
+#   XLA_VENV_PYTHON   the zkx Pasta jax venv interpreter (e.g. $PWD/.venv/bin/python)
+#   XLA_PJRT_PLUGIN   path to pjrt_c_api_gpu_plugin.so
 #
 # Optional knobs:
 #   PROVE_SIZES        space-separated num_constraints for `prove` (default "4096 16384 32768")
@@ -31,10 +31,10 @@ set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-all}"
 
-: "${ZKX_VENV_PYTHON:?set ZKX_VENV_PYTHON to the zkx Pasta venv python (see README Setup)}"
-: "${ZKX_PJRT_PLUGIN:?set ZKX_PJRT_PLUGIN to pjrt_c_api_gpu_plugin.so (see README Setup)}"
-[ -x "$ZKX_VENV_PYTHON" ] || { echo "ZKX_VENV_PYTHON not executable: $ZKX_VENV_PYTHON" >&2; exit 1; }
-[ -f "$ZKX_PJRT_PLUGIN" ] || { echo "ZKX_PJRT_PLUGIN not found: $ZKX_PJRT_PLUGIN" >&2; exit 1; }
+: "${XLA_VENV_PYTHON:?set XLA_VENV_PYTHON to the zkx Pasta venv python (see README Setup)}"
+: "${XLA_PJRT_PLUGIN:?set XLA_PJRT_PLUGIN to pjrt_c_api_gpu_plugin.so (see README Setup)}"
+[ -x "$XLA_VENV_PYTHON" ] || { echo "XLA_VENV_PYTHON not executable: $XLA_VENV_PYTHON" >&2; exit 1; }
+[ -f "$XLA_PJRT_PLUGIN" ] || { echo "XLA_PJRT_PLUGIN not found: $XLA_PJRT_PLUGIN" >&2; exit 1; }
 
 ART="${ARTIFACTS_DIR:-${SCRATCH_DIR:-$(mktemp -d)}}"
 mkdir -p "$ART"
@@ -47,7 +47,7 @@ step() { printf '%s' "$*" >&2; }
 # A Rust `Duration` Debug token ("1.05s" / "651.2ms"), or a bare number already
 # in ms, -> milliseconds. Uses the venv python (required above), stdlib only.
 to_ms() {
-  "$ZKX_VENV_PYTHON" - "$1" <<'PY'
+  "$XLA_VENV_PYTHON" - "$1" <<'PY'
 import re, sys
 s = sys.argv[1].strip().replace(" ", "")
 m = re.match(r"^([0-9.]+)(ns|µs|us|ms|s|m)?$", s)
@@ -87,10 +87,10 @@ bench_prove() {
     require "CPU timing (n=$n)" "$cpu_tok"
     step "lower… "
     AS_ZK_FIXTURE="$fix" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
-      "$ZKX_VENV_PYTHON" export/export_prove.py >"$ART/export_$n.log" 2>&1
+      "$XLA_VENV_PYTHON" export/export_prove.py >"$ART/export_$n.log" 2>&1
     step "GPU… "
     gpu_tok=$(AS_ZK_FIXTURE="$fix" FUSED_MLIRBC="$ART/prove_zk_general.mlirbc" \
-      ZKX_PJRT_PLUGIN="$ZKX_PJRT_PLUGIN" \
+      XLA_PJRT_PLUGIN="$XLA_PJRT_PLUGIN" \
       cargo test --quiet --release --features gpu --test gpu_fused_bench -- --ignored --nocapture \
       2>"$ART/gpu_$n.log" \
       | sed -n 's/.*median=\([^ ]*\) over.*/\1/p' | head -1)
@@ -115,9 +115,9 @@ bench_fold() {
     --test recursion_step vesta::dump::dump_recursion_fold_zk -- --nocapture >"$ART/fold_dump.log" 2>&1
   step "lower… "
   ACCUMULATION_ZORCH_ARTIFACTS="$ART" PROVE_CURVE=vesta JAX_PLATFORMS=cpu \
-    "$ZKX_VENV_PYTHON" export/export_fold_zk.py >"$ART/fold_export.log" 2>&1
+    "$XLA_VENV_PYTHON" export/export_fold_zk.py >"$ART/fold_export.log" 2>&1
   step "GPU fold… "
-  gpu_ms=$(ZKX_PJRT_PLUGIN="$ZKX_PJRT_PLUGIN" ACCUMULATION_ZORCH_ARTIFACTS="$ART" \
+  gpu_ms=$(XLA_PJRT_PLUGIN="$XLA_PJRT_PLUGIN" ACCUMULATION_ZORCH_ARTIFACTS="$ART" \
     cargo test --quiet --release --features gpu --test gpu_fused_fold_bench -- --ignored --nocapture \
     2>"$ART/fold_gpu.log" \
     | sed -n 's/.*warm run median \([0-9.]*\) ms.*/\1/p' | head -1)
@@ -145,11 +145,11 @@ bench_decide() {
   for n in "${sizes[@]}"; do
     step "  d=$n lower… "
     IPA_DECIDER_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
-      "$ZKX_VENV_PYTHON" export/export_ipa.py >"$ART/decide_export_$n.log" 2>&1
+      "$XLA_VENV_PYTHON" export/export_ipa.py >"$ART/decide_export_$n.log" 2>&1
     step "GPU MSM… "
     local line cpu_ms gpu_ms
     line=$(IPA_DECIDER_SIZE="$n" IPA_DECIDER_MLIRBC="$ART/ipa_decider_msm_bench.mlirbc" \
-      ZKX_PJRT_PLUGIN="$ZKX_PJRT_PLUGIN" \
+      XLA_PJRT_PLUGIN="$XLA_PJRT_PLUGIN" \
       cargo test --quiet --release --features gpu --test gpu_fused_ipa_decide_bench -- --ignored --nocapture \
       2>"$ART/decide_gpu_$n.log" | grep '\[bench\]')
     cpu_ms=$(to_ms "$(printf '%s' "$line" | sed -n 's/.*CPU arkworks=\([^ ]*\).*/\1/p')")
@@ -176,11 +176,11 @@ bench_r1cs_decide() {
   for n in "${sizes[@]}"; do
     step "  n=$n lower… "
     AS_DECIDE_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
-      "$ZKX_VENV_PYTHON" export/export_as_decide.py >"$ART/r1cs_decide_export_$n.log" 2>&1
+      "$XLA_VENV_PYTHON" export/export_as_decide.py >"$ART/r1cs_decide_export_$n.log" 2>&1
     step "GPU MSMs… "
     local line cpu_ms gpu_ms
     line=$(AS_DECIDE_SIZE="$n" AS_DECIDE_MLIRBC="$ART/as_decider_bench.mlirbc" \
-      ZKX_PJRT_PLUGIN="$ZKX_PJRT_PLUGIN" \
+      XLA_PJRT_PLUGIN="$XLA_PJRT_PLUGIN" \
       cargo test --quiet --release --features gpu --test gpu_fused_r1cs_decide_bench -- --ignored --nocapture \
       2>"$ART/r1cs_decide_gpu_$n.log" | grep '\[bench\]')
     cpu_ms=$(to_ms "$(printf '%s' "$line" | sed -n 's/.*CPU arkworks=\([^ ]*\).*/\1/p')")

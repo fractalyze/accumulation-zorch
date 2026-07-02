@@ -13,7 +13,7 @@
 //! real. The core is the size-`n` pure-MSM decider load:
 //!
 //!     AS_DECIDE_SIZE=65536 export/export_as_decide.py        # -> as_decider_bench.mlirbc
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
 //!     AS_DECIDE_SIZE=65536 AS_DECIDE_MLIRBC=.../as_decider_bench.mlirbc \
 //!       cargo test --release --features gpu --test gpu_fused_r1cs_decide_bench -- --ignored --nocapture
 #![cfg(feature = "gpu")]
@@ -39,7 +39,7 @@ fn cpu_commit(bases_h: &[Affine], scalars: &[Fr], randomizer: Fr) -> Affine {
 }
 
 #[test]
-#[ignore = "scale bench: needs ZKX_PJRT_PLUGIN + AS_DECIDE_SIZE + AS_DECIDE_MLIRBC + a GPU"]
+#[ignore = "scale bench: needs XLA_PJRT_PLUGIN + AS_DECIDE_SIZE + AS_DECIDE_MLIRBC + a GPU"]
 fn gpu_fused_r1cs_decide_bench() {
     let n: usize =
         std::env::var("AS_DECIDE_SIZE").expect("set AS_DECIDE_SIZE").parse().expect("size");

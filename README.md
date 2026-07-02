@@ -94,8 +94,8 @@ uv pip install --python .venv --index-strategy unsafe-best-match \
 Point the env vars at that venv (copy-paste from the repo root):
 
 ```bash
-export ZKX_VENV_PYTHON=$PWD/.venv/bin/python
-export ZKX_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/jax_plugins/xla_cuda12/xla_cuda_plugin.so
+export XLA_VENV_PYTHON=$PWD/.venv/bin/python
+export XLA_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/jax_plugins/xla_cuda12/xla_cuda_plugin.so
 ```
 
 > The `0.10.0.dev` jax fork registers the Pasta curve dtypes (`pallas_sf` etc.);
@@ -124,7 +124,7 @@ on CPU (the same trace the GPU export lowers):
 
 ```bash
 JAX_PLATFORMS=cpu PYTHONPATH=python \
-  $ZKX_VENV_PYTHON python/accumulation_zorch/testing/as_zk_test.py
+  $XLA_VENV_PYTHON python/accumulation_zorch/testing/as_zk_test.py
 # seed 0 / 42: (acc.instance 398B ‖ acc.witness 922B ‖ proof 482B) byte-matches arkworks
 ```
 
@@ -133,22 +133,22 @@ JAX_PLATFORMS=cpu PYTHONPATH=python \
 ```bash
 # 1. Lower the ONE general fused core (CPU; no GPU needed for lowering).
 JAX_PLATFORMS=cpu PYTHONPATH=python \
-  $ZKX_VENV_PYTHON export/export_prove.py           # -> artifacts/prove_zk_general.mlirbc
+  $XLA_VENV_PYTHON export/export_prove.py           # -> artifacts/prove_zk_general.mlirbc
 JAX_PLATFORMS=cpu PYTHONPATH=python \
-  $ZKX_VENV_PYTHON export/export_prove.py no-zk      # -> artifacts/prove_no_zk_general.mlirbc
+  $XLA_VENV_PYTHON export/export_prove.py no-zk      # -> artifacts/prove_no_zk_general.mlirbc
 
 # 2. GPU byte-match: the one core, fed each seed's witness/randomness at run time.
-#    (`ZKX_PJRT_PLUGIN` is read from the Setup export; --nocapture shows the
+#    (`XLA_PJRT_PLUGIN` is read from the Setup export; --nocapture shows the
 #     per-seed "byte-matches arkworks" lines)
 cargo test --features gpu --test gpu_fused_prove_byte_match -- --ignored --test-threads=1 --nocapture
 cargo test --features gpu --test gpu_fused_no_zk_prove_byte_match -- --ignored --test-threads=1 --nocapture
 ```
 
-> On the jax `0.10.0.dev` stack this `cargo test` harness is temporarily broken: the
-> vendored `crates/zkx-pjrt` shim bindgens an older PJRT C API, so it aborts against the
-> standard-split 0.10 plugin (tracked in #16). The prover itself byte-matches arkworks on
-> 0.10 GPU — run the Python prove directly (`JAX_PLATFORMS=cuda PYTHONPATH=python
-> $ZKX_VENV_PYTHON python/accumulation_zorch/testing/as_zk_test.py`) until #16 lands.
+> Both harnesses byte-match arkworks for every seed. They need a `jax-cuda12` plugin built
+> from xla including the batched shared-`bases` MSM fix (fractalyze/xla#161); the pinned
+> `0.10.0.dev20260701084712` wheel predates it, so until a newer wheel ships build the plugin
+> from fixed xla (`bazel build --config=cuda_clang //xla/pjrt/c:pjrt_c_api_gpu_plugin.so`) and
+> point `XLA_PJRT_PLUGIN` at `bazel-bin/xla/pjrt/c/pjrt_c_api_gpu_plugin.so`.
 
 ## Benchmark
 
@@ -180,8 +180,8 @@ grows:
 - The CPU prove is ~**O(n)** (MSM-bound). **Crossover ≈ n ≈ 8 K**; the GPU win grows
   with size.
 - Reproduce: `PROVE_SIZES="4096 16384 32768" bench/bench.sh prove` (or
-  `bench/bench.sh all`). Needs an idle GPU + the `ZKX_VENV_PYTHON` /
-  `ZKX_PJRT_PLUGIN` env from [Setup](#setup).
+  `bench/bench.sh all`). Needs an idle GPU + the `XLA_VENV_PYTHON` /
+  `XLA_PJRT_PLUGIN` env from [Setup](#setup).
 
 **Recursion IVC fold.** The actual PCD step — fold one verifier-circuit NARK proof
 into a prior accumulator (`num_addends = 3`), at recursion scale (`n = 77 556`):

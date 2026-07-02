@@ -18,7 +18,7 @@
 //! distinct binaries lets `cargo test` run them in separate processes, each with a
 //! fresh GPU. Hardware-gated; run only when the GPU is idle:
 //!
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
 //!       cargo test --features gpu --test gpu_fused_no_zk_prove_byte_match -- --ignored --test-threads=1
 #![cfg(feature = "gpu")]
 
@@ -60,7 +60,7 @@ fn point_from_json(v: &serde_json::Value) -> Affine {
 }
 
 #[test]
-#[ignore = "needs ZKX_PJRT_PLUGIN + artifacts/prove_no_zk_general.mlirbc + a GPU"]
+#[ignore = "needs XLA_PJRT_PLUGIN + artifacts/prove_no_zk_general.mlirbc + a GPU"]
 fn gpu_fused_no_zk_prove_byte_match() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fixture = root.join("python/testdata/as_fixtures.json");

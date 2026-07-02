@@ -10,7 +10,7 @@
 //! `$ACCUMULATION_ZORCH_ARTIFACTS`; SKIPS when absent. Hardware-gated; run on an
 //! idle GPU:
 //!
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
 //!       cargo test --release --features gpu --test gpu_fused_fold_bench -- --ignored --nocapture
 #![cfg(feature = "gpu")]
 
@@ -40,7 +40,7 @@ where
 }
 
 #[test]
-#[ignore = "needs ZKX_PJRT_PLUGIN + off-tree Vesta fold fixture + fold_zk_vesta.mlirbc + a GPU; run --release"]
+#[ignore = "needs XLA_PJRT_PLUGIN + off-tree Vesta fold fixture + fold_zk_vesta.mlirbc + a GPU; run --release"]
 fn gpu_fused_fold_bench() {
     let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
         .map(PathBuf::from)
