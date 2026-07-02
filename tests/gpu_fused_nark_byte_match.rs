@@ -24,7 +24,7 @@
 //!
 //! Hardware-gated; run only when the GPU is idle:
 //!
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
 //!       ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
 //!       cargo test --features gpu --test gpu_fused_nark_byte_match -- --ignored --test-threads=1
 #![cfg(feature = "gpu")]
@@ -60,7 +60,7 @@ fn point_from_json(v: &serde_json::Value) -> Affine {
 }
 
 #[test]
-#[ignore = "needs ZKX_PJRT_PLUGIN + off-tree recursion fixture + nark_no_zk_vesta.mlirbc + a GPU"]
+#[ignore = "needs XLA_PJRT_PLUGIN + off-tree recursion fixture + nark_no_zk_vesta.mlirbc + a GPU"]
 fn gpu_fused_nark_byte_match() {
     let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
         .map(PathBuf::from)

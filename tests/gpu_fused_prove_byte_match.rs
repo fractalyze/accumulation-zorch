@@ -18,7 +18,7 @@
 //! touching no PJRT client; Phase B creates the (leaked) client, compiles the one
 //! core, and runs it per seed. Hardware-gated; run only when the GPU is idle:
 //!
-//!     ZKX_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
+//!     XLA_PJRT_PLUGIN=.../pjrt_c_api_gpu_plugin.so \
 //!       cargo test --features gpu --test gpu_fused_prove_byte_match -- --ignored --test-threads=1
 #![cfg(feature = "gpu")]
 
@@ -31,7 +31,7 @@ use ark_pallas::Affine;
 use std::path::PathBuf;
 
 #[test]
-#[ignore = "needs ZKX_PJRT_PLUGIN + artifacts/prove_zk_general.mlirbc + a GPU"]
+#[ignore = "needs XLA_PJRT_PLUGIN + artifacts/prove_zk_general.mlirbc + a GPU"]
 fn gpu_fused_prove_byte_match() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fixture = root.join("python/testdata/as_zk_fixtures.json");
