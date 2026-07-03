@@ -38,7 +38,10 @@ the unmodified arkworks prover over the Pasta cycle (Pallas + Vesta):
   check polynomial) with only small MSMs; the heavy size-`d` MSM is the
   **decider** (`final_comm_key == ⟨combined_check_poly_coeffs, generators⟩`). So
   the decider MSM is the GPU-value op — a pure MSM that scales far better than the
-  fold (the "Decider size-`d` MSM" benchmark).
+  fold (the "Decider size-`d` MSM" benchmark). The IPA-PC prover/verifier primitive
+  itself (commit / open fold / reduce) is the vendored `zorch.pcs.ipa`
+  (`python/zorch/`), driven by an arkworks-faithful challenger
+  (`ipa_challenger.py`); `ipa_pc_as` supplies only the accumulation scheme on top.
 
 The in-circuit verifier gadgets are reused from `ark-accumulation` as-is (they
 have no prover MSM); the repo re-derives neither.
@@ -78,8 +81,9 @@ need no extra flags.
 Needs an NVIDIA GPU (CUDA), `clang`/`libclang` (the vendored `crates/zkx-pjrt` shim
 generates its PJRT bindings with `bindgen` at build time), Python 3.11, and
 [`uv`](https://docs.astral.sh/uv/). Install the matched zkx Pasta jax fork + GPU
-plugin from the public Fractalyze index (the `zorch` Poseidon sponge lives in-tree
-at `python/zorch/`, Apache-2.0, so it is *not* pip-installed):
+plugin from the public Fractalyze index (a vendored `zorch` subset — the Poseidon
+sponge and the `pcs/ipa` IPA-PC prover/verifier — lives in-tree at `python/zorch/`,
+Apache-2.0, so it is *not* pip-installed):
 
 ```bash
 uv venv --python 3.11 .venv
