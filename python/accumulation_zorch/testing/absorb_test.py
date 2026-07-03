@@ -14,10 +14,9 @@ fixtures form an isolating ladder so a divergence localizes to one primitive:
 
 The 117 Poseidon ARK constants come from the slice-2 sponge fixtures.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/absorb_test.py
+    bazel test //python/accumulation_zorch/testing:absorb_test
 """
 
 import json

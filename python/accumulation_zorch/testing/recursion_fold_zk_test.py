@@ -21,11 +21,9 @@ Each direction reads its fixture from `$ACCUMULATION_ZORCH_ARTIFACTS` (default
 `artifacts/`) and **skips** when absent — the same on-demand contract as the
 `#[ignore]` GPU gates.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
-      python accumulation_zorch/testing/recursion_fold_zk_test.py
+    bazel test //python/accumulation_zorch/testing:recursion_fold_zk_test
 """
 
 import json

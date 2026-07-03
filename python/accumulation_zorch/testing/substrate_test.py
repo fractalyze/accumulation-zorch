@@ -6,10 +6,9 @@ field/curve serializers reproduce arkworks `CanonicalSerialize` byte-for-byte,
 that `pallas_g1_affine` is `ark_pallas::Affine`, and that zk_dtypes' CPU group
 ops match the Rust-computed points.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/substrate_test.py
+    bazel test //python/accumulation_zorch/testing:substrate_test
 """
 
 import json

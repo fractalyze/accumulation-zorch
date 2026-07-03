@@ -20,10 +20,9 @@ the Rust consumer feeds the arkworks-golden ``decider_coeffs`` from the fixture
 bases' element type, so each curve lowers a distinct module — both are written by
 default.
 
-Run with the Pasta jax-fork venv — CPU is enough, lowering needs no GPU:
+Run under Bazel — CPU is enough, lowering needs no GPU:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \\
-      <venv>/bin/python export/export_ipa.py [pallas|vesta]
+    bazel run //export:export_ipa [-- pallas|vesta]
 """
 import io
 import json

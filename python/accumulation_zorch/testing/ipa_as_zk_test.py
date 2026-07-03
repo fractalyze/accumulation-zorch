@@ -15,10 +15,9 @@ and the random poly's `rlp(point)` term in the combined evaluation. The
 accumulator's hiding IPA opening proof (the IPA open's replayed hiding polynomial)
 is a later sub-step and not checked here.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/ipa_as_zk_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_as_zk_test
 """
 
 import json

@@ -21,13 +21,12 @@ challenge/randomness derivation that yields `z` / `rand6` stays host-side (alrea
 byte-matched on CPU by ``testing/as_decide_test.py``). The MSM dispatches on the
 bases' element type, so each curve lowers a distinct module.
 
-Run with the Pasta jax-fork venv — CPU is enough, lowering needs no GPU:
+Run under Bazel — CPU is enough, lowering needs no GPU:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \\
-      <venv>/bin/python export/export_as_decide.py [pallas|vesta]
+    bazel run //export:export_as_decide [-- pallas|vesta]
 
     # bench core (a size-`n` pure 6-MSM decider load, for the scale benchmark):
-    AS_DECIDE_SIZE=65536 PROVE_CURVE=pallas <venv>/bin/python export/export_as_decide.py
+    AS_DECIDE_SIZE=65536 PROVE_CURVE=pallas bazel run //export:export_as_decide
 """
 import io
 import os

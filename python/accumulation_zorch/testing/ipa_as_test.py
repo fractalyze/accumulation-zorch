@@ -14,10 +14,9 @@ per-curve sponge fixture, as in the other byte-match tests.
 Running the SAME curve-generic port against the Vesta fixture is the
 curve-generic gate.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/ipa_as_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_as_test
 """
 
 import json

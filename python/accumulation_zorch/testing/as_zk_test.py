@@ -7,10 +7,9 @@ randomness (NARK + AS + HP) dumped from the crate's real `ASForR1CSNark::prove`
 reproduces the serialized `(acc.instance ‖ acc.witness ‖ proof)` byte-for-byte
 for seeds {0, 42}, num_inputs=5, num_constraints=10.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/as_zk_test.py
+    bazel test //python/accumulation_zorch/testing:as_zk_test
 """
 
 import json

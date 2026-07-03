@@ -1,0 +1,20 @@
+# accumulation-zorch Python byte-match dependencies.
+#
+# Pulled from the Fractalyze package index alongside upstream PyPI:
+#   pip install -r requirements.in \
+#     --extra-index-url https://fractalyze.github.io/pypi/simple/
+#
+# zorch itself arrives as a Bazel module (see MODULE.bazel), not a pip dep.
+#
+# LOCKSTEP with the zorch git_override pin in MODULE.bazel: accumulation-zorch's
+# py_tests depend on BOTH this repo's pip hub and zorch's, so both must resolve
+# jax to the identical wheel — otherwise the runfiles carry two jax builds and
+# the arkworks byte-match silently skews. zorch @ 8a67799 pins this exact set;
+# bump both together. The zkx Pasta jax fork (0.10 line) registers the Pasta
+# curve dtypes; zk-dtypes 0.0.7 carries them (0.0.6 does not). CPU wheels only —
+# the GPU byte-match is on the Rust side.
+absl-py
+numpy
+jax==0.10.0.dev20260702023625
+jaxlib==0.10.0.dev20260702023625
+zk-dtypes==0.0.7

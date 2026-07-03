@@ -13,11 +13,10 @@ circuit's ``M·z`` is reduced on-device from the **sparse** COO
 (``jfield.sparse_matvec`` → ``stablehlo.scatter``): densifying it (``rows × vars``
 ≈ 471M ≈ 15 GB) is infeasible. The fixture is the off-tree Slice-2 recursion dump.
 
-Run with the Pasta jax-fork venv (CPU is enough — lowering needs no GPU):
+Run under Bazel (CPU is enough — lowering needs no GPU):
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch \\
-      ACCUMULATION_ZORCH_ARTIFACTS=<dir> \\
-      <venv>/bin/python export/export_nark.py
+    ACCUMULATION_ZORCH_ARTIFACTS=<dir> \\
+      bazel run //export:export_nark
 """
 import json
 import os
@@ -27,8 +26,9 @@ from typing import Any
 
 from accumulation_zorch import curve, nark
 
-# Sibling script (both run with `export/` on sys.path[0] via direct invocation);
-# `write_bytecode` is the shared lowered-module → StableHLO-bytecode serializer.
+# Sibling script (carried as a helper src of each export py_binary, so `export/`
+# is on the import path); `write_bytecode` is the shared lowered-module →
+# StableHLO-bytecode serializer.
 from export_prove import write_bytecode
 
 # The recursion half-step proves on Vesta (ark_pallas::Fq == ark_vesta::Fr).

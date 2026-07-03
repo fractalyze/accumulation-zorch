@@ -21,8 +21,7 @@
 //!
 //!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
 //!       cargo test --features recursion --test recursion_step dump_recursion_nark_zk
-//!     JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch \
-//!       ACCUMULATION_ZORCH_ARTIFACTS=<dir> <venv>/bin/python export/export_nark_zk.py
+//!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> bazel run //export:export_nark_zk
 //!
 //! Hardware-gated; run only when the GPU is idle:
 //!

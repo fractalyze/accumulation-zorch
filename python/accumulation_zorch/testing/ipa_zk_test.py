@@ -18,10 +18,9 @@ The Poseidon ARK constants come from the per-curve sponge fixture, as in the oth
 byte-match tests. Running the same curve-generic port against the Vesta fixture is
 the curve-generic gate.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/ipa_zk_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_zk_test
 """
 
 import json

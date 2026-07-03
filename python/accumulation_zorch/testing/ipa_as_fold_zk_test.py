@@ -17,10 +17,9 @@ The new logic over the no-zk fold: `acc_prev` carries a hiding IPA opening, so i
 succinct check is the zk path (`succinct_check_input_zk`), while the new input stays
 no-zk.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \
-      python python/accumulation_zorch/testing/ipa_as_fold_zk_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_as_fold_zk_test
 """
 
 import json

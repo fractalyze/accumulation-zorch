@@ -15,10 +15,9 @@ Two gates:
   two Fq elements (256 > 254), so the challenge stream crosses the 254-bit
   element boundary, the case a byte-level (not bit-level) extraction gets wrong.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/jsponge_test.py
+    bazel test //python/accumulation_zorch/testing:jsponge_test
 """
 
 import json

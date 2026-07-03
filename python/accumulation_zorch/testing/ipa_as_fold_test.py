@@ -16,10 +16,9 @@ of the same shape as an input, so the fold is the no-fold prove fed
 Running the SAME curve-generic port against the Vesta fixture is the curve-generic
 gate.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \
-      python python/accumulation_zorch/testing/ipa_as_fold_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_as_fold_test
 """
 
 import json

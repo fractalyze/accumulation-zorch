@@ -20,10 +20,9 @@ Running the SAME curve-generic port against the Vesta fixture — different
 `g1`/`fr`/`fq` dtypes, different base field for the sponge — is the curve-generic
 gate (the port is genuinely generic, not just non-breaking on Pallas).
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/ipa_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_test
 """
 
 import json

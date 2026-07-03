@@ -8,10 +8,9 @@ commitments) and the combined accumulator instance byte-for-byte.
 
 The 117 Poseidon ARK constants come from the slice-2 sponge fixtures.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/hp_test.py
+    bazel test //python/accumulation_zorch/testing:hp_test
 """
 
 import json

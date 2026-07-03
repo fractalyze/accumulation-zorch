@@ -14,11 +14,14 @@
 # once every point is measured — so `bench/bench.sh prove >table.md` captures a
 # clean table and nothing else.
 #
-# Prereqs are the README "GPU + jax tier": an **idle** NVIDIA GPU, plus the two
-# env vars the README Setup already exports —
+# Prereqs are the README "GPU + jax tier": an **idle** NVIDIA GPU, plus the GPU
+# plugin the README Setup exports —
 #
-#   XLA_VENV_PYTHON   the zkx Pasta jax venv interpreter (e.g. $PWD/.venv/bin/python)
-#   XLA_PJRT_PLUGIN   path to pjrt_c_api_gpu_plugin.so
+#   XLA_PJRT_PLUGIN   path to pjrt_c_api_gpu_plugin.so (loaded by the Rust GPU tests)
+#
+# The jax lowering steps run via `bazel run //export:export_*` (zorch + the jax
+# fork come from Bazel, see MODULE.bazel), so no separate venv interpreter is
+# needed here.
 #
 # Optional knobs:
 #   PROVE_SIZES        space-separated num_constraints for `prove` (default "4096 16384 32768")
@@ -31,23 +34,20 @@ set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-all}"
 
-: "${XLA_VENV_PYTHON:?set XLA_VENV_PYTHON to the zkx Pasta venv python (see README Setup)}"
 : "${XLA_PJRT_PLUGIN:?set XLA_PJRT_PLUGIN to pjrt_c_api_gpu_plugin.so (see README Setup)}"
-[ -x "$XLA_VENV_PYTHON" ] || { echo "XLA_VENV_PYTHON not executable: $XLA_VENV_PYTHON" >&2; exit 1; }
 [ -f "$XLA_PJRT_PLUGIN" ] || { echo "XLA_PJRT_PLUGIN not found: $XLA_PJRT_PLUGIN" >&2; exit 1; }
 
 ART="${ARTIFACTS_DIR:-${SCRATCH_DIR:-$(mktemp -d)}}"
 mkdir -p "$ART"
-export PYTHONPATH=python
 
 # All progress goes to stderr so stdout stays a clean table.
 say()  { printf '%s\n' "$*" >&2; }
 step() { printf '%s' "$*" >&2; }
 
 # A Rust `Duration` Debug token ("1.05s" / "651.2ms"), or a bare number already
-# in ms, -> milliseconds. Uses the venv python (required above), stdlib only.
+# in ms, -> milliseconds. Stdlib only, so any python3 works.
 to_ms() {
-  "$XLA_VENV_PYTHON" - "$1" <<'PY'
+  python3 - "$1" <<'PY'
 import re, sys
 s = sys.argv[1].strip().replace(" ", "")
 m = re.match(r"^([0-9.]+)(ns|µs|us|ms|s|m)?$", s)
@@ -87,7 +87,7 @@ bench_prove() {
     require "CPU timing (n=$n)" "$cpu_tok"
     step "lower… "
     AS_ZK_FIXTURE="$fix" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
-      "$XLA_VENV_PYTHON" export/export_prove.py >"$ART/export_$n.log" 2>&1
+      bazel run //export:export_prove >"$ART/export_$n.log" 2>&1
     step "GPU… "
     gpu_tok=$(AS_ZK_FIXTURE="$fix" FUSED_MLIRBC="$ART/prove_zk_general.mlirbc" \
       XLA_PJRT_PLUGIN="$XLA_PJRT_PLUGIN" \
@@ -115,7 +115,7 @@ bench_fold() {
     --test recursion_step vesta::dump::dump_recursion_fold_zk -- --nocapture >"$ART/fold_dump.log" 2>&1
   step "lower… "
   ACCUMULATION_ZORCH_ARTIFACTS="$ART" PROVE_CURVE=vesta JAX_PLATFORMS=cpu \
-    "$XLA_VENV_PYTHON" export/export_fold_zk.py >"$ART/fold_export.log" 2>&1
+    bazel run //export:export_fold_zk >"$ART/fold_export.log" 2>&1
   step "GPU fold… "
   gpu_ms=$(XLA_PJRT_PLUGIN="$XLA_PJRT_PLUGIN" ACCUMULATION_ZORCH_ARTIFACTS="$ART" \
     cargo test --quiet --release --features gpu --test gpu_fused_fold_bench -- --ignored --nocapture \
@@ -145,7 +145,7 @@ bench_decide() {
   for n in "${sizes[@]}"; do
     step "  d=$n lower… "
     IPA_DECIDER_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
-      "$XLA_VENV_PYTHON" export/export_ipa.py >"$ART/decide_export_$n.log" 2>&1
+      bazel run //export:export_ipa >"$ART/decide_export_$n.log" 2>&1
     step "GPU MSM… "
     local line cpu_ms gpu_ms
     line=$(IPA_DECIDER_SIZE="$n" IPA_DECIDER_MLIRBC="$ART/ipa_decider_msm_bench.mlirbc" \
@@ -176,7 +176,7 @@ bench_r1cs_decide() {
   for n in "${sizes[@]}"; do
     step "  n=$n lower… "
     AS_DECIDE_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
-      "$XLA_VENV_PYTHON" export/export_as_decide.py >"$ART/r1cs_decide_export_$n.log" 2>&1
+      bazel run //export:export_as_decide >"$ART/r1cs_decide_export_$n.log" 2>&1
     step "GPU MSMs… "
     local line cpu_ms gpu_ms
     line=$(AS_DECIDE_SIZE="$n" AS_DECIDE_MLIRBC="$ART/as_decider_bench.mlirbc" \

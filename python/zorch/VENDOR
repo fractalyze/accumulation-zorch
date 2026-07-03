@@ -1,5 +1,0 @@
-zorch vendored subset — pin: 8a67799e8abb4df4a04f7ec9b4de280bee3b4d53 (main, 2026-07-03)
-Files: pcs/{__init__,protocol}.py, pcs/ipa/{__init__,config,setup,prover,verifier,challenger,math}.py,
-transcript.py, poly/{__init__,univariate}.py, utils/{__init__,bits}.py
-Re-sync: copy from the pin above; keep Apache-2.0 headers.
-(hash/ + fusion.py were vendored earlier; see the tree under python/zorch/.)

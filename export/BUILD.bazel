@@ -1,0 +1,49 @@
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
+
+# Each export lowers a jax prove/decide core to a StableHLO .mlirbc that the Rust
+# GPU byte-match / bench (Cargo, hardware-gated) runs. Lowering is CPU-only.
+# `imports = ["."]` puts export/ on the path so the shared
+# `from export_prove import write_bytecode` resolves.
+#
+#   bazel run //export:export_prove -- [no-zk]
+#
+_EXPORT_DEPS = [
+    "//python:accumulation_zorch",
+    requirement("jax"),
+    requirement("numpy"),
+]
+
+# Standalone lowerers.
+[
+    py_binary(
+        name = n,
+        srcs = [n + ".py"],
+        imports = ["."],
+        visibility = ["//visibility:public"],
+        deps = _EXPORT_DEPS,
+    )
+    for n in [
+        "export_prove",
+        "export_ipa",
+        "export_as_decide",
+    ]
+]
+
+# These reuse export_prove.write_bytecode, so carry export_prove.py as a helper
+# module (its __main__ stays dormant when imported).
+[
+    py_binary(
+        name = n,
+        srcs = [n + ".py", "export_prove.py"],
+        main = n + ".py",
+        imports = ["."],
+        visibility = ["//visibility:public"],
+        deps = _EXPORT_DEPS,
+    )
+    for n in [
+        "export_fold_zk",
+        "export_nark",
+        "export_nark_zk",
+    ]
+]

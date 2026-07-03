@@ -14,10 +14,9 @@ blinded-commitment logic `_build_zk_core` uses; the witness combine and the HP-l
 old-accumulator fold are separate slices, so this checks the instance only (not the
 folded `hp_instance`).
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/as_fold_zk_test.py
+    bazel test //python/accumulation_zorch/testing:as_fold_zk_test
 """
 
 import json

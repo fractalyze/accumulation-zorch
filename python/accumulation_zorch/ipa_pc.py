@@ -6,7 +6,7 @@ Slice 1: the no-zk succinct check's Fiat-Shamir round challenges and the dense
 verifier, MSM-free. Each round challenge depends only on the absorbed
 `(L_i, R_i)` and the previous challenge, NOT on the running folded commitment, so
 the whole challenge vector is derivable without the size-`2·log d` L/R fold. (The
-IPA fold itself now lives in the vendored `zorch.pcs.ipa`, driven from
+IPA fold itself now lives in zorch's `zorch.pcs.ipa` (a Bazel dep), driven from
 `ipa_open.py`; this module keeps only the verifier-side succinct-check + the
 `h(X)` expansion. The decider's size-`d` MSM is `ipa_pc_as.decide_final_key`.)
 

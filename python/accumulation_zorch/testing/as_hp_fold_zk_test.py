@@ -20,10 +20,9 @@ The new input's HP instance/witness are re-derived in jax from input₂'s NARK
 does for the single-input AS prove. The fold's fresh HP hiding randomness
 (`hp_hiding_a/b`, `hp_rand_1/2/3`) is replayed from the dump.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/as_hp_fold_zk_test.py
+    bazel test //python/accumulation_zorch/testing:as_hp_fold_zk_test
 """
 
 import json

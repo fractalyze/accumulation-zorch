@@ -50,61 +50,38 @@ jobs:
         run: cargo test -p accumulation-zorch --verbose
 
   python:
-    # The byte-match scripts are absltest cases; each is a jax CPU trace+prove
-    # (the heavy fused-prove ones run ~30-60s), so they are split into a handful
-    # of parallel shards — wall time is the slowest shard, not the sum, without
-    # one GitHub check per file. Shards are balanced so the slow fused-prove
-    # tests are spread across them. recursion_fold_zk_test.py is omitted (the full
+    # The byte-match tests build + run under Bazel. `bazel test //python/...`
+    # runs every absltest byte-match case in parallel (each sandboxed), so wall
+    # time is the slowest test, not the sum — no manual sharding. zorch (the
+    # IPA-PC prover/verifier + Poseidon sponge) and the zkx Pasta jax fork come
+    # from Bazel — the git_override pin + the pip hub — so there is no venv /
+    # PYTHONPATH. recursion_fold_zk_test is tagged `manual` and excluded (the full
     # recursion-circuit IVC fold is minutes-slow on CPU; its fold math is covered
     # by as_fold_zk*, its recursion circuit by recursion_nark*).
-    name: Python (${{ matrix.shard.name }})
+    name: Python (bazel byte-match)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard:
-          - name: accumulation
-            tests: "as_test.py as_zk_test.py as_decide_test.py absorb_test.py"
-          - name: folding
-            tests: "as_fold_zk_test.py as_fold_zk_e2e_test.py sponge_test.py jsponge_test.py"
-          - name: hp
-            tests: "as_hp_fold_zk_test.py hp_zk_test.py hp_test.py substrate_test.py"
-          - name: nark
-            tests: "nark_test.py nark_zk_test.py recursion_nark_test.py"
-          - name: ipa
-            tests: "ipa_test.py ipa_zk_test.py ipa_as_test.py ipa_as_zk_test.py jcurve_test.py recursion_nark_zk_test.py"
     steps:
       - uses: actions/checkout@v4
 
-      # enable-cache makes the large jax-fork wheels a warm restore on later
-      # runs, so the repeated per-shard install is cheap after the first run.
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      # bazelisk reads .bazelversion and fetches the pinned Bazel.
+      - uses: bazelbuild/setup-bazelisk@v3
+
+      # Persist Bazel's repository cache (the jax-fork wheels, the hermetic
+      # CPython, the zorch git_override clone) and disk cache (build/test
+      # outputs) across runs; keyed on the dep-defining files.
+      - name: Cache Bazel
+        uses: actions/cache@v4
         with:
-          enable-cache: true
+          path: |
+            ~/.bazel-cache/repo
+            ~/.bazel-cache/disk
+          key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock_3_11.txt', '.bazelversion') }}
+          restore-keys: bazel-${{ runner.os }}-
 
-      # The zkx Pasta jax fork registers the Pasta curve dtypes; the CPU backend
-      # needs no GPU plugin (so `jax-cuda12-pjrt`/`jax-cuda12-plugin` are omitted
-      # vs the README's GPU setup). Pins match README.md.
-      - name: Create venv + install the zkx Pasta jax fork (CPU)
+      # .bazelrc pins JAX_PLATFORMS=cpu; each test exits non-zero on a byte-match
+      # failure. The GPU byte-match is separate (Rust, hardware-gated).
+      - name: bazel test //python/...
         run: |
-          uv venv --python 3.11 .venv
-          uv pip install --python .venv --index-strategy unsafe-best-match \
-            --index-url https://fractalyze.github.io/pypi/simple/ \
-            --extra-index-url https://pypi.org/simple/ \
-            jax==0.10.0.dev20260701084712 jaxlib==0.10.0.dev20260701084712 \
-            zk-dtypes==0.0.7 numpy absl-py
-
-      # Each absltest case exits non-zero on a byte-match failure. CPU-forced; the
-      # GPU byte-match tests are separate (Rust, hardware-gated) and not run here.
-      # `||` short-circuit fails the shard on the first failing test.
-      - name: ${{ matrix.shard.name }}
-        env:
-          JAX_PLATFORMS: cpu
-          PYTHONPATH: python
-        run: |
-          for t in ${{ matrix.shard.tests }}; do
-            echo "::group::$t"
-            .venv/bin/python "python/accumulation_zorch/testing/$t" || exit 1
-            echo "::endgroup::"
-          done
+          bazel test //python/... \
+            --repository_cache="$HOME/.bazel-cache/repo" \
+            --disk_cache="$HOME/.bazel-cache/disk"

@@ -11,15 +11,9 @@ challenger's `seed` + per-round `challenge` and asserts each round challenge
 equals the NumPy oracle's `succinct_check_challenges` round challenge as an exact
 Python int — the byte-match the whole zorch-integration refactor hinges on.
 
-Run (from the repo root, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \
-      python -m pytest python/accumulation_zorch/testing/ipa_challenger_test.py -q
-
-or directly (pytest-free):
-
-    JAX_PLATFORMS=cpu PYTHONPATH=python \
-      python python/accumulation_zorch/testing/ipa_challenger_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_challenger_test
 """
 
 import json

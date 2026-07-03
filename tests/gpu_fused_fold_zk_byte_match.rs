@@ -29,10 +29,8 @@
 //!       --test recursion_step vesta::dump::dump_recursion_fold_zk   # forward
 //!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> cargo test --features recursion \
 //!       --test recursion_step pallas::dump::dump_recursion_fold_zk  # reverse
-//!     JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
-//!       PROVE_CURVE=vesta  <venv>/bin/python export/export_fold_zk.py
-//!     JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
-//!       PROVE_CURVE=pallas <venv>/bin/python export/export_fold_zk.py
+//!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> PROVE_CURVE=vesta  bazel run //export:export_fold_zk
+//!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> PROVE_CURVE=pallas bazel run //export:export_fold_zk
 //!
 //! Hardware-gated; run only when the GPU is idle:
 //!

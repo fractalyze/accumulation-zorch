@@ -1,0 +1,10 @@
+# Golden byte-match fixtures — the `(acc.instance ‖ acc.witness ‖ proof)` bytes
+# emitted by the unmodified arkworks prover (regenerated via the Rust
+# `examples/dump_*.rs` / `tests/recursion_step.rs`). Consumed as test data by the
+# byte-match py_tests, which locate them at `python/testdata/` relative to the
+# test file.
+filegroup(
+    name = "fixtures",
+    srcs = glob(["*.json"]),
+    visibility = ["//visibility:public"],
+)

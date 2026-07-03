@@ -16,10 +16,9 @@ Fiat-Shamir absorbs (``r1cs_input`` / ``r1cs_r_input``) are fed pre-encoded as f
 runtime inputs: the in-trace ``fr→u8`` rechunk the zkx GPU plugin mis-lowers is done
 consumer-side.
 
-Run with the Pasta jax-fork venv — CPU is enough, lowering needs no GPU:
+Run under Bazel — CPU is enough, lowering needs no GPU:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch \\
-      <venv>/bin/python export/export_prove.py [no-zk]
+    bazel run //export:export_prove [-- no-zk]
 """
 import io
 import json

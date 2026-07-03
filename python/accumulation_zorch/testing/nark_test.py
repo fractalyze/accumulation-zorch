@@ -14,10 +14,9 @@ Phase-4 Slice-1 gate: it proves the curve abstraction is genuinely generic, not
 just non-breaking on Pallas. Per-commitment anchors (the leading 3×33B of the
 proof) localize a divergence to a single matrix's `matrix_vec_mul` + commit.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/nark_test.py
+    bazel test //python/accumulation_zorch/testing:nark_test
 """
 
 import json

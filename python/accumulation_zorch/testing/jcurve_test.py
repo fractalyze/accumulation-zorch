@@ -10,10 +10,9 @@ CPU port (`nark_test`) already pins to arkworks (`nark_fixtures.json`).
 
 If this can't be made jit-able / byte-exact on CPU, the port stops here.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/jcurve_test.py
+    bazel test //python/accumulation_zorch/testing:jcurve_test
 """
 
 import json

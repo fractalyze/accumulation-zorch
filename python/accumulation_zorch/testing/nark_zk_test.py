@@ -6,10 +6,9 @@ asserts the ported zk prover reproduces the serialized `Proof` byte-for-byte.
 Also anchors `hash_matrices` (the blake2b matrices hash that feeds gamma)
 against the Rust-computed golden, and mutation-checks sensitivity.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/nark_zk_test.py
+    bazel test //python/accumulation_zorch/testing:nark_zk_test
 """
 
 import json

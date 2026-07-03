@@ -13,10 +13,9 @@ the Vesta fixture — the constants reduce mod Vesta's base field instead of
 Pallas's, so they differ — is the Phase-4 Slice-3 gate for the gamma sponge the
 zk recursion NARK draws on Vesta.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/sponge_test.py
+    bazel test //python/accumulation_zorch/testing:sponge_test
 """
 
 import json
