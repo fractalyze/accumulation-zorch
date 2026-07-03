@@ -146,7 +146,7 @@ def compute_coeffs(cv: Curve, challenges: list[int]) -> list[int]:
     same descending index order), pinned against this same arkworks oracle in
     zorch. This port only decodes the resulting `fr` array to canonical ints at
     the serialization boundary."""
-    u = jnp.asarray(np.array([int(ch) for ch in challenges], dtype=cv.fr))
+    u = jnp.asarray(np.array(challenges, dtype=cv.fr))
     return fe_values(challenge_vector(u))
 
 
@@ -158,8 +158,8 @@ def evaluate_fr(cv: Curve, challenges: list[int], point: int) -> Array:
     working in the field — e.g. the AS combined evaluation's `Σ lc·h` weighted sum
     — so the per-input `h_j` never round-trips through a canonical int.
     :func:`evaluate` is the int-decoding boundary wrapper over this."""
-    u = jnp.asarray(np.array([int(ch) for ch in challenges], dtype=cv.fr))
-    x = jnp.asarray(np.array([int(point)], dtype=cv.fr))[0]
+    u = jnp.asarray(np.array(challenges, dtype=cv.fr))
+    x = jnp.asarray(cv.fr(point))
     return eval_challenge_poly(u, x)
 
 

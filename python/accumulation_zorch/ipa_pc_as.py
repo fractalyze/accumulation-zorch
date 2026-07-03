@@ -122,7 +122,7 @@ def _combined_evaluation_fr(cv: Curve, addends: list[tuple[int, list[int]]], poi
     from :func:`ipa_pc.evaluate_fr` as an `fr` value (no per-input int decode); the
     public wrappers cross the dtype→int boundary once at the end. Returns a numpy
     `fr` scalar so the zk wrapper's `+ rlp(point)` stays numpy-native."""
-    lc = jnp.asarray(np.array([int(lc_challenge) for lc_challenge, _ in addends], dtype=cv.fr))
+    lc = jnp.asarray(np.array([lc_challenge for lc_challenge, _ in addends], dtype=cv.fr))
     h = jnp.concatenate(
         [ipa_pc.evaluate_fr(cv, check_poly, point).reshape(1) for _, check_poly in addends])
     return np.asarray(jnp.sum(lc * h), dtype=cv.fr)
@@ -136,7 +136,7 @@ def combine_check_polynomials(cv: Curve, addends: list[tuple[int, list[int]]]) -
     combined = np.zeros(n, dtype=cv.fr)
     for lc_challenge, check_poly in addends:
         coeffs = np.array(ipa_pc.compute_coeffs(cv, check_poly), dtype=cv.fr)
-        combined = combined + np.array([int(lc_challenge)], dtype=cv.fr) * coeffs
+        combined = combined + np.array([lc_challenge], dtype=cv.fr) * coeffs
     return fe_values(combined)
 
 
@@ -223,7 +223,7 @@ def combined_evaluation_zk(
     (point)` — the no-zk linear combination plus the degree-1 random linear
     polynomial `rlp(X) = c0 + c1·X` evaluated at the point."""
     c0, c1 = _rlp_pair(rlp_coeffs)
-    rlp_eval = cv.fr(c0) + cv.fr(c1) * cv.fr(int(point))
+    rlp_eval = cv.fr(c0) + cv.fr(c1) * cv.fr(point)
     return fe_value(_combined_evaluation_fr(cv, addends, point) + rlp_eval)
 
 
