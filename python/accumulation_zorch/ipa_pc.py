@@ -29,7 +29,9 @@ For the ``ipa_pc_as`` single-input case the opening challenges are the constant
 
 from typing import NamedTuple
 
+import jax.numpy as jnp
 import numpy as np
+from zorch.pcs.ipa.math import challenge_vector, eval_challenge_poly
 
 from . import absorbable, curve, sponge
 from .curve import Curve
@@ -136,32 +138,28 @@ def compute_coeffs(cv: Curve, challenges: list[int]) -> list[int]:
     """`SuccinctCheckPolynomial::compute_coeffs` — the dense `2^log_d` coefficients
     of `h(X) = ∏_{i=1..log_d} (1 + ξ_i · X^{2^(log_d − i)})`, as canonical `fr`
     ints. `coeffs[k]` is the product of the ξ_i whose power-of-two block covers
-    index `k` (descending: ξ₁ multiplies the `X^{2^(log_d−1)}` block)."""
-    log_d = len(challenges)
-    n = 1 << log_d
-    coeffs = np.ones(n, dtype=cv.fr)
-    for i, ch in enumerate(challenges):
-        elem_degree = 1 << (log_d - (i + 1))
-        c = np.array([int(ch)], dtype=cv.fr)[0]
-        for start in range(elem_degree, n, elem_degree * 2):
-            coeffs[start:start + elem_degree] = coeffs[start:start + elem_degree] * c
-    return fe_values(coeffs)
+    index `k` (descending: ξ₁ multiplies the `X^{2^(log_d−1)}` block).
+
+    Delegates to zorch's `pcs/ipa/math.challenge_vector` — the identical dense
+    check-polynomial coefficients (`s ← concat(s, ξ_i·s)` unrolled last-to-first,
+    same descending index order), pinned against this same arkworks oracle in
+    zorch. This port only decodes the resulting `fr` array to canonical ints at
+    the serialization boundary."""
+    u = jnp.asarray(np.array([int(ch) for ch in challenges], dtype=cv.fr))
+    return fe_values(challenge_vector(u))
 
 
 def evaluate(cv: Curve, challenges: list[int], point: int) -> int:
     """`SuccinctCheckPolynomial::evaluate(point)` — `∏ (1 + ξ_i · point^{2^(log_d −
     i)})` in `fr`, as a canonical int. The succinct form of `compute_coeffs`
-    (no `2^log_d`-size expansion); each power `point^{2^k}` is an `fr` exponentiation."""
-    log_d = len(challenges)
-    one = np.ones(1, dtype=cv.fr)
-    product = np.ones(1, dtype=cv.fr)
-    p = int(point)
-    for i, ch in enumerate(challenges):
-        elem_degree = 1 << (log_d - (i + 1))
-        elem = np.array([pow(p, elem_degree, cv.fr_modulus)], dtype=cv.fr)
-        ch_fr = np.array([int(ch)], dtype=cv.fr)
-        product = product * (one + elem * ch_fr)
-    return fe_value(product)
+    (no `2^log_d`-size expansion).
+
+    Delegates to zorch's `pcs/ipa/math.eval_challenge_poly` — the same O(log_d),
+    no-inverse `∏ (1 + ξ_i · point^{2^…})` read of `compute_coeffs` (`point^{2^m}`
+    by repeated squaring) — and decodes to a canonical int at the boundary."""
+    u = jnp.asarray(np.array([int(ch) for ch in challenges], dtype=cv.fr))
+    x = jnp.asarray(np.array([int(point)], dtype=cv.fr))[0]
+    return fe_value(eval_challenge_poly(u, x))
 
 
 class IpaProof(NamedTuple):
