@@ -12,8 +12,6 @@ window LE into an Fr field element. The Poseidon squeeze itself is already jax
 under one jit.
 """
 
-import functools
-
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -27,7 +25,6 @@ _FE_BYTES = 32  # BigInteger256 field repr
 _LIMB_BITS = 32
 
 
-@functools.partial(jax.jit, static_argnames=("k", "size", "cv"))
 def challenges_from_fq(fq_elems: jax.Array, k: int, size: int, cv: Curve) -> jax.Array:
     """`k` truncated challenges as an `(k,)` ``cv.fr`` array, from the squeezed
     ``cv.fq`` elements `fq_elems`.
@@ -37,9 +34,9 @@ def challenges_from_fq(fq_elems: jax.Array, k: int, size: int, cv: Curve) -> jax
     bit stream is the low `FQ_CAPACITY` bits of each Fq element concatenated, and
     each challenge is the next `size` bits packed LE (`size <= fr_capacity`, so no
     reduction). `fq_elems` must hold `ceil(k*size / FQ_CAPACITY)` elements, and
-    `size` is a multiple of the 32-bit limb width (the prover's 128 is). `cv` is a
-    static jit arg (a `Curve` is hashable), so its `fr`/`fr_modulus` are trace
-    constants.
+    `size` is a multiple of the 32-bit limb width (the prover's 128 is). `cv` is
+    captured as a trace constant when this leaf inlines into the boundary jit, so
+    its `fr`/`fr_modulus` are trace constants.
     """
     # (n, 32) canonical LE bytes -> (n, 256) LE bits -> low FQ_CAPACITY per element.
     byts = lax.bitcast_convert_type(fq_elems, jnp.uint8)

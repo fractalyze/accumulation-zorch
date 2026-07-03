@@ -9,8 +9,8 @@ Phase 1 gates it on CPU (`JAX_PLATFORMS=cpu`).
 
 A curve appears only where a host-side array is built from the curve's dtypes
 (`stack_affine` over `cv.g1`, the `cv.fr` randomizer/challenge arrays). The
-`@jax.jit` kernels (`commit_dense`, `msm`) are dtype-agnostic — the dtype rides on
-the input arrays — so they name no curve.
+`commit_dense` / `msm` kernels are dtype-agnostic — the dtype rides on the input
+arrays — so they name no curve.
 """
 
 import jax
@@ -31,7 +31,6 @@ def stack_affine(cv: Curve, points: list[np.ndarray]) -> jax.Array:
     return jnp.asarray(np.frombuffer(raw, dtype=cv.g1).copy())
 
 
-@jax.jit
 def commit_dense(coeffs: jax.Array, z: jax.Array, bases: jax.Array) -> jax.Array:
     """`commit(M·z) = Σ_i (Σ_j coeffs[i,j]·z[j]) · bases[i]` — the first-round
     NARK commitment, computed entirely in jax.
@@ -46,7 +45,6 @@ def commit_dense(coeffs: jax.Array, z: jax.Array, bases: jax.Array) -> jax.Array
     return lax.msm(jfield.matvec(coeffs, z), bases)
 
 
-@jax.jit
 def msm(scalars: jax.Array, bases: jax.Array) -> jax.Array:
     """`Σ scalars[i]·bases[i]` — commit a coefficient/scalar vector, or fold a set
     of points under challenges. The one trusted jit scalar-mul / point-fold

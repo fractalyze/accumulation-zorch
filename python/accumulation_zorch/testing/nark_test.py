@@ -8,7 +8,7 @@ use) dumped from the crate's real `R1CSNark::prove` (no-zk) — matrices, instan
 prove reproduces the proof byte-for-byte. The no-zk proof is `commit(z_a/z_b/z_c)`
 over `z = input ‖ witness` plus the raw witness, with no randomness, no gamma.
 
-Running the SAME curve-generic prover (`nark.prove_no_zk_fused(cv, ...)`) against
+Running the SAME curve-generic prover (`nark.prove_no_zk(cv, ...)`) against
 the Vesta golden — different `g1`/`fr`/`fq` dtypes, different committer key — is the
 Phase-4 Slice-1 gate: it proves the curve abstraction is genuinely generic, not
 just non-breaking on Pallas. Per-commitment anchors (the leading 3×33B of the
@@ -78,13 +78,13 @@ class NarkTest(absltest.TestCase):
                 print(f"  [{cv.name}] {name} = commit(M·z) byte-matches OK")
 
     def test_no_zk_fused_proof_matches_arkworks(self) -> None:
-        """The fused on-device variant (`prove_no_zk_fused`) reduces `M·z` in-trace
+        """The fused on-device variant (`prove_no_zk`) reduces `M·z` in-trace
         from the sparse COO (`jfield.sparse_matvec`) instead of host-side, so this is
         the toy-scale regression that the on-device sparse reduce is byte-correct
         before scaling it to the recursion circuit."""
         for cv, fixture in _CURVES:
             d, a, b, c, input_, witness, generators = _load(cv, fixture)
-            proof = nark.prove_no_zk_fused(cv, a, b, c, input_, witness, generators)
+            proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
             self.assertEqual(proof.hex(), d["proof_hex"], (
                 f"[{cv.name}] fused no-zk NARK proof diverged from host-side"))
             print(f"  [{cv.name}] fused (on-device sparse M·z) no-zk NARK proof byte-matches arkworks")

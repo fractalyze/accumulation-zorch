@@ -152,7 +152,7 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     """Build the fused no-zk NARK core as `(core_fn, bases)`: a single `@jax.jit`
     closing over the circuit (the sparse COO matrices + `z = input ‖ witness`) with
     the committer key `bases` as its **sole runtime argument** — the export-correct
-    shape (`core_fn(bases) -> NoZkNarkCore`). Shared by `prove_no_zk_fused` (which
+    shape (`core_fn(bases) -> NoZkNarkCore`). Shared by `prove_no_zk` (which
     runs + serializes it) and `export/export_nark.py` (which lowers it to one
     StableHLO module). Mirrors `r1cs_nark_as._build_zk_core` for the no-zk NARK."""
     rows = len(a)
@@ -167,8 +167,8 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     return core_fn, bases
 
 
-def prove_no_zk_fused(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
-                      witness: list[int], generators: list[np.ndarray]) -> bytes:
+def prove_no_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
+                witness: list[int], generators: list[np.ndarray]) -> bytes:
     """ark `R1CSNark::prove` (no-zk) as a single fused `@jax.jit` trace — the
     standalone no-zk NARK prove. The `M·z` reduce runs **on-device** from the
     sparse COO (`prove_no_zk_core`), so the whole prove is the trace the GPU
