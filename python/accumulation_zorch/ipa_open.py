@@ -163,6 +163,10 @@ def open_zk(
     # round challenges for `final_comm_key`: re-squeeze the hiding challenge `hc`
     # (byte-exact to the one `_open_one_zk` used), then reduce as `_open_one_zk`
     # does. The result is affine, byte-identical to the fold's internal seed.
+    # NOTE: this `pedersen_commit` must stay affine-normalization-identical to the
+    # vendored `_open_one_zk`'s internal `lax.msm` fold (both reduce the same
+    # 3-term hiding fold); if the two MSM primitives ever diverged on point
+    # normalization, the re-seeded round challenges here would silently mismatch.
     ch = ipa_challenger.ark_challenger(cv, params)
     _ch, hc = ch.hiding_challenge(commitment, jnp.asarray(hiding_comm), x, value)
     neg_rand = (-combined_rand_int) % cv.fr_modulus
