@@ -59,29 +59,17 @@ jobs:
     # recursion-circuit IVC fold is minutes-slow on CPU; its fold math is covered
     # by as_fold_zk*, its recursion circuit by recursion_nark*).
     name: Python (bazel byte-match)
-    runs-on: ubuntu-latest
+    # Self-hosted (same as zorch / sp1-zorch): the zorch git_override fetches the
+    # private fractalyze/zorch repo, which needs the box's git credentials —
+    # GitHub-hosted runners have none. These boxes also already have Bazel + warm
+    # bazel/repository caches, so no setup-bazel / cache action (they would clobber
+    # the box's ~/.bazelrc).
+    runs-on: [self-hosted, cpu]
     steps:
       - uses: actions/checkout@v4
 
-      # bazelisk reads .bazelversion and fetches the pinned Bazel.
-      - uses: bazelbuild/setup-bazelisk@v3
-
-      # Persist Bazel's repository cache (the jax-fork wheels, the hermetic
-      # CPython, the zorch git_override clone) and disk cache (build/test
-      # outputs) across runs; keyed on the dep-defining files.
-      - name: Cache Bazel
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.bazel-cache/repo
-            ~/.bazel-cache/disk
-          key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock_3_11.txt', '.bazelversion') }}
-          restore-keys: bazel-${{ runner.os }}-
-
       # .bazelrc pins JAX_PLATFORMS=cpu; each test exits non-zero on a byte-match
-      # failure. The GPU byte-match is separate (Rust, hardware-gated).
+      # failure. `//python/...` excludes the manual recursion_fold_zk_test. The
+      # GPU byte-match is separate (Rust, hardware-gated).
       - name: bazel test //python/...
-        run: |
-          bazel test //python/... \
-            --repository_cache="$HOME/.bazel-cache/repo" \
-            --disk_cache="$HOME/.bazel-cache/disk"
+        run: bazel test //python/...
