@@ -108,49 +108,55 @@ def compute_new_challenge(
     return point[0]
 
 
-def combined_evaluation(cv: Curve, addends: list[tuple[int, list[int]]], point: int) -> int:
-    """`combined_check_polynomial.evaluate(point)` (no-zk) =
-    `Σ lc_challenge_j · h_j(point)` — the combined check polynomial is linear in
-    the per-input check polynomials, so its evaluation is the weighted sum of the
-    succinct `h_j(point)`."""
-    return fe_value(_combined_evaluation_fr(cv, addends, point))
+def combined_evaluation(
+    cv: Curve, addends: list[tuple[int, list[int]]], point: int,
+    rlp_coeffs: list[int] | None = None,
+) -> int:
+    """`evaluate_combined_succinct_check_polynomials(point, random_polynomial)`:
+    `Σ lc_challenge_j · h_j(point)` — the combined check polynomial is linear in the
+    per-input check polynomials, so its evaluation is the weighted sum of the
+    succinct `h_j(point)`. When `rlp_coeffs` is given (the zk path) the degree-1
+    random linear polynomial `rlp(point) = c0 + c1·point` is added on top.
+    `rlp_coeffs is None` ⇒ the no-zk path (arkworks `random_polynomial = None`)."""
+    eval_fr = _combined_evaluation_fr(cv, addends, point)
+    if rlp_coeffs is not None:
+        c0, c1 = _rlp_pair(rlp_coeffs)
+        eval_fr = eval_fr + (cv.fr(c0) + cv.fr(c1) * cv.fr(point))
+    return fe_value(eval_fr)
 
 
 def _combined_evaluation_fr(cv: Curve, addends: list[tuple[int, list[int]]], point: int):  # type: ignore[no-untyped-def]
     """`Σ lc_challenge_j · h_j(point)` as an `fr` scalar — the field-native core of
-    :func:`combined_evaluation` / :func:`combined_evaluation_zk`. Each `h_j` comes
-    from :func:`ipa_pc.evaluate_fr` as an `fr` value (no per-input int decode); the
-    public wrappers cross the dtype→int boundary once at the end. Returns a numpy
-    `fr` scalar so the zk wrapper's `+ rlp(point)` stays numpy-native."""
+    :func:`combined_evaluation`. Each `h_j` comes from :func:`ipa_pc.evaluate_fr` as
+    an `fr` value (no per-input int decode); the public wrapper crosses the
+    dtype→int boundary once at the end. Returns a numpy `fr` scalar so the zk
+    path's `+ rlp(point)` stays numpy-native."""
     lc = jnp.asarray(np.array([lc_challenge for lc_challenge, _ in addends], dtype=cv.fr))
     h = jnp.concatenate(
         [ipa_pc.evaluate_fr(cv, check_poly, point).reshape(1) for _, check_poly in addends])
     return np.asarray(jnp.sum(lc * h), dtype=cv.fr)
 
 
-def combine_check_polynomials(cv: Curve, addends: list[tuple[int, list[int]]]) -> list[int]:
-    """`combine_succinct_check_polynomials` (no-zk): the dense combined check
-    polynomial `Σ lc_challenge_j · h_j(X)` (length `d+1 = 2^log_d`), each `h_j`
-    densely expanded via `compute_coeffs`."""
+def combine_check_polynomials(
+    cv: Curve, addends: list[tuple[int, list[int]]],
+    rlp_coeffs: list[int] | None = None,
+) -> list[int]:
+    """`combine_succinct_check_polynomials(random_polynomial)`: the dense combined
+    check polynomial `Σ lc_challenge_j · h_j(X)` (length `d+1 = 2^log_d`), each `h_j`
+    densely expanded via `compute_coeffs`. When `rlp_coeffs` is given (the zk path)
+    the degree-1 random linear polynomial `rlp(X) = c0 + c1·X` seeds the two low
+    coefficients before the linear combination — arkworks seeds
+    `combined = random_polynomial` then adds the weighted check polynomials.
+    `rlp_coeffs is None` ⇒ the no-zk path (arkworks `random_polynomial = None`)."""
     n = 1 << len(addends[0][1])  # 2^log_d
     combined = np.zeros(n, dtype=cv.fr)
+    if rlp_coeffs is not None:
+        c0, c1 = _rlp_pair(rlp_coeffs)
+        combined[0] = np.array([c0], dtype=cv.fr)[0]
+        combined[1] = np.array([c1], dtype=cv.fr)[0]
     for lc_challenge, check_poly in addends:
         coeffs = np.array(ipa_pc.compute_coeffs(cv, check_poly), dtype=cv.fr)
         combined = combined + np.array([lc_challenge], dtype=cv.fr) * coeffs
-    return fe_values(combined)
-
-
-def combine_check_polynomials_zk(
-    cv: Curve, addends: list[tuple[int, list[int]]], rlp_coeffs: list[int],
-) -> list[int]:
-    """`combine_succinct_check_polynomials` (zk): the dense combined check
-    polynomial `rlp(X) + Σ lc_challenge_j · h_j(X)` — the no-zk linear combination
-    plus the degree-1 random linear polynomial `rlp(X) = c0 + c1·X` (added into the
-    two low coefficients)."""
-    combined = np.array(combine_check_polynomials(cv, addends), dtype=cv.fr)
-    c0, c1 = _rlp_pair(rlp_coeffs)
-    combined[0] = combined[0] + np.array([c0], dtype=cv.fr)[0]
-    combined[1] = combined[1] + np.array([c1], dtype=cv.fr)[0]
     return fe_values(combined)
 
 
@@ -216,17 +222,6 @@ def compute_new_challenge_zk(
     return point[0]
 
 
-def combined_evaluation_zk(
-    cv: Curve, addends: list[tuple[int, list[int]]], point: int, rlp_coeffs: list[int],
-) -> int:
-    """`combined_check_polynomial.evaluate(point)` (zk) = `rlp(point) + Σ lc_j·h_j
-    (point)` — the no-zk linear combination plus the degree-1 random linear
-    polynomial `rlp(X) = c0 + c1·X` evaluated at the point."""
-    c0, c1 = _rlp_pair(rlp_coeffs)
-    rlp_eval = cv.fr(c0) + cv.fr(c1) * cv.fr(point)
-    return fe_value(_combined_evaluation_fr(cv, addends, point) + rlp_eval)
-
-
 class AccumulatorInstance(NamedTuple):
     """The new accumulator's *instance* fields (no-zk), minus the IPA proof
     (Slice 2b): the combined commitment, the new opening point, and the combined
@@ -270,7 +265,7 @@ def prove_zk_instance(
     _, combined, randomized, addends = combine_zk(
         cv, params, succinct_checks, rlp_coeffs, rlp_commitment, s, commitment_randomness)
     point = compute_new_challenge_zk(cv, params, combined, addends, rlp_coeffs)
-    evaluation = combined_evaluation_zk(cv, addends, point, rlp_coeffs)
+    evaluation = combined_evaluation(cv, addends, point, rlp_coeffs)
     return AccumulatorInstance(randomized, point, evaluation)
 
 
@@ -288,8 +283,8 @@ def prove_zk_accumulator(
     _, combined, randomized, addends = combine_zk(
         cv, params, succinct_checks, rlp_coeffs, rlp_commitment, s, commitment_randomness)
     point = compute_new_challenge_zk(cv, params, combined, addends, rlp_coeffs)
-    evaluation = combined_evaluation_zk(cv, addends, point, rlp_coeffs)
-    coeffs = combine_check_polynomials_zk(cv, addends, rlp_coeffs)
+    evaluation = combined_evaluation(cv, addends, point, rlp_coeffs)
+    coeffs = combine_check_polynomials(cv, addends, rlp_coeffs)
     ipa_proof = ipa_open.open_zk(
         cv, params, svk_h, s, generators, randomized, point, coeffs,
         hiding_poly_raw, hiding_rand, commitment_randomness)
@@ -345,65 +340,52 @@ def prove_zk_fold(
     The fold mirrors the no-zk one (:func:`prove_no_zk_fold`) — inputs first, then
     accumulators, into one succinct-check list combined identically — with one
     wrinkle: a prior accumulator from a zk prove carries a hiding IPA opening, so
-    its succinct check is the **zk** path (:func:`succinct_check_input_zk`, folding
-    the hiding seed with `s` and the proof's `hiding_comm`/`rand`), while the new
+    its succinct check is the **zk** path (:func:`succinct_check_input` with `s`,
+    folding the hiding seed with `s` and the proof's `hiding_comm`/`rand`), while the new
     inputs stay no-zk. The combined list then runs through the same zk prove."""
     succinct_checks = (
         [succinct_check_input(cv, params, i) for i in input_insts]
-        + [succinct_check_input_zk(cv, params, s, a) for a in acc_prev_insts]
+        + [succinct_check_input(cv, params, a, s) for a in acc_prev_insts]
     )
     return prove_zk_accumulator(
         cv, params, svk_h, s, generators, succinct_checks, rlp_coeffs, rlp_commitment,
         commitment_randomness, hiding_poly_raw, hiding_rand)
 
 
-def decide_final_key(cv: Curve, params, generators: list[np.ndarray], inst: Any) -> np.ndarray:
+def _input_check_poly(cv: Curve, params, inst: Any, s: np.ndarray | None):  # type: ignore[no-untyped-def]
+    """The Slice-1 succinct check's round-challenge polynomial for one instance. When
+    `s` (the verifier key's hiding generator) is given, the **hiding** succinct check
+    runs — folding the instance's `hiding_comm` / `rand` seed with `s` before deriving
+    the round challenges (a prior accumulator from a zk prove). `s is None` ⇒ the
+    no-zk succinct check."""
+    if s is None:
+        return ipa_pc.succinct_check_challenges(
+            cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec)
+    return ipa_pc.succinct_check_challenges_zk(
+        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec,
+        s, inst.hiding_comm, inst.rand)
+
+
+def succinct_check_input(
+    cv: Curve, params, inst: Any, s: np.ndarray | None = None,
+) -> SuccinctCheck:
+    """Run the Slice-1 succinct check on one instance (a dict-like with `commitment`,
+    `point`, `evaluation`, `l_vec`, `r_vec`, `final_comm_key`) and pair the resulting
+    check polynomial with its `final_comm_key`. Pass `s` (the verifier key's hiding
+    generator) to run the **hiding** check on a prior zk accumulator (folding its
+    `hiding_comm`/`rand`); `s is None` ⇒ the no-zk check on a fresh input."""
+    return SuccinctCheck(_input_check_poly(cv, params, inst, s), inst.final_comm_key)
+
+
+def decide_final_key(cv: Curve, params, generators: list[np.ndarray], inst: Any,
+                     s: np.ndarray | None = None) -> np.ndarray:  # type: ignore[no-untyped-def]
     """The AS decider's size-`d` MSM (`IpaPC::check`'s final check): run the
-    accumulator's succinct check, densely expand its check polynomial, and
-    recompute `final_key = Σ generators_i · compute_coeffs(check_poly)_i`. The
-    decider accepts iff this equals the accumulator's `final_comm_key`. This MSM is
-    the IPA accumulation's GPU-value work (the fused core target, Slice 4); here it
-    is the CPU group-reduction oracle. `inst` is the accumulator instance (a
-    `commitment` / `point` / `value` / `l_vec` / `r_vec` holder)."""
-    check_poly = ipa_pc.succinct_check_challenges(
-        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec)
-    coeffs = ipa_pc.compute_coeffs(cv, check_poly)
-    return curve.pedersen_commit(cv, generators, coeffs)
-
-
-def decide_final_key_zk(cv: Curve, params, generators: list[np.ndarray], inst: Any,
-                        s: np.ndarray) -> np.ndarray:  # type: ignore[no-untyped-def]
-    """The zk AS decider's size-`d` MSM (`IpaPC::check` on the hiding accumulator):
-    run the **zk** succinct check on the accumulator (hiding-folded seed using its
-    `hiding_comm` / `rand` and the verifier key's hiding generator `s`), densely
-    expand the check polynomial, and recompute
+    accumulator's succinct check, densely expand its check polynomial, and recompute
     `final_key = Σ generators_i · compute_coeffs(check_poly)_i`. The decider accepts
-    iff this equals the accumulator's `final_comm_key`. Same size-`d` MSM as the
-    no-zk decider (:func:`decide_final_key`) — only the succinct check differs — so
-    it is the fused zk GPU core's target (Slice 5e)."""
-    check_poly = ipa_pc.succinct_check_challenges_zk(
-        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec,
-        s, inst.hiding_comm, inst.rand)
-    coeffs = ipa_pc.compute_coeffs(cv, check_poly)
+    iff this equals the accumulator's `final_comm_key`. This size-`d` MSM is the IPA
+    accumulation's fused GPU-core target; here it is the CPU group-reduction oracle.
+    Pass `s` (the verifier key's hiding generator) for a hiding accumulator — the
+    **zk** succinct check folds its `hiding_comm`/`rand` seed with `s`; `s is None`
+    ⇒ the no-zk decider."""
+    coeffs = ipa_pc.compute_coeffs(cv, _input_check_poly(cv, params, inst, s))
     return curve.pedersen_commit(cv, generators, coeffs)
-
-
-def succinct_check_input(cv: Curve, params, inst: Any) -> SuccinctCheck:
-    """Run the Slice-1 succinct check on one input instance (a dict-like with
-    `commitment`, `point`, `evaluation`, `l_vec`, `r_vec`, `final_comm_key`) and
-    pair the resulting check polynomial with the input's `final_comm_key`."""
-    check_poly = ipa_pc.succinct_check_challenges(
-        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec)
-    return SuccinctCheck(check_poly, inst.final_comm_key)
-
-
-def succinct_check_input_zk(cv: Curve, params, s: np.ndarray, inst: Any) -> SuccinctCheck:
-    """Run the **zk/hiding** succinct check on one hiding instance — a prior
-    accumulator from a zk prove (its `ipa_proof` carries `hiding_comm`/`rand`). The
-    zk succinct check folds the hiding seed using the verifier key's hiding
-    generator `s` and the proof's `hiding_comm`/`rand` before deriving the round
-    challenges. Used to fold a prior zk accumulator into the next step."""
-    check_poly = ipa_pc.succinct_check_challenges_zk(
-        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec,
-        s, inst.hiding_comm, inst.rand)
-    return SuccinctCheck(check_poly, inst.final_comm_key)

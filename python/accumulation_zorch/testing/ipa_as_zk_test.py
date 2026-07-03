@@ -159,7 +159,7 @@ class IpaAsZkTest(absltest.TestCase):
             s = _point(cv, d["s"])
             acc = _parse_input(cv, d["accumulator"])
 
-            final_key = ipa_pc_as.decide_final_key_zk(cv, params, generators, acc, s)
+            final_key = ipa_pc_as.decide_final_key(cv, params, generators, acc, s)
             got = curve.point_to_bytes(cv, final_key).hex()
             want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
             self.assertEqual(got, want, f"[{cv.name}] zk decider size-d MSM != final_comm_key: {got} != {want}")
