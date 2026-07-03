@@ -3,7 +3,7 @@ replacement for the numpy `zk_dtypes` arithmetic in `hp_as.py` (the
 jit/GPU-exportable port).
 
 Each kernel takes Fr `jnp` arrays and returns Fr `jnp` arrays; the orchestration
-(`hp_as.prove_no_zk`) keeps the challenge / opening values as int lists and
+(the AS / NARK prove cores) keeps the challenge / opening values as int lists and
 rebuilds the arrays at the kernel boundary (data movement, not arithmetic). No
 `zk_dtypes` numpy field math runs on the prove path.
 """

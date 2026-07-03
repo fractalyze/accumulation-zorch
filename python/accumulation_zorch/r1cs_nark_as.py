@@ -8,7 +8,7 @@ prior accumulators — the case `src/oracle.rs` pins to arkworks. The prover:
    AS prover reads these from the input instance, but recomputing is identical
    and reuses proven code).
 2. Builds the HP input instance `(comm_a, comm_b, comm_c)` and witness
-   `(A·z, B·z)`, then runs `hp_as.prove_no_zk` on the `AS-FOR-HP-2020`-forked
+   `(A·z, B·z)`, then runs `hp_as.prove_no_zk_core` on the `AS-FOR-HP-2020`-forked
    sponge to get the HP accumulator + proof.
 3. Folds into the combined accumulator. With a single addend and no zk, the
    `beta` challenges are `[1]` (`compute_beta_challenges` squeezes

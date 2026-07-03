@@ -24,7 +24,6 @@ _TESTS = [
     "as_hp_fold_zk_test",
     "as_test",
     "as_zk_test",
-    "hp_test",
     "hp_zk_test",
     "ipa_as_fold_test",
     "ipa_as_fold_zk_test",

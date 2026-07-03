@@ -115,28 +115,6 @@ def _serialize_proof(cv: Curve, comm_a: np.ndarray, comm_b: np.ndarray, comm_c: 
     return out
 
 
-def prove_no_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
-                witness: list[int], generators: list[np.ndarray]) -> bytes:
-    """ark `R1CSNark::prove` for the no-zk path: commit `M·z` for M in {a,b,c}
-    (no blinders), and the blinded witness is the raw witness (no `gamma·r`
-    term). Returns the serialized `Proof`. The zk path is slice 6.
-
-    The `M·z` reduction runs **host-side over the sparse matrices**
-    (`matrix_vec_mul`); each commitment is one `lax.msm` over the resulting
-    `(rows,)` `fr` vector. The sparse `M·z` is what lets this replay a real
-    recursion-verifier R1CS (~22.5K constraints × ~21K vars, but ~6 non-zeros per
-    row): densifying it to `rows × vars` would be ~15 GB. (Fusing the `M·z`
-    on-device — for the export — is a later slice; this no-zk standalone is the
-    byte-match oracle, so the host reduction + an on-device MSM is enough.)
-    Serialization stays host-side."""
-    bases = jcurve.stack_affine(cv, generators)
-    comms = [
-        np.asarray(jcurve.msm(jnp.asarray(np.array(matrix_vec_mul(cv, m, input, witness), dtype=cv.fr)), bases))
-        for m in (a, b, c)
-    ]
-    return _serialize_proof(cv, comms[0], comms[1], comms[2], witness)
-
-
 class NoZkNarkCore(NamedTuple):
     """The no-zk NARK's three first-round commitments as on-device affine point
     arrays — the un-materialized form the fused export lowers. The no-zk
@@ -192,12 +170,12 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
 def prove_no_zk_fused(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
                       witness: list[int], generators: list[np.ndarray]) -> bytes:
     """ark `R1CSNark::prove` (no-zk) as a single fused `@jax.jit` trace — the
-    export-shaped twin of `prove_no_zk`. The `M·z` reduce runs **on-device** from
-    the sparse COO (`prove_no_zk_core`), so the whole prove is the trace the GPU
+    standalone no-zk NARK prove. The `M·z` reduce runs **on-device** from the
+    sparse COO (`prove_no_zk_core`), so the whole prove is the trace the GPU
     export lowers; only the committer key (`bases`) is a runtime jit argument, the
     circuit / witness baked in as constants. Materialization + serialization
-    (`_serialize_proof`) is the host seam outside the trace. Byte-identical to
-    `prove_no_zk` (and to the crate's `R1CSNark::prove` no-zk proof)."""
+    (`_serialize_proof`) is the host seam outside the trace. Byte-identical to the
+    crate's `R1CSNark::prove` no-zk proof."""
     core_fn, bases = build_no_zk_core(cv, a, b, c, input, witness, generators)
     core = core_fn(bases)
     return _serialize_proof(cv, np.asarray(core.comm_a), np.asarray(core.comm_b),
