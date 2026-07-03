@@ -8,13 +8,10 @@ rebuilds the arrays at the kernel boundary (data movement, not arithmetic). No
 `zk_dtypes` numpy field math runs on the prove path.
 """
 
-import functools
-
 import jax
 import jax.numpy as jnp
 
 
-@jax.jit
 def matvec(coeffs: jax.Array, z: jax.Array) -> jax.Array:
     """`M·z` over Fr: a dense `(rows × vars)` matrix times the `(vars,)` vector
     `z = r1cs_input ‖ witness`, as a broadcast multiply-and-sum → `(rows,)` Fr.
@@ -22,7 +19,6 @@ def matvec(coeffs: jax.Array, z: jax.Array) -> jax.Array:
     return jnp.sum(coeffs * z[jnp.newaxis, :], axis=1)
 
 
-@functools.partial(jax.jit, static_argnums=(4,))
 def sparse_matvec(vals: jax.Array, col_idx: jax.Array, row_idx: jax.Array,
                   z: jax.Array, num_rows: int) -> jax.Array:
     """`M·z` over Fr from a sparse matrix in flat COO form — `segment_sum` of the
@@ -40,14 +36,12 @@ def sparse_matvec(vals: jax.Array, col_idx: jax.Array, row_idx: jax.Array,
     return jax.ops.segment_sum(vals * z[col_idx], row_idx, num_segments=num_rows)
 
 
-@jax.jit
 def combine_vectors(vectors: jax.Array, challenges: jax.Array) -> jax.Array:
     """`combine_vectors`: `output[li] = Σ_ni challenges[ni]·vectors[ni][li]`.
     `vectors` is `(m, L)` Fr, `challenges` `(m,)` Fr → `(L,)` Fr."""
     return jnp.sum(challenges[:, jnp.newaxis] * vectors, axis=0)
 
 
-@functools.partial(jax.jit, static_argnums=(1,))
 def powers(nu: jax.Array, count: int) -> jax.Array:
     """`[nu^0, …, nu^{count-1}]` as a `(count,)` Fr array. `nu` is `(1,)` Fr; the
     powers are built by repeated Fr multiply (no `lax.pow` over the field dtype)."""
@@ -77,7 +71,6 @@ def _conv(a_col: jax.Array, b_rev: jax.Array) -> jax.Array:
     return jnp.stack(cols, axis=0)
 
 
-@jax.jit
 def t_vecs_no_zk(a: jax.Array, b: jax.Array, mu: jax.Array) -> jax.Array:
     """`compute_t_vecs` (no-zk): the per-column product-polynomial coefficients.
 
@@ -88,7 +81,6 @@ def t_vecs_no_zk(a: jax.Array, b: jax.Array, mu: jax.Array) -> jax.Array:
     return _conv(mu[:, jnp.newaxis] * a, jnp.flip(b, axis=0))
 
 
-@jax.jit
 def t_vecs_zk(a: jax.Array, b: jax.Array, mu: jax.Array, hiding_a: jax.Array,
               hiding_b: jax.Array, mu_n: jax.Array, mu_1: jax.Array) -> jax.Array:
     """`compute_t_vecs` (zk): like `t_vecs_no_zk` plus the hiding addends —
