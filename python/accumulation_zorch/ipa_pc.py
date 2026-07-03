@@ -31,6 +31,7 @@ from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
+from jax import Array
 from zorch.pcs.ipa.math import challenge_vector, eval_challenge_poly
 
 from . import absorbable, curve, sponge
@@ -149,17 +150,23 @@ def compute_coeffs(cv: Curve, challenges: list[int]) -> list[int]:
     return fe_values(challenge_vector(u))
 
 
-def evaluate(cv: Curve, challenges: list[int], point: int) -> int:
-    """`SuccinctCheckPolynomial::evaluate(point)` — `∏ (1 + ξ_i · point^{2^(log_d −
-    i)})` in `fr`, as a canonical int. The succinct form of `compute_coeffs`
-    (no `2^log_d`-size expansion).
-
-    Delegates to zorch's `pcs/ipa/math.eval_challenge_poly` — the same O(log_d),
-    no-inverse `∏ (1 + ξ_i · point^{2^…})` read of `compute_coeffs` (`point^{2^m}`
-    by repeated squaring) — and decodes to a canonical int at the boundary."""
+def evaluate_fr(cv: Curve, challenges: list[int], point: int) -> Array:
+    """`SuccinctCheckPolynomial::evaluate(point)` as the `fr` scalar itself (no int
+    decode) — `∏ (1 + ξ_i · point^{2^(log_d − i)})` from zorch's
+    `pcs/ipa/math.eval_challenge_poly` (the O(log_d), no-inverse read of
+    `compute_coeffs`, `point^{2^m}` by repeated squaring). For callers that keep
+    working in the field — e.g. the AS combined evaluation's `Σ lc·h` weighted sum
+    — so the per-input `h_j` never round-trips through a canonical int.
+    :func:`evaluate` is the int-decoding boundary wrapper over this."""
     u = jnp.asarray(np.array([int(ch) for ch in challenges], dtype=cv.fr))
     x = jnp.asarray(np.array([int(point)], dtype=cv.fr))[0]
-    return fe_value(eval_challenge_poly(u, x))
+    return eval_challenge_poly(u, x)
+
+
+def evaluate(cv: Curve, challenges: list[int], point: int) -> int:
+    """`SuccinctCheckPolynomial::evaluate(point)` as a canonical int — the
+    serialization-boundary decode of :func:`evaluate_fr`."""
+    return fe_value(evaluate_fr(cv, challenges, point))
 
 
 class IpaProof(NamedTuple):
