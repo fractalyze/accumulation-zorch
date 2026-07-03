@@ -32,11 +32,12 @@ The per-input check polynomials and `final_comm_key`s come from
 
 from typing import Any, NamedTuple
 
+import jax.numpy as jnp
 import numpy as np
 
 from . import absorbable, curve, ipa_open, ipa_pc, sponge
 from .curve import Curve
-from .field import fe_values, fr_add, fr_mul
+from .field import fe_value, fe_values
 
 # ark `ipa_pc_as` AS-level domain (`ASForIpaPCDomain`).
 AS_DOMAIN = b"AS-FOR-IPA-PC-2020"
@@ -112,11 +113,19 @@ def combined_evaluation(cv: Curve, addends: list[tuple[int, list[int]]], point: 
     `Σ lc_challenge_j · h_j(point)` — the combined check polynomial is linear in
     the per-input check polynomials, so its evaluation is the weighted sum of the
     succinct `h_j(point)`."""
-    acc = 0
-    for lc_challenge, check_poly in addends:
-        h_at_point = ipa_pc.evaluate(cv, check_poly, point)
-        acc = fr_add(cv, acc, fr_mul(cv, lc_challenge, h_at_point))
-    return acc
+    return fe_value(_combined_evaluation_fr(cv, addends, point))
+
+
+def _combined_evaluation_fr(cv: Curve, addends: list[tuple[int, list[int]]], point: int):  # type: ignore[no-untyped-def]
+    """`Σ lc_challenge_j · h_j(point)` as an `fr` scalar — the field-native core of
+    :func:`combined_evaluation` / :func:`combined_evaluation_zk`. Each `h_j` comes
+    from :func:`ipa_pc.evaluate_fr` as an `fr` value (no per-input int decode); the
+    public wrappers cross the dtype→int boundary once at the end. Returns a numpy
+    `fr` scalar so the zk wrapper's `+ rlp(point)` stays numpy-native."""
+    lc = jnp.asarray(np.array([int(lc_challenge) for lc_challenge, _ in addends], dtype=cv.fr))
+    h = jnp.concatenate(
+        [ipa_pc.evaluate_fr(cv, check_poly, point).reshape(1) for _, check_poly in addends])
+    return np.asarray(jnp.sum(lc * h), dtype=cv.fr)
 
 
 def combine_check_polynomials(cv: Curve, addends: list[tuple[int, list[int]]]) -> list[int]:
@@ -214,8 +223,8 @@ def combined_evaluation_zk(
     (point)` — the no-zk linear combination plus the degree-1 random linear
     polynomial `rlp(X) = c0 + c1·X` evaluated at the point."""
     c0, c1 = _rlp_pair(rlp_coeffs)
-    rlp_eval = fr_add(cv, c0, fr_mul(cv, c1, point))
-    return fr_add(cv, combined_evaluation(cv, addends, point), rlp_eval)
+    rlp_eval = cv.fr(c0) + cv.fr(c1) * cv.fr(int(point))
+    return fe_value(_combined_evaluation_fr(cv, addends, point) + rlp_eval)
 
 
 class AccumulatorInstance(NamedTuple):

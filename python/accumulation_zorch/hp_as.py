@@ -17,7 +17,7 @@ from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, jcurve, jfield, jsponge, sponge
 from .curve import Curve
-from .field import fe_values, fr_add, fr_mul
+from .field import fe_value, fe_values
 
 CHALLENGE_SIZE = 128  # bits, matching ark hp_as::CHALLENGE_SIZE
 # Both Pasta scalar fields are 254-cap > 128, so this is the curve-invariant 128.
@@ -139,10 +139,15 @@ def _combine_randomness(cv: Curve, rands: list[int | None], challenges: list[int
                         hiding: int | None = None) -> int:
     """`combine_randomness`: `Σ rands[i]·challenges[i]` over the `Some` entries
     (`None` contributes nothing), plus an optional hiding addend."""
-    terms = [fr_mul(cv, r, challenges[i]) for i, r in enumerate(rands) if r is not None]
+    pairs = [(int(r), int(challenges[i])) for i, r in enumerate(rands) if r is not None]
+    if pairs:
+        rs, cs = zip(*pairs)
+        acc = np.sum(np.array(rs, dtype=cv.fr) * np.array(cs, dtype=cv.fr))
+    else:
+        acc = cv.fr(0)
     if hiding is not None:
-        terms.append(hiding)
-    return fr_add(cv, *terms) if terms else 0
+        acc = acc + cv.fr(int(hiding))
+    return fe_value(acc)
 
 
 def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h: jax.Array,
