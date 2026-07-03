@@ -164,17 +164,6 @@ def evaluate(cv: Curve, challenges: list[int], point: int) -> int:
     return fe_value(product)
 
 
-# --- IPA opening proof shape ---
-#
-# The prover's IPA fold (arkworks' `open_individual_opening_challenges`, no-zk
-# and zk) used to be ported here, reproducing arkworks' deferred even/odd
-# (BCLMS) generator fold by hand. That port is gone: the fold is now provided
-# by zorch's `pcs.ipa` prover, driven through the `ipa_open.py` adapter
-# (`ipa_open.open_no_zk` / `ipa_open.open_zk`), which `ipa_pc_as` calls
-# instead. `IpaProof` is the shared proof shape both that adapter and
-# `ipa_pc_as` use.
-
-
 class IpaProof(NamedTuple):
     """The IPA opening proof: the per-round fold commitments, the fully-folded
     generator and coefficient, and (zk only) the hiding commitment + combined

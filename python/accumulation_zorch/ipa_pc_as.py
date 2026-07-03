@@ -281,8 +281,6 @@ def prove_zk_accumulator(
     point = compute_new_challenge_zk(cv, params, combined, addends, rlp_coeffs)
     evaluation = combined_evaluation_zk(cv, addends, point, rlp_coeffs)
     coeffs = combine_check_polynomials_zk(cv, addends, rlp_coeffs)
-    # Drive zorch's `pcs/ipa` hiding fold (via `ipa_open`, byte-identical to
-    # arkworks' `ipa_pc::open_individual_opening_challenges` zk path).
     ipa_proof = ipa_open.open_zk(
         cv, params, svk_h, s, generators, randomized, point, coeffs,
         hiding_poly_raw, hiding_rand, commitment_randomness)
@@ -301,8 +299,6 @@ def prove_no_zk_accumulator(
     point = compute_new_challenge(cv, params, combined_commitment, addends)
     evaluation = combined_evaluation(cv, addends, point)
     coeffs = combine_check_polynomials(cv, addends)
-    # Drive zorch's `pcs/ipa` fold (via `ipa_open`, byte-identical to arkworks'
-    # `ipa_pc::open_individual_opening_challenges` no-zk path).
     ipa_proof = ipa_open.open_no_zk(cv, params, svk_h, combined_commitment, point, coeffs, generators)
     return Accumulator(combined_commitment, point, evaluation, ipa_proof)
 
