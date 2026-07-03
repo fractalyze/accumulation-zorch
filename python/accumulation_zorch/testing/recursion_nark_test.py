@@ -3,13 +3,14 @@ on Vesta.
 
 The recursion half-step proves the Pasta-cycle AS verifier gadget — a real
 ~22.5K-constraint × ~21K-var R1CS (but sparse, ~6 non-zeros/row) — as a Vesta
-NARK. This replays that R1CS through the curve-generic `nark.prove_no_zk(VESTA,
-…)` and byte-matches the golden proof the crate's real `R1CSNark::prove` emits,
-confirming the jax NARK core scales from the toy circuit to the recursion circuit.
+NARK. This replays that R1CS through the curve-generic
+`nark.prove_no_zk_fused(VESTA, …)` and byte-matches the golden proof the crate's
+real `R1CSNark::prove` emits, confirming the jax NARK core scales from the toy
+circuit to the recursion circuit.
 
 The dense `M·z` is infeasible here (`rows × vars` ≈ 471M entries ≈ 15 GB), so
-`prove_no_zk` reduces `M·z` host-side over the sparse matrices and commits with
-one `lax.msm`. On-device fusing of the `M·z` (for the GPU export) is Slice 3.
+`prove_no_zk_fused` reduces `M·z` **on-device** from the sparse COO
+(`jfield.sparse_matvec`) and commits with one `lax.msm` — the export-shaped trace.
 
 The fixture is large (~17 MB) so it is generated **off-tree**, not committed:
 
@@ -71,19 +72,6 @@ class RecursionNarkTest(absltest.TestCase):
             self.skipTest(
                 f"no fixture at {_FIXTURE} "
                 "(generate it: cargo test --features recursion --test recursion_step dump_recursion_nark)")
-
-    def test_recursion_nark_no_zk_proof_matches_arkworks(self) -> None:
-        d, a, b, c, input_, witness, generators = _load()
-        proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
-        got = proof.hex()
-        self.assertEqual(got, d["proof_hex"], (
-            f"[vesta] recursion NARK proof diverged "
-            f"(got {len(got)//2}B, want {len(d['proof_hex'])//2}B)"
-        ))
-        print(
-            f"  [vesta] recursion no-zk NARK proof byte-matches arkworks "
-            f"({d['num_constraints']} constraints, {d['num_vars']} vars, {len(proof)} bytes)"
-        )
 
     def test_recursion_nark_no_zk_fused_proof_matches_arkworks(self) -> None:
         """The fused on-device variant at recursion scale: `prove_no_zk_fused` reduces

@@ -27,132 +27,6 @@ _CHALLENGE_BITS = min(CHALLENGE_SIZE, sponge.FR_CAPACITY)  # squeeze window per 
 Instance = tuple[np.ndarray, np.ndarray, np.ndarray]
 
 
-def _fit(vec: list[int], length: int) -> list[int]:
-    """Pad/truncate an fr int vector to `length` (ark reads `vec[li]` for
-    `li < len(vec)`, else 0) so it stacks into a rectangular `(n, L)` kernel
-    input."""
-    return (list(vec) + [0] * length)[:length]
-
-
-def squeeze_mu(cv: Curve, sp: DuplexSponge, num_inputs: int,
-               make_zk: bool = False) -> tuple[DuplexSponge, list[int]]:
-    """`squeeze_mu_challenges`: `[1, c_1, …, c_{n-1}]` (each `c_i` a truncated-128
-    challenge). The zk path appends one more, `mu[n] = mu[1]·mu[n-1]`, used to
-    fold the hiding terms."""
-    mu = [1]
-    if num_inputs > 1:
-        sp, rest = jsponge.squeeze_challenges(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
-        mu += fe_values(rest)
-    if make_zk:
-        mu.append(fr_mul(cv, mu[1], mu[num_inputs - 1]))
-    return sp, mu
-
-
-def squeeze_nu(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, list[int]]:
-    """`squeeze_nu_challenges`: one truncated-128 challenge `nu`, expanded to its
-    `2n-1` powers `[nu^0, …, nu^{2n-2}]` (the powers run over an `fr` array, so
-    the dtype reduces mod r)."""
-    sp, nu = jsponge.squeeze_challenges(sp, 1, _CHALLENGE_BITS, cv)  # (1,) fr
-    return sp, fe_values(jfield.powers(nu, 2 * num_inputs - 1))
-
-
-def compute_t_vecs(cv: Curve, a_vecs: list[list[int]], b_vecs: list[list[int]], mu: list[int],
-                   hp_vec_len: int, num_inputs: int,
-                   hiding: tuple[list[int], list[int]] | None = None) -> jax.Array:
-    """`compute_t_vecs`: for each index `li`, form `a(X,mu)` (coeff `ni` =
-    `mu[ni]·a_vecs[ni][li]`) and the reversed `b(X)`, multiply, and scatter the
-    `2n-1` product coefficients across the `t_vecs`. `_poly_mul` of two
-    length-`n` arrays yields exactly `2n-1` coefficients, so no padding.
-
-    For the zk path, `hiding = (hiding_a, hiding_b)` adds `hiding_a[li]·mu[n]` to
-    the first `a` coefficient and `hiding_b[li]·mu[1]` to the first (post-reverse)
-    `b` coefficient — `mu` then carries the zk-extra entry at index `num_inputs`."""
-    if hiding is None:
-        a = jnp.asarray(np.array([_fit(av, hp_vec_len) for av in a_vecs], dtype=cv.fr))
-        b = jnp.asarray(np.array([_fit(bv, hp_vec_len) for bv in b_vecs], dtype=cv.fr))
-        mu_arr = jnp.asarray(np.array(mu[:num_inputs], dtype=cv.fr))
-        return jfield.t_vecs_no_zk(a, b, mu_arr)
-
-    # zk hiding path.
-    hiding_a, hiding_b = hiding
-    a = jnp.asarray(np.array([_fit(av, hp_vec_len) for av in a_vecs], dtype=cv.fr))
-    b = jnp.asarray(np.array([_fit(bv, hp_vec_len) for bv in b_vecs], dtype=cv.fr))
-    mu_arr = jnp.asarray(np.array(mu[:num_inputs], dtype=cv.fr))
-    ha = jnp.asarray(np.array(_fit(hiding_a, hp_vec_len), dtype=cv.fr))
-    hb = jnp.asarray(np.array(_fit(hiding_b, hp_vec_len), dtype=cv.fr))
-    mu_n = jnp.asarray(np.array([mu[num_inputs]], dtype=cv.fr))
-    mu_1 = jnp.asarray(np.array([mu[1]], dtype=cv.fr))
-    return jfield.t_vecs_zk(a, b, mu_arr, ha, hb, mu_n, mu_1)
-
-
-def compute_product_poly_comm(
-    cv: Curve, generators: list[np.ndarray], t_vecs: jax.Array, num_inputs: int
-) -> tuple[list[np.ndarray], list[np.ndarray]]:
-    """`compute_product_poly_comm`: commit every `t_vec` row (a `(2n-1, L)` fr
-    array) except the `(n-1)`-th, splitting into the `low` (`i < n-1`) and `high`
-    (`i > n-1`) commitments. The coefficient rows thread straight into `lax.msm`
-    — no host materialization between `compute_t_vecs` and the commit."""
-    bases = jcurve.stack_affine(cv, generators[: t_vecs.shape[1]])
-    low: list[np.ndarray] = []
-    high: list[np.ndarray] = []
-    for i in range(t_vecs.shape[0]):
-        if i == num_inputs - 1:
-            continue
-        comm = np.asarray(jcurve.msm(t_vecs[i], bases))
-        (low if i < num_inputs - 1 else high).append(comm)
-    return low, high
-
-
-def _combine(cv: Curve, points: list[np.ndarray], challenges: list[int]) -> np.ndarray | None:
-    """`combine_commitments`: `Σ points[i] · challenges[i]` as one `lax.msm`.
-    `None` for an empty input (ark starts from `G::Projective::zero()`, the
-    identity) so the single-input case — where `low`/`high` are empty — has no
-    identity point to materialize."""
-    return jcurve.combine(cv, points, challenges)
-
-
-def _combine_vectors(cv: Curve, vectors: list[list[int]], challenges: list[int]) -> list[int]:
-    """`combine_vectors`: `output[li] = Σ_ni challenges[ni]·vectors[ni][li]`, via
-    the jit fr kernel. The accumulated vectors share a length here (all are
-    length-`hp_vec_len` openings), so no per-element padding."""
-    if not vectors:
-        return []
-    v = jnp.asarray(np.array(vectors, dtype=cv.fr))
-    ch = jnp.asarray(np.array(challenges[: len(vectors)], dtype=cv.fr))
-    return fe_values(jfield.combine_vectors(v, ch))
-
-
-def compute_combined_instance(
-    cv: Curve, instances: list[Instance], low: list[np.ndarray], high: list[np.ndarray],
-    mu: list[int], nu: list[int], combined: list[int], num_inputs: int
-) -> Instance:
-    """`compute_combined_hp_commitments` (no-zk): fold the input commitments +
-    product-poly commitments into the combined `(comm_1, comm_2, comm_3)`."""
-    comm_1s = [inst[0] for inst in instances]
-    comm_2s = [inst[1] for inst in instances]
-    comm_3s = [inst[2] for inst in instances]
-
-    combined_comm_1 = _combine(cv, comm_1s, combined)
-    combined_comm_2 = _combine(cv, list(reversed(comm_2s)), nu)
-    low_addend = _combine(cv, low, nu)
-    high_addend = _combine(cv, high, nu[num_inputs:])
-    comm_3_combine = _combine(cv, comm_3s, mu)
-    assert comm_3_combine is not None  # ≥1 instance
-    # combined_comm_3 = nu[n-1]·(Σ mu·comm_3) + low_addend + high_addend, as one
-    # fold (affine point-add isn't a valid jit EC op, so the sum is a `lax.msm`).
-    addend_pts = [comm_3_combine]
-    addend_chs = [nu[num_inputs - 1]]
-    for addend in (low_addend, high_addend):
-        if addend is not None:  # empty for the single-input case
-            addend_pts.append(addend)
-            addend_chs.append(1)
-    combined_comm_3 = _combine(cv, addend_pts, addend_chs)
-    # all three are non-empty folds (≥1 instance), so never None.
-    assert combined_comm_1 is not None and combined_comm_2 is not None
-    assert combined_comm_3 is not None
-    return (combined_comm_1, combined_comm_2, combined_comm_3)
-
-
 def serialize_proof(cv: Curve, low: list[np.ndarray], high: list[np.ndarray]) -> bytes:
     """`Proof` CanonicalSerialize (no-zk): the `low` and `high` commitment
     `Vec<G>` (each u64 length + 33B points), then the `None` hiding flag."""
@@ -164,49 +38,6 @@ def serialize_proof(cv: Curve, low: list[np.ndarray], high: list[np.ndarray]) ->
 def serialize_instance(cv: Curve, instance: Instance) -> bytes:
     """`InputInstance` CanonicalSerialize: `comm_1 ‖ comm_2 ‖ comm_3` (33B each)."""
     return b"".join(curve.point_to_bytes(cv, p) for p in instance)
-
-
-def compute_combined_witness(
-    cv: Curve, a_vecs: list[list[int]], b_vecs: list[list[int]], nu: list[int], combined: list[int]
-) -> tuple[list[int], list[int]]:
-    """`compute_combined_hp_openings` (no-zk): the combined accumulator witness
-    `(a_opening, b_opening)` — `a_opening` folds the `a_vec`s under the combined
-    `mu·nu` challenges, `b_opening` folds the reversed `b_vec`s under `nu`."""
-    a_opening = _combine_vectors(cv, a_vecs, combined)
-    b_opening = _combine_vectors(cv, list(reversed(b_vecs)), nu)
-    return a_opening, b_opening
-
-
-def prove_no_zk(
-    cv: Curve, generators: list[np.ndarray], instances: list[Instance],
-    a_vecs: list[list[int]], b_vecs: list[list[int]], supported_num_elems: int,
-    params: Any, base_sponge: DuplexSponge | None = None,
-) -> tuple[Instance, tuple[list[int], list[int]], list[np.ndarray], list[np.ndarray]]:
-    """no-zk HP prove. `instances` are `(comm_1, comm_2, comm_3)` point triples;
-    `a_vecs`/`b_vecs` are the per-input witness vectors (fr ints). `base_sponge`
-    overrides the fresh sponge (the AS path passes an `AS-FOR-HP-2020` fork).
-    Returns `(combined_instance, (a_opening, b_opening), low, high)` — the
-    accumulator instance, its witness, and the `Proof` commitments."""
-    num_inputs = len(instances)
-    hp_vec_len = len(a_vecs[0])
-
-    sp = sponge.new_sponge(params) if base_sponge is None else base_sponge
-    sp = absorbable.absorb_u64(cv, sp, supported_num_elems)
-    sp = absorbable.absorb_points(cv, sp, [c for inst in instances for c in inst])
-    sp = absorbable.absorb_none(cv, sp)  # hiding_comms = None
-
-    sp, mu = squeeze_mu(cv, sp, num_inputs)
-    t_vecs = compute_t_vecs(cv, a_vecs, b_vecs, mu, hp_vec_len, num_inputs)
-    low, high = compute_product_poly_comm(cv, generators, t_vecs, num_inputs)
-
-    sp = absorbable.absorb_points(cv, sp, low + high)  # absorb product_poly_comm
-    sp, nu = squeeze_nu(cv, sp, num_inputs)
-
-    combined = fe_values(
-        jnp.asarray(np.array(mu, dtype=cv.fr)) * jnp.asarray(np.array(nu[:num_inputs], dtype=cv.fr)))
-    instance = compute_combined_instance(cv, instances, low, high, mu, nu, combined, num_inputs)
-    witness = compute_combined_witness(cv, a_vecs, b_vecs, nu, combined)
-    return instance, witness, low, high
 
 
 class HpNoZkCore(NamedTuple):
@@ -228,12 +59,12 @@ def prove_no_zk_core(cv: Curve, real_inst: jax.Array, a_real: jax.Array, b_real:
     on-device jax — the R1CS-NARK-AS no-zk entry point, so the HP step threads on
     without a host hop. `real_inst` the `(3,)` input commitments; `a_real`/`b_real`
     the `(L,)` opening vectors. Plain so it inlines into the AS top-level
-    `@jax.jit`; the multi-input `prove_no_zk` is the general standalone."""
+    `@jax.jit`."""
     sp = sponge.new_sponge(params) if base_sponge is None else base_sponge
     sp = absorbable.absorb_u64(cv, sp, supported_num_elems)
     sp = absorbable.absorb_points_jax(cv, sp, real_inst)
     sp = absorbable.absorb_none(cv, sp)  # hiding_comms = None
-    # num_inputs == 1: squeeze_mu yields [1] without consuming the sponge, the lone
+    # num_inputs == 1: mu = [1] (no sponge consumed), the lone
     # t_vec row is the skipped (n-1)-th (no product-poly commitments to absorb), and
     # nu folds the identity — the nu squeeze runs only to mirror the transcript.
     sp, _nu = squeeze_nu_jax(cv, sp, 1)
@@ -271,7 +102,7 @@ class HpZkCore(NamedTuple):
 def squeeze_mu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, jax.Array]:
     """`squeeze_mu_challenges` (make_zk) as jax: `[1, c_1, …, c_{n-1}, mu_n]` where
     `mu_n = mu[1]·mu[n-1]` (the extra entry that folds the hiding terms). Returns
-    the `(n+1,)` fr array — the in-trace twin of `squeeze_mu`."""
+    the `(n+1,)` fr array."""
     mu = jnp.asarray(np.array([1], dtype=cv.fr))
     if num_inputs > 1:
         sp, rest = jsponge.squeeze_challenges(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
@@ -282,14 +113,14 @@ def squeeze_mu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[Duplex
 
 def squeeze_nu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, jax.Array]:
     """`squeeze_nu_challenges` as jax: one truncated-128 `nu` expanded to its
-    `2n-1` powers `[nu^0, …, nu^{2n-2}]` — the in-trace twin of `squeeze_nu`."""
+    `2n-1` powers `[nu^0, …, nu^{2n-2}]`."""
     sp, nu = jsponge.squeeze_challenges(sp, 1, _CHALLENGE_BITS, cv)
     return sp, jfield.powers(nu, 2 * num_inputs - 1)
 
 
 def _product_poly_comm_jax(bases: jax.Array, t_vecs: jax.Array,
                            num_inputs: int) -> tuple[list[jax.Array], list[jax.Array]]:
-    """`compute_product_poly_comm` returning on-device points: commit every
+    """`compute_product_poly_comm` (on-device): commit every
     `t_vec` row except the `(n-1)`-th, split into `low` (`i < n-1`) / `high`
     (`i > n-1`). `bases` is the pre-stacked generators (no hiding base). Plain jax
     (no `np.asarray`) so it inlines into the prove trace. Curve-agnostic — the
@@ -507,8 +338,6 @@ def serialize_witness_zk(cv: Curve, witness: tuple[list[int], list[int], tuple[i
 
 # Shared linear-combination primitives (ark's pub(crate)
 # `ASForHadamardProducts::combine_*`), reused by the R1CS-NARK-AS path.
-combine_commitments = _combine
-combine_vectors = _combine_vectors
 combine_randomness = _combine_randomness
 
 

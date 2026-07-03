@@ -8,8 +8,8 @@ use) dumped from the crate's real `R1CSNark::prove` (no-zk) — matrices, instan
 prove reproduces the proof byte-for-byte. The no-zk proof is `commit(z_a/z_b/z_c)`
 over `z = input ‖ witness` plus the raw witness, with no randomness, no gamma.
 
-Running the SAME curve-generic prover (`nark.prove_no_zk(cv, ...)`) against the
-Vesta golden — different `g1`/`fr`/`fq` dtypes, different committer key — is the
+Running the SAME curve-generic prover (`nark.prove_no_zk_fused(cv, ...)`) against
+the Vesta golden — different `g1`/`fr`/`fq` dtypes, different committer key — is the
 Phase-4 Slice-1 gate: it proves the curve abstraction is genuinely generic, not
 just non-breaking on Pallas. Per-commitment anchors (the leading 3×33B of the
 proof) localize a divergence to a single matrix's `matrix_vec_mul` + commit.
@@ -60,15 +60,6 @@ def _load(cv: curve.Curve, fixture: Path) -> Any:
 
 
 class NarkTest(absltest.TestCase):
-    def test_nark_no_zk_proof_matches_arkworks(self) -> None:
-        for cv, fixture in _CURVES:
-            d, a, b, c, input_, witness, generators = _load(cv, fixture)
-            proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
-            got = proof.hex()
-            self.assertEqual(got, d["proof_hex"], f"[{cv.name}] NARK proof:\n got  {got}\n want {d['proof_hex']}")
-            self.assertEqual(len(proof), len(d["proof_hex"]) // 2)
-            print(f"  [{cv.name}] no-zk NARK proof byte-matches arkworks ({len(proof)} bytes)")
-
     def test_first_round_commitments_match_arkworks(self) -> None:
         """Per-commitment anchors: each first-round commitment is one 33B field of
         the proof, so a mismatch localizes to that matrix's matrix_vec_mul + commit."""
