@@ -36,7 +36,7 @@ import numpy as np
 
 from . import absorbable, curve, ipa_open, ipa_pc, sponge
 from .curve import Curve
-from .field import fe_values, fr_add, fr_mul
+from .field import fe_value, fe_values
 
 # ark `ipa_pc_as` AS-level domain (`ASForIpaPCDomain`).
 AS_DOMAIN = b"AS-FOR-IPA-PC-2020"
@@ -112,11 +112,9 @@ def combined_evaluation(cv: Curve, addends: list[tuple[int, list[int]]], point: 
     `Σ lc_challenge_j · h_j(point)` — the combined check polynomial is linear in
     the per-input check polynomials, so its evaluation is the weighted sum of the
     succinct `h_j(point)`."""
-    acc = 0
-    for lc_challenge, check_poly in addends:
-        h_at_point = ipa_pc.evaluate(cv, check_poly, point)
-        acc = fr_add(cv, acc, fr_mul(cv, lc_challenge, h_at_point))
-    return acc
+    lc = np.array([int(lc_challenge) for lc_challenge, _ in addends], dtype=cv.fr)
+    h = np.array([ipa_pc.evaluate(cv, check_poly, point) for _, check_poly in addends], dtype=cv.fr)
+    return fe_value(np.sum(lc * h))
 
 
 def combine_check_polynomials(cv: Curve, addends: list[tuple[int, list[int]]]) -> list[int]:
@@ -214,8 +212,9 @@ def combined_evaluation_zk(
     (point)` — the no-zk linear combination plus the degree-1 random linear
     polynomial `rlp(X) = c0 + c1·X` evaluated at the point."""
     c0, c1 = _rlp_pair(rlp_coeffs)
-    rlp_eval = fr_add(cv, c0, fr_mul(cv, c1, point))
-    return fr_add(cv, combined_evaluation(cv, addends, point), rlp_eval)
+    base = cv.fr(combined_evaluation(cv, addends, point))
+    rlp_eval = cv.fr(c0) + cv.fr(c1) * cv.fr(int(point))
+    return fe_value(base + rlp_eval)
 
 
 class AccumulatorInstance(NamedTuple):
