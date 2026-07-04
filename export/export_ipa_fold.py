@@ -38,6 +38,10 @@ _FIXTURE = {
     "pallas": (_TESTDATA / "ipa_as_fold_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
     "vesta": (_TESTDATA / "ipa_as_fold_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
 }
+_FIXTURE_ZK = {
+    "pallas": (_TESTDATA / "ipa_as_fold_zk_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
+    "vesta": (_TESTDATA / "ipa_as_fold_zk_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
+}
 
 ART = Path(
     os.environ.get(
@@ -57,13 +61,16 @@ def _point(cv: Curve, p: Any) -> Any:
 
 class _Input(NamedTuple):
     """One parsed input / accumulator instance — the fields the succinct check +
-    AS combine read (mirrors ``ipa_as_fold_test._Input``)."""
+    AS combine read (mirrors ``ipa_as_fold{,_zk}_test._Input``). ``hiding_comm`` /
+    ``rand`` are present only for a hiding (zk-prove) accumulator."""
     commitment: Any
     point: int
     value: int
     l_vec: list
     r_vec: list
     final_comm_key: Any
+    hiding_comm: Any = None
+    rand: int = 0
 
 
 def _parse_input(cv: Curve, d: Any) -> _Input:
@@ -74,6 +81,8 @@ def _parse_input(cv: Curve, d: Any) -> _Input:
         l_vec=[_point(cv, p) for p in d["l_vec"]],
         r_vec=[_point(cv, p) for p in d["r_vec"]],
         final_comm_key=_point(cv, d["final_comm_key"]),
+        hiding_comm=_point(cv, d["hiding_comm"]) if "hiding_comm" in d else None,
+        rand=_fr(d["rand"]) if "rand" in d else 0,
     )
 
 
@@ -141,18 +150,76 @@ def export_fold(cv: Curve) -> Path:
     return out
 
 
+def _combine_zk(cv: Curve, params: Any, d: Any) -> tuple:
+    """The host-side **zk** fold combine on one fixture: succinct-check the no-zk new
+    input then the *hiding* prior accumulator (`s` folding its `hiding_comm`/`rand`),
+    combine with the random linear polynomial, derive the new opening point, and
+    densely expand the rlp-seeded combined check polynomial. Returns
+    `(randomized_commitment, point, coeffs)` — the hiding open's baked statement."""
+    new_input = _parse_input(cv, d["input"])
+    acc_prev = _parse_input(cv, d["acc_prev"])
+    s = _point(cv, d["s"])
+    rlp_coeffs = [_fr(h) for h in d["random_linear_polynomial"]]
+    rlp_commitment = _point(cv, d["random_linear_polynomial_commitment"])
+    commitment_randomness = _fr(d["commitment_randomness"])
+    proof = ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness)
+    succinct_checks = [
+        ipa_pc_as.succinct_check_input(cv, params, new_input),
+        ipa_pc_as.succinct_check_input(cv, params, acc_prev, s),
+    ]
+    instance, addends = ipa_pc_as._prove_instance(cv, params, succinct_checks, proof, s)
+    coeffs = ipa_pc_as.combine_check_polynomials(cv, addends, rlp_coeffs)
+    return instance.commitment, instance.point, coeffs
+
+
+def export_fold_zk(cv: Curve) -> Path:
+    """Lower the fused **zk** IPA fold open core to ``ipa_fold_zk_<curve>.mlirbc``:
+    bake one fixture's rlp-seeded combined check polynomial + the open's hiding
+    blinders into ``ipa_open.build_open_zk_core`` and lower over ``generators``."""
+    fold_fixture, sponge_fixture = _FIXTURE_ZK[cv.name]
+    d = json.loads(fold_fixture.read_text())
+    params = _params(cv, sponge_fixture)
+    commitment, point, coeffs = _combine_zk(cv, params, d)
+    svk_h = _point(cv, d["h"])
+    s = _point(cv, d["s"])
+    hiding_poly = [_fr(h) for h in d["hiding_polynomial"]]
+    hiding_rand = _fr(d["hiding_rand"])
+    commitment_randomness = _fr(d["commitment_randomness"])
+    generators = [_point(cv, g) for g in d["generators"]]
+
+    core = ipa_open.build_open_zk_core(
+        cv, params, svk_h, s, commitment, point, coeffs, hiding_poly, hiding_rand,
+        commitment_randomness)
+    basis = jcurve.stack_affine(cv, generators[: len(coeffs)])
+
+    t0 = time.perf_counter()
+    lowered = core.lower(basis)
+    t_lower = time.perf_counter() - t0
+    ART.mkdir(parents=True, exist_ok=True)
+    out = ART / f"ipa_fold_zk_{cv.name}.mlirbc"
+    size = write_bytecode(lowered, out)
+    print(f"wrote {out} ({size} B); {cv.name} IPA zk fold open core; "
+          f"lower {t_lower:.2f}s; coeffs={len(coeffs)}, bases={basis.shape[0]}, "
+          f"rounds={(len(coeffs) - 1).bit_length()}")
+    return out
+
+
 def main() -> None:
-    # `export_ipa_fold.py [pallas|vesta]` — exports the named curve's fold open
-    # core, or BOTH (the byte-match test exercises both Pasta curves) when no arg.
+    # `export_ipa_fold.py [pallas|vesta] [zk]` — exports the named curve's fold open
+    # core (no-zk by default, hiding when `zk` is passed), or BOTH curves when no
+    # curve arg (the byte-match tests exercise both Pasta curves).
     args = sys.argv[1:]
     curves = {"pallas": curve.PALLAS, "vesta": curve.VESTA}
-    if args:
-        if args[0] not in curves:
-            raise SystemExit(f"unknown curve {args[0]!r} (expected pallas|vesta)")
-        export_fold(curves[args[0]])
+    zk = "zk" in args
+    exp = export_fold_zk if zk else export_fold
+    named = [a for a in args if a in curves]
+    if named:
+        exp(curves[named[0]])
         return
+    if [a for a in args if a not in curves and a != "zk"]:
+        raise SystemExit("usage: export_ipa_fold.py [pallas|vesta] [zk]")
     for cv in (curve.PALLAS, curve.VESTA):
-        export_fold(cv)
+        exp(cv)
 
 
 if __name__ == "__main__":
