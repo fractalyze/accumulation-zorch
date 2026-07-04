@@ -26,6 +26,7 @@ _EXPORT_DEPS = [
     for n in [
         "export_prove",
         "export_ipa",
+        "export_ipa_fold",
         "export_as_decide",
     ]
 ]
