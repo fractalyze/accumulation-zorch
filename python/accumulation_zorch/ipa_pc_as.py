@@ -227,118 +227,77 @@ class Accumulator(NamedTuple):
     ipa_proof: ipa_pc.IpaProof
 
 
-def prove_no_zk_instance(
+def prove_instance(
     cv: Curve, params, succinct_checks: list[SuccinctCheck],
+    proof: Randomness | None = None, s: np.ndarray | None = None,
 ) -> AccumulatorInstance:  # type: ignore[no-untyped-def]
-    """The AS no-zk prove up to the new accumulator instance: combine the succinct
-    checks, derive the new opening point, and evaluate the combined check
-    polynomial there."""
-    _, combined, randomized, addends = combine(cv, params, succinct_checks)
-    point = compute_new_challenge(cv, params, combined, addends)
-    evaluation = combined_evaluation(cv, addends, point)
+    """The AS prove up to the new accumulator instance (arkworks `prove`, instance
+    fields only): combine the succinct checks, derive the new opening point, and
+    evaluate the combined check polynomial there. For the zk path pass `proof` (the
+    random linear polynomial bundle) and `s` (the verifier key's hiding generator) —
+    the accumulator's commitment is then the **randomized** combined commitment
+    (`+ s·commitment_randomness`) and the new point is seeded from the non-randomized
+    one; `proof is None` ⇒ no-zk."""
+    rlp = proof.rlp_coeffs if proof is not None else None
+    _, combined, randomized, addends = combine(cv, params, succinct_checks, proof, s)
+    point = compute_new_challenge(cv, params, combined, addends, rlp)
+    evaluation = combined_evaluation(cv, addends, point, rlp)
     return AccumulatorInstance(randomized, point, evaluation)
 
 
-def prove_zk_instance(
-    cv: Curve, params, succinct_checks: list[SuccinctCheck],
-    rlp_coeffs: list[int], rlp_commitment: np.ndarray, s: np.ndarray,
-    commitment_randomness: int,
-) -> AccumulatorInstance:  # type: ignore[no-untyped-def]
-    """The AS zk prove up to the new accumulator instance: the random-linear-
-    polynomial combine, the new opening point, and the combined evaluation. The
-    accumulator's commitment is the **randomized** combined commitment
-    (`+ s·commitment_randomness`); the new point is seeded from the non-randomized
-    one."""
-    _, combined, randomized, addends = combine(
-        cv, params, succinct_checks,
-        Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s)
-    point = compute_new_challenge(cv, params, combined, addends, rlp_coeffs)
-    evaluation = combined_evaluation(cv, addends, point, rlp_coeffs)
-    return AccumulatorInstance(randomized, point, evaluation)
-
-
-def prove_zk_accumulator(
-    cv: Curve, params, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
-    succinct_checks: list[SuccinctCheck], rlp_coeffs: list[int], rlp_commitment: np.ndarray,
-    commitment_randomness: int, hiding_poly_raw: list[int], hiding_rand: int,
-) -> Accumulator:  # type: ignore[no-untyped-def]
-    """The full AS zk prove: the instance fields (randomized commitment, new point,
-    evaluation) plus `compute_new_accumulator`'s **hiding** IPA open of the combined
-    check polynomial `rlp(X) + Σ lc_j·h_j(X)` at the new point — the complete new
-    accumulator (with the hiding `ipa_proof`) arkworks `prove` returns. `svk_h` /
-    `s` are the verifier key's IPA fold base / hiding generator; `hiding_poly_raw` /
-    `hiding_rand` are the IPA open's replayed hiding randomness."""
-    _, combined, randomized, addends = combine(
-        cv, params, succinct_checks,
-        Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s)
-    point = compute_new_challenge(cv, params, combined, addends, rlp_coeffs)
-    evaluation = combined_evaluation(cv, addends, point, rlp_coeffs)
-    coeffs = combine_check_polynomials(cv, addends, rlp_coeffs)
-    ipa_proof = ipa_open.open_zk(
-        cv, params, svk_h, s, generators, randomized, point, coeffs,
-        hiding_poly_raw, hiding_rand, commitment_randomness)
-    return Accumulator(randomized, point, evaluation, ipa_proof)
-
-
-def prove_no_zk_accumulator(
+def prove_accumulator(
     cv: Curve, params, svk_h: np.ndarray, generators: list[np.ndarray],
-    succinct_checks: list[SuccinctCheck],
+    succinct_checks: list[SuccinctCheck], proof: Randomness | None = None,
+    s: np.ndarray | None = None, hiding_poly_raw: list[int] | None = None,
+    hiding_rand: int | None = None,
 ) -> Accumulator:  # type: ignore[no-untyped-def]
-    """The full AS no-zk prove: the instance fields (`combine` + `compute_new_
-    challenge` + combined evaluation) plus `compute_new_accumulator`'s IPA open of
-    the combined check polynomial at the new point — the complete new accumulator
-    arkworks `prove` returns."""
-    _, combined, randomized, addends = combine(cv, params, succinct_checks)
-    point = compute_new_challenge(cv, params, combined, addends)
-    evaluation = combined_evaluation(cv, addends, point)
-    coeffs = combine_check_polynomials(cv, addends)
-    ipa_proof = ipa_open.open_no_zk(cv, params, svk_h, randomized, point, coeffs, generators)
+    """The full AS prove (arkworks `prove`): the instance fields plus
+    `compute_new_accumulator`'s IPA open of the combined check polynomial at the new
+    point — the complete new accumulator. For the zk path pass `proof` / `s` /
+    `hiding_poly_raw` / `hiding_rand`: the combine randomizes the commitment, the
+    combined check polynomial gains the random linear polynomial `rlp(X)`, and the
+    IPA open is **hiding** (`svk_h` / `s` the verifier key's IPA fold base / hiding
+    generator, `hiding_poly_raw` / `hiding_rand` the open's replayed hiding
+    randomness). `proof is None` ⇒ no-zk (a plain IPA open)."""
+    rlp = proof.rlp_coeffs if proof is not None else None
+    _, combined, randomized, addends = combine(cv, params, succinct_checks, proof, s)
+    point = compute_new_challenge(cv, params, combined, addends, rlp)
+    evaluation = combined_evaluation(cv, addends, point, rlp)
+    coeffs = combine_check_polynomials(cv, addends, rlp)
+    if proof is None:
+        ipa_proof = ipa_open.open_no_zk(cv, params, svk_h, randomized, point, coeffs, generators)
+    else:
+        # The zk path needs the hiding generator and the replayed hiding-open
+        # randomness; a zk `proof` without them is a caller error.
+        assert s is not None and hiding_poly_raw is not None and hiding_rand is not None
+        ipa_proof = ipa_open.open_zk(
+            cv, params, svk_h, s, generators, randomized, point, coeffs,
+            hiding_poly_raw, hiding_rand, proof.commitment_randomness)
     return Accumulator(randomized, point, evaluation, ipa_proof)
 
 
-def prove_no_zk_fold(
+def prove_fold(
     cv: Curve, params, svk_h: np.ndarray, generators: list[np.ndarray],
     input_insts: list[Any], acc_prev_insts: list[Any],
+    proof: Randomness | None = None, s: np.ndarray | None = None,
+    hiding_poly_raw: list[int] | None = None, hiding_rand: int | None = None,
 ) -> Accumulator:  # type: ignore[no-untyped-def]
-    """The AS no-zk **fold**: accumulate inputs INTO prior accumulators
-    (`old_accumulators` non-empty), arkworks' `prove` with a non-empty
-    `old_accumulators`.
+    """The AS **fold**: accumulate inputs INTO prior accumulators (arkworks `prove`
+    with a non-empty `old_accumulators`).
 
-    The fold reuses the no-fold prove wholesale. arkworks'
-    `succinct_check_inputs_and_accumulators` succinct-checks the inputs first, then
-    the accumulators, into ONE list; an accumulator is an `InputInstance` of the
-    same shape as an input, so each is checked and combined identically. The fold is
-    therefore exactly :func:`prove_no_zk_accumulator` fed
-    `[inputs..., accumulators...]` — no new combine/challenge logic, just the prior
-    accumulators appended (after the inputs) as further addends."""
-    succinct_checks = (
-        [succinct_check_input(cv, params, i) for i in input_insts]
-        + [succinct_check_input(cv, params, a) for a in acc_prev_insts]
-    )
-    return prove_no_zk_accumulator(cv, params, svk_h, generators, succinct_checks)
-
-
-def prove_zk_fold(
-    cv: Curve, params, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
-    input_insts: list[Any], acc_prev_insts: list[Any], rlp_coeffs: list[int],
-    rlp_commitment: np.ndarray, commitment_randomness: int, hiding_poly_raw: list[int],
-    hiding_rand: int,
-) -> Accumulator:  # type: ignore[no-untyped-def]
-    """The AS zk **fold**: accumulate (no-zk) inputs INTO prior *hiding* accumulators.
-
-    The fold mirrors the no-zk one (:func:`prove_no_zk_fold`) — inputs first, then
-    accumulators, into one succinct-check list combined identically — with one
-    wrinkle: a prior accumulator from a zk prove carries a hiding IPA opening, so
-    its succinct check is the **zk** path (:func:`succinct_check_input` with `s`,
-    folding the hiding seed with `s` and the proof's `hiding_comm`/`rand`), while the new
-    inputs stay no-zk. The combined list then runs through the same zk prove."""
+    arkworks `succinct_check_inputs_and_accumulators` succinct-checks the inputs
+    first, then the accumulators, into ONE list; an accumulator is an `InputInstance`
+    of the same shape as an input, so each is checked and combined identically — the
+    fold is exactly :func:`prove_accumulator` fed `[inputs..., accumulators...]`. On
+    the zk path a prior accumulator carries a hiding IPA opening, so its succinct
+    check is the hiding one (`succinct_check_input` with `s`, folding the proof's
+    `hiding_comm`/`rand`), while the new inputs stay no-zk (`s is None`)."""
     succinct_checks = (
         [succinct_check_input(cv, params, i) for i in input_insts]
         + [succinct_check_input(cv, params, a, s) for a in acc_prev_insts]
     )
-    return prove_zk_accumulator(
-        cv, params, svk_h, s, generators, succinct_checks, rlp_coeffs, rlp_commitment,
-        commitment_randomness, hiding_poly_raw, hiding_rand)
+    return prove_accumulator(
+        cv, params, svk_h, generators, succinct_checks, proof, s, hiding_poly_raw, hiding_rand)
 
 
 def _input_check_poly(cv: Curve, params, inst: Any, s: np.ndarray | None):  # type: ignore[no-untyped-def]

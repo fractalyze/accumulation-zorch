@@ -86,8 +86,9 @@ class IpaAsZkTest(absltest.TestCase):
 
             # No-zk inputs ⇒ no-zk succinct check; the AS layer is the zk part.
             succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
-            got = ipa_pc_as.prove_zk_instance(
-                cv, params, succinct_checks, rlp_coeffs, rlp_commitment, s, commitment_randomness)
+            got = ipa_pc_as.prove_instance(
+                cv, params, succinct_checks,
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s)
 
             acc = d["accumulator"]
             got_comm = curve.point_to_bytes(cv, got.commitment).hex()
@@ -123,9 +124,10 @@ class IpaAsZkTest(absltest.TestCase):
             hiding_rand = _fr(d["hiding_rand"])
 
             succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
-            acc = ipa_pc_as.prove_zk_accumulator(
-                cv, params, svk_h, s, generators, succinct_checks, rlp_coeffs, rlp_commitment,
-                commitment_randomness, hiding_poly, hiding_rand)
+            acc = ipa_pc_as.prove_accumulator(
+                cv, params, svk_h, generators, succinct_checks,
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s,
+                hiding_poly, hiding_rand)
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:

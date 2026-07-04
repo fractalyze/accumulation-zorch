@@ -97,9 +97,10 @@ class IpaAsFoldZkTest(absltest.TestCase):
             hiding_poly = [_fr(h) for h in d["hiding_polynomial"]]
             hiding_rand = _fr(d["hiding_rand"])
 
-            acc = ipa_pc_as.prove_zk_fold(
-                cv, params, svk_h, s, generators, [new_input], [acc_prev],
-                rlp_coeffs, rlp_commitment, commitment_randomness, hiding_poly, hiding_rand)
+            acc = ipa_pc_as.prove_fold(
+                cv, params, svk_h, generators, [new_input], [acc_prev],
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s,
+                hiding_poly, hiding_rand)
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:
