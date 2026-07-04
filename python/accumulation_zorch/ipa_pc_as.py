@@ -85,11 +85,11 @@ def _absorb_check_poly(cv: Curve, sp, check_poly: list[int]):  # type: ignore[no
 def combine(
     cv: Curve, params, succinct_checks: list[SuccinctCheck],
     proof: Randomness | None = None, s: np.ndarray | None = None,
-) -> tuple[list[int], np.ndarray, np.ndarray, list[tuple[int, list[int]]]]:  # type: ignore[no-untyped-def]
-    """`combine_succinct_check_polynomials_and_commitments(proof)`: the
-    linear-combination challenges, the combined commitment
-    `[rlp_commitment +] Σ final_comm_key_j · lc_challenge_j`, its randomized twin,
-    and the `(lc_challenge, check_poly)` addends for the combined check polynomial.
+) -> tuple[np.ndarray, np.ndarray, list[tuple[int, list[int]]]]:  # type: ignore[no-untyped-def]
+    """`combine_succinct_check_polynomials_and_commitments(proof)`: the combined
+    commitment `[rlp_commitment +] Σ final_comm_key_j · lc_challenge_j`, its
+    randomized twin, and the `(lc_challenge, check_poly)` addends for the combined
+    check polynomial.
 
     On the zk path (`proof` given) the AS sponge additionally absorbs the random
     linear polynomial — its two coefficients (each `to_bytes![c_i]`, separately)
@@ -121,7 +121,7 @@ def combine(
             cv, [sc.final_comm_key for sc in succinct_checks], lc_challenges)
         randomized = combined
     addends = [(lc, sc.check_poly) for lc, sc in zip(lc_challenges, succinct_checks)]
-    return lc_challenges, combined, randomized, addends
+    return combined, randomized, addends
 
 
 def compute_new_challenge(
@@ -192,8 +192,8 @@ def combine_check_polynomials(
     combined = np.zeros(n, dtype=cv.fr)
     if rlp_coeffs is not None:
         c0, c1 = _rlp_pair(rlp_coeffs)
-        combined[0] = np.array([c0], dtype=cv.fr)[0]
-        combined[1] = np.array([c1], dtype=cv.fr)[0]
+        combined[0] = cv.fr(c0)
+        combined[1] = cv.fr(c1)
     for lc_challenge, check_poly in addends:
         coeffs = np.array(ipa_pc.compute_coeffs(cv, check_poly), dtype=cv.fr)
         combined = combined + np.array([lc_challenge], dtype=cv.fr) * coeffs
@@ -227,22 +227,31 @@ class Accumulator(NamedTuple):
     ipa_proof: ipa_pc.IpaProof
 
 
+def _prove_instance(cv: Curve, params, succinct_checks: list[SuccinctCheck],
+                    proof: Randomness | None, s: np.ndarray | None):  # type: ignore[no-untyped-def]
+    """The AS prove up to the new accumulator instance (arkworks `prove`, instance
+    fields only): combine the succinct checks, derive the new opening point, and
+    evaluate the combined check polynomial there. Returns the new `AccumulatorInstance`
+    plus the combined-check-polynomial `addends` the full prove reuses for the IPA
+    open. On the zk path (`proof` given, `s` the verifier key's hiding generator) the
+    commitment is the **randomized** combined commitment (`+ s·commitment_randomness`)
+    and the point is seeded from the non-randomized one; `proof is None` ⇒ no-zk."""
+    rlp = proof.rlp_coeffs if proof is not None else None
+    combined, randomized, addends = combine(cv, params, succinct_checks, proof, s)
+    point = compute_new_challenge(cv, params, combined, addends, rlp)
+    evaluation = combined_evaluation(cv, addends, point, rlp)
+    return AccumulatorInstance(randomized, point, evaluation), addends
+
+
 def prove_instance(
     cv: Curve, params, succinct_checks: list[SuccinctCheck],
     proof: Randomness | None = None, s: np.ndarray | None = None,
 ) -> AccumulatorInstance:  # type: ignore[no-untyped-def]
     """The AS prove up to the new accumulator instance (arkworks `prove`, instance
-    fields only): combine the succinct checks, derive the new opening point, and
-    evaluate the combined check polynomial there. For the zk path pass `proof` (the
-    random linear polynomial bundle) and `s` (the verifier key's hiding generator) —
-    the accumulator's commitment is then the **randomized** combined commitment
-    (`+ s·commitment_randomness`) and the new point is seeded from the non-randomized
-    one; `proof is None` ⇒ no-zk."""
-    rlp = proof.rlp_coeffs if proof is not None else None
-    _, combined, randomized, addends = combine(cv, params, succinct_checks, proof, s)
-    point = compute_new_challenge(cv, params, combined, addends, rlp)
-    evaluation = combined_evaluation(cv, addends, point, rlp)
-    return AccumulatorInstance(randomized, point, evaluation)
+    fields only). For the zk path pass `proof` (the random linear polynomial bundle)
+    and `s` (the verifier key's hiding generator); `proof is None` ⇒ no-zk."""
+    instance, _ = _prove_instance(cv, params, succinct_checks, proof, s)
+    return instance
 
 
 def prove_accumulator(
@@ -259,21 +268,20 @@ def prove_accumulator(
     IPA open is **hiding** (`svk_h` / `s` the verifier key's IPA fold base / hiding
     generator, `hiding_poly_raw` / `hiding_rand` the open's replayed hiding
     randomness). `proof is None` ⇒ no-zk (a plain IPA open)."""
+    instance, addends = _prove_instance(cv, params, succinct_checks, proof, s)
     rlp = proof.rlp_coeffs if proof is not None else None
-    _, combined, randomized, addends = combine(cv, params, succinct_checks, proof, s)
-    point = compute_new_challenge(cv, params, combined, addends, rlp)
-    evaluation = combined_evaluation(cv, addends, point, rlp)
     coeffs = combine_check_polynomials(cv, addends, rlp)
     if proof is None:
-        ipa_proof = ipa_open.open_no_zk(cv, params, svk_h, randomized, point, coeffs, generators)
+        ipa_proof = ipa_open.open_no_zk(
+            cv, params, svk_h, instance.commitment, instance.point, coeffs, generators)
     else:
         # The zk path needs the hiding generator and the replayed hiding-open
         # randomness; a zk `proof` without them is a caller error.
         assert s is not None and hiding_poly_raw is not None and hiding_rand is not None
         ipa_proof = ipa_open.open_zk(
-            cv, params, svk_h, s, generators, randomized, point, coeffs,
+            cv, params, svk_h, s, generators, instance.commitment, instance.point, coeffs,
             hiding_poly_raw, hiding_rand, proof.commitment_randomness)
-    return Accumulator(randomized, point, evaluation, ipa_proof)
+    return Accumulator(instance.commitment, instance.point, instance.evaluation, ipa_proof)
 
 
 def prove_fold(
