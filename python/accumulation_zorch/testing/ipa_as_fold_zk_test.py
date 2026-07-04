@@ -14,8 +14,8 @@ runs the zk prove over `[input, acc_prev]`, and asserts the golden folded
 accumulator (instance + hiding IPA proof) matches arkworks byte-for-byte.
 
 The new logic over the no-zk fold: `acc_prev` carries a hiding IPA opening, so its
-succinct check is the zk path (`succinct_check_input_zk`), while the new input stays
-no-zk.
+succinct check is the zk path (`succinct_check_input` with `s`), while the new input
+stays no-zk.
 
 Run under Bazel:
 
@@ -97,9 +97,10 @@ class IpaAsFoldZkTest(absltest.TestCase):
             hiding_poly = [_fr(h) for h in d["hiding_polynomial"]]
             hiding_rand = _fr(d["hiding_rand"])
 
-            acc = ipa_pc_as.prove_zk_fold(
-                cv, params, svk_h, s, generators, [new_input], [acc_prev],
-                rlp_coeffs, rlp_commitment, commitment_randomness, hiding_poly, hiding_rand)
+            acc = ipa_pc_as.prove_fold(
+                cv, params, svk_h, generators, [new_input], [acc_prev],
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s,
+                hiding_poly, hiding_rand)
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:
@@ -132,7 +133,7 @@ class IpaAsFoldZkTest(absltest.TestCase):
             s = _point(cv, d["s"])
             acc = _parse_input(cv, d["accumulator"])
 
-            final_key = ipa_pc_as.decide_final_key_zk(cv, params, generators, acc, s)
+            final_key = ipa_pc_as.decide_final_key(cv, params, generators, acc, s)
             got = curve.point_to_bytes(cv, final_key).hex()
             want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
             self.assertEqual(got, want, f"[{cv.name}] folded zk decider size-d MSM != final_comm_key: {got} != {want}")

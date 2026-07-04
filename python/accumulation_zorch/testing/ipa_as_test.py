@@ -77,7 +77,7 @@ class IpaAsTest(absltest.TestCase):
             inputs = [_parse_input(cv, inp) for inp in d["inputs"]]
 
             succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
-            got = ipa_pc_as.prove_no_zk_instance(cv, params, succinct_checks)
+            got = ipa_pc_as.prove_instance(cv, params, succinct_checks)
 
             acc = d["accumulator"]
             got_comm = curve.point_to_bytes(cv, got.commitment).hex()
@@ -106,7 +106,7 @@ class IpaAsTest(absltest.TestCase):
             generators = [_point(cv, g) for g in d["generators"]]
 
             succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
-            acc = ipa_pc_as.prove_no_zk_accumulator(cv, params, svk_h, generators, succinct_checks)
+            acc = ipa_pc_as.prove_accumulator(cv, params, svk_h, generators, succinct_checks)
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:

@@ -85,7 +85,7 @@ class IpaAsFoldTest(absltest.TestCase):
             svk_h = _point(cv, d["h"])
             generators = [_point(cv, g) for g in d["generators"]]
 
-            acc = ipa_pc_as.prove_no_zk_fold(
+            acc = ipa_pc_as.prove_fold(
                 cv, params, svk_h, generators, [new_input], [acc_prev])
             want = d["accumulator"]
 
