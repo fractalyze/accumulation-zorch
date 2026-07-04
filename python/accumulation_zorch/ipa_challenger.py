@@ -90,10 +90,12 @@ _U64_SHIFT = 1 << 64
 
 
 def _as_fr(cv: Curve, x: Array | int) -> Array:
-    """A host int or `fr`-ish array as a 0-d ``cv.fr`` jax array (traced-safe)."""
+    """A host int or `fr`-ish array as a 0-d ``cv.fr`` jax array (traced-safe). The
+    `squeeze` enforces the 0-d contract for a `(1,)`-shaped array input (bitcasting a
+    rank-1 scalar would give a `(1, 32)` byte array and skew the u8-batch packing)."""
     if isinstance(x, (int, np.integer)):
         return jnp.asarray(np.array([int(x)], dtype=cv.fr))[0]
-    return jnp.asarray(x, dtype=cv.fr)
+    return jnp.squeeze(jnp.asarray(x, dtype=cv.fr))
 
 
 def _seed_pv_fq(cv: Curve, point: Array | int, value: Array | int) -> Array:

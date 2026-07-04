@@ -17,29 +17,16 @@
 //!       cargo test --release --features gpu --test gpu_fused_ipa_fold_bench -- --ignored --nocapture
 #![cfg(feature = "gpu")]
 
+mod common;
+
 use accumulation_zorch::fused;
 use accumulation_zorch::gpu::{Pallas, PastaCurve};
-use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
-use ark_ff::PrimeField;
+use common::point_from_json;
 use std::path::PathBuf;
 use std::time::Instant;
 
 type Affine<C> = GroupAffine<<C as PastaCurve>::Params>;
-type Base<C> = <<C as PastaCurve>::Params as ModelParameters>::BaseField;
-
-fn from_hex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("hex")).collect()
-}
-
-fn point_from_json<C: PastaCurve>(v: &serde_json::Value) -> Affine<C>
-where
-    Base<C>: PrimeField,
-{
-    let x = Base::<C>::from_le_bytes_mod_order(&from_hex(v["x_le_hex"].as_str().unwrap()));
-    let y = Base::<C>::from_le_bytes_mod_order(&from_hex(v["y_le_hex"].as_str().unwrap()));
-    GroupAffine::new(x, y, false)
-}
 
 #[test]
 #[ignore = "needs XLA_PJRT_PLUGIN + ipa_fold_pallas.mlirbc + a GPU; run --release"]

@@ -66,11 +66,13 @@ def u8_batch_field_array_jax(cv: Curve, data_u8: jax.Array) -> jax.Array:
     prefix = jnp.asarray(np.frombuffer(struct.pack("<Q", data_u8.shape[0]), dtype=np.uint8).copy())
     full = jnp.concatenate([prefix, data_u8])
     m = full.shape[0]
-    rows = []
-    for i in range(0, m, _BYTES_PER_FE):
-        chunk = full[i : i + _BYTES_PER_FE]
-        rows.append(jnp.concatenate([chunk, jnp.zeros((_FE_REPR_BYTES - chunk.shape[0],), jnp.uint8)]))
-    return lax.bitcast_convert_type(jnp.stack(rows), cv.fq)
+    n_fe = (m + _BYTES_PER_FE - 1) // _BYTES_PER_FE
+    # Pad to a whole number of 31-byte chunks, reshape, then a zero column to the
+    # 32-byte repr — the vectorized (no per-chunk Python loop) form of the chunking.
+    padded = jnp.concatenate([full, jnp.zeros((n_fe * _BYTES_PER_FE - m,), jnp.uint8)])
+    chunks = padded.reshape(n_fe, _BYTES_PER_FE)
+    pad_col = jnp.zeros((n_fe, _FE_REPR_BYTES - _BYTES_PER_FE), jnp.uint8)
+    return lax.bitcast_convert_type(jnp.concatenate([chunks, pad_col], axis=-1), cv.fq)
 
 
 def absorb_bytes(cv: Curve, sp: DuplexSponge, data: bytes) -> DuplexSponge:

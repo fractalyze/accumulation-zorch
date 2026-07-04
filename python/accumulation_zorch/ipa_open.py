@@ -74,25 +74,43 @@ def _c_int(cv: Curve, a: Array) -> int:
     return int.from_bytes(np.asarray(a, dtype=cv.fr).tobytes(), "little")
 
 
-def _final_comm_key(
+def _pad_hiding_poly(cv: Curve, hiding_poly_raw: list[int], n: int) -> Array:
+    """The open's blinding polynomial as a length-`n` `cv.fr` vector: arkworks resizes
+    `P::rand(d)` to `d+1` (zeros for the missing high terms) before the
+    vanish-at-`point` shift, and `_open_one_zk` expects the full length-`n` poly."""
+    return _fr_vec(cv, [int(c) for c in hiding_poly_raw] + [0] * (n - len(hiding_poly_raw)))
+
+
+def _fold_final_msm(
     cv: Curve, params: Any, key: IpaKey, seed_commitment: Any, x: Array, value: Array,
     l: Array, r: Array,
-) -> np.ndarray:
-    """The fully-folded generator `final_comm_key`, recovered the way zorch's
-    verifier settles (`verifier.settle`): re-derive the round challenges by driving
-    a fresh `ark_challenger` over the proof's own `L_j`/`R_j` (seeded from the same
+) -> Array:
+    """The fully-folded generator, the way zorch's verifier settles
+    (`verifier.settle`): re-derive the round challenges by driving a fresh
+    `ark_challenger` over the proof's own `L_j`/`R_j` (seeded from the same
     `(seed_commitment, x, value)` the fold used), then pay the one size-`n` MSM
     ``G_final = ⟨challenge_vector(u), G⟩``. `seed_commitment` is the combined
-    commitment (no-zk) or the blinding-folded `mod_commitment` (zk) the fold
-    actually seeded from."""
+    commitment (no-zk) or the blinding-folded `mod_commitment` (zk) the fold actually
+    seeded from. Returns the raw `lax.msm` result — the callers apply their affine
+    normalization (:func:`_final_comm_key` host, :func:`_final_comm_key_traced`
+    in-trace)."""
     ch = ipa_challenger.ark_challenger(cv, params)
-    ch, _xi0 = ch.seed(jnp.asarray(seed_commitment), x, value)
+    ch, _xi0 = ch.seed(seed_commitment, x, value)
     us = []
     for j in range(l.shape[0]):
         ch, uj = ch.challenge(l[j], r[j])
         us.append(uj)
     s = challenge_vector(jnp.stack(us))
-    return _affine(cv, lax.msm(s, key.basis[: s.shape[0]]))
+    return lax.msm(s, key.basis[: s.shape[0]])
+
+
+def _final_comm_key(
+    cv: Curve, params: Any, key: IpaKey, seed_commitment: Any, x: Array, value: Array,
+    l: Array, r: Array,
+) -> np.ndarray:
+    """`final_comm_key` as an affine point array (the host path — `open_no_zk` /
+    `open_zk`): :func:`_fold_final_msm` normalized to `cv.g1` via `np.asarray`."""
+    return _affine(cv, _fold_final_msm(cv, params, key, seed_commitment, x, value, l, r))
 
 
 def open_no_zk(
@@ -205,10 +223,7 @@ def build_open_zk_core(
     x = _fr_scalar(cv, point)
     commitment = jnp.asarray(_affine(cv, combined_commitment))
     one = _fr_scalar(cv, 1)
-    # arkworks resizes the blinding polynomial to `d+1` (zeros high) before the
-    # vanish-at-point shift; `_open_one_zk` expects the full length-`n` poly.
-    raw = [int(c) for c in hiding_poly_raw] + [0] * (n - len(hiding_poly_raw))
-    hiding_poly = _fr_vec(cv, raw)
+    hiding_poly = _pad_hiding_poly(cv, hiding_poly_raw, n)
     hiding_rand_s = _fr_scalar(cv, hiding_rand)
     commitment_randomness_s = _fr_scalar(cv, commitment_randomness)
 
@@ -257,11 +272,7 @@ def open_zk(
     x = _fr_scalar(cv, point)
     commitment = jnp.asarray(_affine(cv, combined_commitment))
 
-    # arkworks resizes `P::rand(d)` to `d+1` (zeros for the missing high terms)
-    # before the vanish-at-point shift; `_open_one_zk` expects the full length-`n`
-    # blinding polynomial.
-    raw = [int(c) for c in hiding_poly_raw] + [0] * (n - len(hiding_poly_raw))
-    hiding_poly = _fr_vec(cv, raw)
+    hiding_poly = _pad_hiding_poly(cv, hiding_poly_raw, n)
     hiding_rand_s = _fr_scalar(cv, hiding_rand)
     commitment_randomness_s = _fr_scalar(cv, commitment_randomness)
 
