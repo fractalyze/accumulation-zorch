@@ -19,3 +19,11 @@ The rules every change must respect:
 - **Curve-generic, not duplicated.** Pallas and Vesta are two instantiations of
   one generic prover (`PastaCurve` in Rust, the `Curve` record in Python), never
   per-curve copies.
+- **Field elements stay as `cv.fr` arrays on the prove path — no python-int
+  round-trip.** `fr` values carry as `cv.fr` arrays/scalars end-to-end; prove-stack
+  seams accept an `fr` array or an int list via `np.asarray(x, dtype=cv.fr)`. Get
+  canonical bytes with `np.asarray(x, dtype=cv.fr).tobytes()` / `arr[i].tobytes()`,
+  not `cv.fr(<array element>)` (raises `expected number`). Type `fr` arrays
+  `np.ndarray` and `fr` scalars `Any` — never `-> cv.fr` (a per-curve dtype
+  instance; `NameError` at import, since these modules have no
+  `from __future__ import annotations`).
