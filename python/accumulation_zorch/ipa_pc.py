@@ -36,7 +36,6 @@ from zorch.pcs.ipa.math import challenge_vector, eval_challenge_poly
 
 from . import absorbable, curve, sponge
 from .curve import Curve
-from .field import fe_value
 
 # ark `ipa_pc` domain (`IpaPCDomain`): every fresh succinct-check sponge is a
 # `DomainSeparatedSponge` forked with this label before anything is absorbed.
@@ -156,17 +155,10 @@ def evaluate_fr(cv: Curve, challenges: list[int], point: int) -> Array:
     `pcs/ipa/math.eval_challenge_poly` (the O(log_d), no-inverse read of
     `compute_coeffs`, `point^{2^m}` by repeated squaring). For callers that keep
     working in the field — e.g. the AS combined evaluation's `Σ lc·h` weighted sum
-    — so the per-input `h_j` never round-trips through a canonical int.
-    :func:`evaluate` is the int-decoding boundary wrapper over this."""
+    — so the per-input `h_j` never round-trips through a canonical int."""
     u = jnp.asarray(np.array(challenges, dtype=cv.fr))
     x = jnp.asarray(cv.fr(point))
     return eval_challenge_poly(u, x)
-
-
-def evaluate(cv: Curve, challenges: list[int], point: int) -> int:
-    """`SuccinctCheckPolynomial::evaluate(point)` as a canonical int — the
-    serialization-boundary decode of :func:`evaluate_fr`."""
-    return fe_value(evaluate_fr(cv, challenges, point))
 
 
 class IpaProof(NamedTuple):

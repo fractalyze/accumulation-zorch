@@ -27,6 +27,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from absl.testing import absltest
 
 from accumulation_zorch import curve, ipa_pc, sponge
@@ -101,7 +102,7 @@ class IpaZkTest(absltest.TestCase):
                 got_hex = coeffs[i].tobytes().hex()
                 self.assertEqual(got_hex, want_hex, f"[{cv.name}] zk h(X) coeff[{i}]: {got_hex} != {want_hex}")
 
-            got_eval = cv.fr(ipa_pc.evaluate(cv, challenges, point)).tobytes().hex()
+            got_eval = np.asarray(ipa_pc.evaluate_fr(cv, challenges, point), dtype=cv.fr).tobytes().hex()
             self.assertEqual(got_eval, d["eval_at_point"], f"[{cv.name}] zk h(point): {got_eval} != {d['eval_at_point']}")
             print(f"  [{cv.name}] zk h(X) compute_coeffs ({len(coeffs)} coeffs) + evaluate "
                   f"byte-match arkworks")

@@ -98,7 +98,7 @@ class IpaAsZkTest(absltest.TestCase):
             got_point = cv.fr(got.point).tobytes().hex()
             self.assertEqual(got_point, acc["point"], f"[{cv.name}] new point: {got_point} != {acc['point']}")
 
-            got_eval = cv.fr(got.evaluation).tobytes().hex()
+            got_eval = got.evaluation.tobytes().hex()
             self.assertEqual(got_eval, acc["evaluation"], f"[{cv.name}] combined evaluation: {got_eval} != {acc['evaluation']}")
 
             print(f"  [{cv.name}] zk AS accumulator instance (randomized commitment, point, evaluation) "
@@ -135,7 +135,7 @@ class IpaAsZkTest(absltest.TestCase):
 
             self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
             self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(cv.fr(acc.evaluation).tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
                 self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}")

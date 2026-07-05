@@ -108,7 +108,7 @@ class IpaAsFoldZkTest(absltest.TestCase):
 
             self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
             self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(cv.fr(acc.evaluation).tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
                 self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}")
