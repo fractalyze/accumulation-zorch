@@ -10,11 +10,11 @@ absl-py==2.4.0 \
     --hash=sha256:88476fd881ca8aab94ffa78b7b6c632a782ab3ba1cd19c9bd423abc4fb4cd28d \
     --hash=sha256:8c6af82722b35cf71e0f4d1d47dcaebfff286e27110a99fc359349b247dfb5d4
     # via -r requirements.in
-jax==0.10.0.dev20260702023625 \
-    --hash=sha256:0dab2e2a39641af6a84e1bcda2244c82ea16c01df604e3be51962bd59d01988b
+jax==0.10.0.dev20260705083732 \
+    --hash=sha256:f84df5029d65d6b6950c9141b3aed237976e8ecbb40b06a30249500c487eab71
     # via -r requirements.in
-jaxlib==0.10.0.dev20260702023625 \
-    --hash=sha256:bcd77df333c634dc97efb2901280f1ee9aadd74b403e5e4a88ad93a1cb761264
+jaxlib==0.10.0.dev20260705083732 \
+    --hash=sha256:e62e04b2f1a008ec98dea8e06d3476aa4802bf0ed5d7a9e960981b4be99281e2
     # via
     #   -r requirements.in
     #   jax
