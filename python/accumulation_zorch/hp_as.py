@@ -17,7 +17,7 @@ from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, jcurve, jfield, jsponge, sponge
-from .curve import Curve
+from .curve import Curve, FrScalar
 
 CHALLENGE_SIZE = 128  # bits, matching ark hp_as::CHALLENGE_SIZE
 # Both Pasta scalar fields are 254-cap > 128, so this is the curve-invariant 128.
@@ -136,7 +136,7 @@ def _product_poly_comm_jax(bases: jax.Array, t_vecs: jax.Array,
 
 
 def _combine_randomness(cv: Curve, rands: list[int | None], challenges: list[int],
-                        hiding: int | None = None) -> Any:
+                        hiding: int | None = None) -> FrScalar:
     """`combine_randomness`: `Σ rands[i]·challenges[i]` over the `Some` entries
     (`None` contributes nothing), plus an optional hiding addend — as an `fr`
     scalar (fed to `pedersen_commit`'s randomizer), never decoded to a python int."""

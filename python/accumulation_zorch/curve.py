@@ -49,6 +49,15 @@ _FLAG_INFINITY = 0x40
 _FLAG_NEG_Y = 0x80
 _FLAG_POS_Y = 0x00
 
+# `fr` seam vocabulary. The scalar dtype is per-curve (`cv.fr`), so an `fr` value
+# can't be spelled as a return/field type — `FrScalar` names the intent a bare
+# `Any` would hide (the repo convention: `fr` scalars stay `cv.fr`, never a python
+# int). `FrVec` is the polymorphic `Vec<Fr>` a serializer / commit accepts — an
+# `fr` array (a jit-core output or host field array) or an int list (e.g.
+# sponge-squeezed challenges), which `np.asarray(_, dtype=cv.fr)` unifies.
+FrScalar = Any
+FrVec = np.ndarray | jax.Array | list[int]
+
 
 @dataclass(frozen=True)
 class Curve:
@@ -118,7 +127,7 @@ def point_to_bytes(cv: Curve, point: np.ndarray) -> bytes:
     return x.to_bytes(32, "little") + bytes([flag])
 
 
-def serialize_fr_vec(cv: Curve, values: jax.Array | list[int]) -> bytes:
+def serialize_fr_vec(cv: Curve, values: FrVec) -> bytes:
     """`Vec<Fr>` CanonicalSerialize: `u64` LE length then each element 32B LE.
     `values` is a length-`n` `cv.fr` array (a jit-core output) or an int list; both
     canonicalize to the same bytes via `np.asarray(..., dtype=cv.fr)`. The single
@@ -131,9 +140,9 @@ def serialize_fr_vec(cv: Curve, values: jax.Array | list[int]) -> bytes:
 def pedersen_commit(
     cv: Curve,
     generators: list[np.ndarray],
-    elems: Any,
+    elems: FrVec,
     hiding: np.ndarray | None = None,
-    randomizer: Any | None = None,
+    randomizer: FrScalar | None = None,
 ) -> np.ndarray:
     """``Σ generatorsᵢ·elemsᵢ (+ randomizer·hiding)`` as a CPU group reduction —
     the byte-match oracle (NOT the jit/``lax.msm`` prove path, which is

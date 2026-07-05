@@ -36,7 +36,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from . import absorbable, curve, ipa_open, ipa_pc, sponge
-from .curve import Curve
+from .curve import Curve, FrScalar
 
 # ark `ipa_pc_as` AS-level domain (`ASForIpaPCDomain`).
 AS_DOMAIN = b"AS-FOR-IPA-PC-2020"
@@ -150,7 +150,7 @@ def compute_new_challenge(
 def _combined_evaluation_fr(
     cv: Curve, addends: list[tuple[int, list[int]]], point: int,
     rlp_coeffs: list[int] | None = None,
-) -> Any:
+) -> FrScalar:
     """`evaluate_combined_succinct_check_polynomials(point, random_polynomial)`:
     `Σ lc_challenge_j · h_j(point)` as an `fr` scalar — the combined check
     polynomial is linear in the per-input check polynomials, so its evaluation is
@@ -211,7 +211,7 @@ class AccumulatorInstance(NamedTuple):
     evaluation."""
     commitment: np.ndarray
     point: int
-    evaluation: Any  # combined-evaluation `fr` scalar
+    evaluation: FrScalar  # combined-evaluation `fr` scalar
 
 
 class Accumulator(NamedTuple):
@@ -219,7 +219,7 @@ class Accumulator(NamedTuple):
     opening proof of the combined check polynomial at the new point."""
     commitment: np.ndarray
     point: int
-    evaluation: Any  # combined-evaluation `fr` scalar
+    evaluation: FrScalar  # combined-evaluation `fr` scalar
     ipa_proof: ipa_pc.IpaProof
 
 

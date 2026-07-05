@@ -37,7 +37,7 @@ import numpy as np
 from jax import lax
 
 from . import absorbable, curve, hp_as, jcurve, jfield, jsponge, nark, sponge
-from .curve import Curve
+from .curve import Curve, FrVec
 
 # Challenge squeeze window (ark `CHALLENGE_SIZE`, capped at fr capacity). Both
 # Pasta scalar fields are 254-cap > 128, so this is the curve-invariant 128.
@@ -49,7 +49,7 @@ HP_AS_PROTOCOL_NAME = b"AS-FOR-HP-2020"
 AS_PROTOCOL_NAME = b"AS-FOR-R1CS-NARK-2020"
 
 
-def _serialize_acc_instance(cv: Curve, r1cs_input: jax.Array | list[int], comm_a: np.ndarray,
+def _serialize_acc_instance(cv: Curve, r1cs_input: FrVec, comm_a: np.ndarray,
                             comm_b: np.ndarray, comm_c: np.ndarray,
                             hp_instance: hp_as.Instance) -> bytes:
     """`AccumulatorInstance` CanonicalSerialize: `r1cs_input` (`Vec<Fr>`), the
@@ -61,7 +61,7 @@ def _serialize_acc_instance(cv: Curve, r1cs_input: jax.Array | list[int], comm_a
     return out
 
 
-def _serialize_acc_witness(cv: Curve, blinded_witness: jax.Array | list[int], hp_a_vec: jax.Array,
+def _serialize_acc_witness(cv: Curve, blinded_witness: FrVec, hp_a_vec: jax.Array,
                            hp_b_vec: jax.Array) -> bytes:
     """`AccumulatorWitness` CanonicalSerialize: `r1cs_blinded_witness`
     (`Vec<Fr>`), the HP witness (`a_vec`, `b_vec`, then `None` hiding flag), then
@@ -138,7 +138,7 @@ def prove_no_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_
 
 # --- zk path ---------------------------------------------------------------
 
-def _serialize_acc_witness_zk(cv: Curve, blinded_witness: jax.Array | list[int],
+def _serialize_acc_witness_zk(cv: Curve, blinded_witness: FrVec,
                               hp_witness: tuple[jax.Array, jax.Array, jax.Array],
                               sigmas: jax.Array) -> bytes:
     """`AccumulatorWitness` CanonicalSerialize (zk): `r1cs_blinded_witness`, the

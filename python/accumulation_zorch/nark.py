@@ -16,7 +16,7 @@ from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, jcurve, jfield, jsponge, sponge
-from .curve import Curve
+from .curve import Curve, FrScalar
 
 # ark `r1cs_nark::PROTOCOL_NAME` — the domain the NARK sponge is forked with.
 PROTOCOL_NAME = b"R1CS-NARK-2020"
@@ -194,11 +194,11 @@ class NarkZkProof(NamedTuple):
     comm_1: np.ndarray
     comm_2: np.ndarray
     blinded_witness: np.ndarray  # (witness_len,) fr
-    sigma_a: Any                 # response sigma fr scalars
-    sigma_b: Any
-    sigma_c: Any
-    sigma_o: Any
-    gamma: Any                   # retained fr scalar (the AS path re-derives it)
+    sigma_a: FrScalar            # response sigma fr scalars
+    sigma_b: FrScalar
+    sigma_c: FrScalar
+    sigma_o: FrScalar
+    gamma: FrScalar              # retained fr scalar (the AS path re-derives it)
 
 
 class NarkZkCore(NamedTuple):
@@ -474,7 +474,7 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
 
 
 def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list[int],
-                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> Any:
+                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> FrScalar:
     """ark `R1CSNark::compute_challenge` (gamma) over host commitment points, as an
     `fr` scalar.
 
