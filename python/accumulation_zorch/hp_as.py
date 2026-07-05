@@ -13,6 +13,7 @@ from typing import Any, NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, jcurve, jfield, jsponge, sponge
@@ -130,7 +131,7 @@ def _product_poly_comm_jax(bases: jax.Array, t_vecs: jax.Array,
     for i in range(t_vecs.shape[0]):
         if i == num_inputs - 1:
             continue
-        comm = jcurve.msm(t_vecs[i], bases)
+        comm = lax.msm(t_vecs[i], bases)
         (low if i < num_inputs - 1 else high).append(comm)
     return low, high
 
@@ -231,15 +232,15 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     comm_1s = jnp.concatenate([real_inst[0:1], row1_comms[0:1]])
     comm_2s = jnp.concatenate([real_inst[1:2], row1_comms[1:2]])
     comm_3s = jnp.concatenate([real_inst[2:3], row1_comms[2:3]])
-    cc1 = jcurve.msm(jnp.concatenate([combined, mu_n]),
+    cc1 = lax.msm(jnp.concatenate([combined, mu_n]),
                      jnp.concatenate([comm_1s, hiding_comms[0:1]]))
-    cc2 = jcurve.msm(jnp.concatenate([nu[:num_inputs], mu[1:2]]),
+    cc2 = lax.msm(jnp.concatenate([nu[:num_inputs], mu[1:2]]),
                      jnp.concatenate([jnp.flip(comm_2s, 0), hiding_comms[1:2]]))
-    comm3_combine = jcurve.msm(jnp.concatenate([mu[:num_inputs], mu_n]),
+    comm3_combine = lax.msm(jnp.concatenate([mu[:num_inputs], mu_n]),
                                jnp.concatenate([comm_3s, hiding_comms[2:3]]))
-    low_addend = jcurve.msm(nu[: len(low)], jnp.stack(low))
-    high_addend = jcurve.msm(nu[num_inputs:num_inputs + len(high)], jnp.stack(high))
-    cc3 = jcurve.msm(jnp.concatenate([nu[num_inputs - 1:num_inputs], fr_one, fr_one]),
+    low_addend = lax.msm(nu[: len(low)], jnp.stack(low))
+    high_addend = lax.msm(nu[num_inputs:num_inputs + len(high)], jnp.stack(high))
+    cc3 = lax.msm(jnp.concatenate([nu[num_inputs - 1:num_inputs], fr_one, fr_one]),
                      jnp.stack([comm3_combine, low_addend, high_addend]))
     instance = jnp.stack([cc1, cc2, cc3])
 

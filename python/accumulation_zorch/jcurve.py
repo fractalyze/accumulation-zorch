@@ -8,9 +8,13 @@ runs as vectorized jax over the `fr` dtype. The op is GPU-ready for Phase 2;
 Phase 1 gates it on CPU (`JAX_PLATFORMS=cpu`).
 
 A curve appears only where a host-side array is built from the curve's dtypes
-(`stack_affine` over `cv.g1`, the `cv.fr` randomizer/challenge arrays). The
-`commit_dense` / `msm` kernels are dtype-agnostic — the dtype rides on the input
-arrays — so they name no curve.
+(`stack_affine` over `cv.g1`, the `cv.fr` randomizer/challenge arrays); the
+commitment kernels are dtype-agnostic — the dtype rides on the input arrays — so
+they name no curve.
+
+Scalar-mul and point-add both route through `lax.msm`, never bare `*`/`+`: jit
+`point × scalar` is byte-wrong and jit `affine + affine` is an invalid EC type
+combination, so `s·P` is `lax.msm([s], [P])` and `A + B` is `lax.msm([1, 1], [A, B])`.
 """
 
 import jax
@@ -38,20 +42,13 @@ def commit_dense(coeffs: jax.Array, z: jax.Array, bases: jax.Array) -> jax.Array
     `coeffs` is a dense `(rows × vars)` `fr` matrix (a sparse `Matrix<Fr>`
     densified host-side), `z` the `(vars,)` `fr` vector (`r1cs_input ‖ witness`),
     and `bases` the `(rows,)` G1 affine generators. The `M·z` reduction is a
-    broadcast multiply-and-sum over `fr` (not `@`/`einsum`, which the jax fork
-    doesn't lower for the field dtype); the commitment is one `lax.msm` →
-    a single affine point, byte-identical to `PedersenCommitment::commit`.
+    broadcast multiply-and-sum over `fr` (`@`/`einsum`/`dot` also lower over the
+    field dtype — a body-once `scf.for` — so the explicit reduction is an idiom
+    choice matching zorch's i256 inner products, not a lowering workaround); the
+    commitment is one `lax.msm` → a single affine point, byte-identical to
+    `PedersenCommitment::commit`.
     """
     return lax.msm(jfield.matvec(coeffs, z), bases)
-
-
-def msm(scalars: jax.Array, bases: jax.Array) -> jax.Array:
-    """`Σ scalars[i]·bases[i]` — commit a coefficient/scalar vector, or fold a set
-    of points under challenges. The one trusted jit scalar-mul / point-fold
-    primitive: jit `point × scalar` is byte-wrong, and jit `affine + affine` is an
-    invalid EC type combination, so every scalar-mul AND point-add recasts to a
-    `lax.msm` (a single `s·P` is `msm([s],[P])`; `A + B` is `msm([1,1],[A,B])`)."""
-    return lax.msm(scalars, bases)
 
 
 def commit_hiding(cv: Curve, scalars: jax.Array, randomizer: int | jax.Array,
@@ -72,7 +69,7 @@ def commit_hiding(cv: Curve, scalars: jax.Array, randomizer: int | jax.Array,
     else:
         rand = jnp.asarray(randomizer).reshape(1)
     full = jnp.concatenate([scalars, rand])
-    return msm(full, bases_h)
+    return lax.msm(full, bases_h)
 
 
 def combine(cv: Curve, points: list[np.ndarray], challenges: list[int]) -> np.ndarray | None:
@@ -82,4 +79,4 @@ def combine(cv: Curve, points: list[np.ndarray], challenges: list[int]) -> np.nd
     if not points:
         return None
     scalars = jnp.asarray(np.array(challenges[: len(points)], dtype=cv.fr))
-    return np.asarray(msm(scalars, stack_affine(cv, points)))
+    return np.asarray(lax.msm(scalars, stack_affine(cv, points)))
