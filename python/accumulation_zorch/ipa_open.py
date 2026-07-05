@@ -65,8 +65,8 @@ def _fr_scalar(cv: Curve, value: Any) -> Array:
 
 def _fr_vec(cv: Curve, values: Any) -> Array:
     """`fr` scalars as a 1-d `cv.fr` jax array — an `fr` array (the combined check
-    polynomial) or a legacy int list; `np.asarray(_, dtype=cv.fr)` normalizes both,
-    so no `fr` value round-trips through a python int."""
+    polynomial) or an int list; `np.asarray(_, dtype=cv.fr)` normalizes both, so no
+    `fr` value round-trips through a python int."""
     return jnp.asarray(np.asarray(values, dtype=cv.fr))
 
 

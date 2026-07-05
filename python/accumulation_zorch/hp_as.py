@@ -136,7 +136,7 @@ def _product_poly_comm_jax(bases: jax.Array, t_vecs: jax.Array,
 
 
 def _combine_randomness(cv: Curve, rands: list[int | None], challenges: list[int],
-                        hiding: int | None = None) -> np.ndarray:
+                        hiding: int | None = None) -> Any:
     """`combine_randomness`: `Σ rands[i]·challenges[i]` over the `Some` entries
     (`None` contributes nothing), plus an optional hiding addend — as an `fr`
     scalar (fed to `pedersen_commit`'s randomizer), never decoded to a python int."""

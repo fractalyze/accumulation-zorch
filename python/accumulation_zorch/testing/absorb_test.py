@@ -112,7 +112,7 @@ class AbsorbTest(absltest.TestCase):
         comms = [_point_from_fixture(c) for c in g["comms"]]
         self.assertIsNone(g["randomness"], "this slice ports the no-zk gamma only")
         gamma = nark.compute_challenge(cv, params, matrices_hash, inputs, comms, randomness=None)
-        got = np.asarray(gamma, dtype=cv.fr).tobytes().hex()
+        got = gamma.tobytes().hex()
         self.assertEqual(got, g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}")
         print("  NARK gamma challenge byte-matches R1CSNark::compute_challenge OK")
 

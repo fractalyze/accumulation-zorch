@@ -195,11 +195,11 @@ class NarkZkProof(NamedTuple):
     comm_1: np.ndarray
     comm_2: np.ndarray
     blinded_witness: np.ndarray  # (witness_len,) fr
-    sigma_a: np.ndarray          # response sigma fr scalars
-    sigma_b: np.ndarray
-    sigma_c: np.ndarray
-    sigma_o: np.ndarray
-    gamma: np.ndarray            # retained fr scalar (the AS path re-derives it)
+    sigma_a: Any                 # response sigma fr scalars
+    sigma_b: Any
+    sigma_c: Any
+    sigma_o: Any
+    gamma: Any                   # retained fr scalar (the AS path re-derives it)
 
 
 class NarkZkCore(NamedTuple):
@@ -408,7 +408,8 @@ def prove_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witne
         np.asarray(core.comm_r_a), np.asarray(core.comm_r_b), np.asarray(core.comm_r_c),
         np.asarray(core.comm_1), np.asarray(core.comm_2),
         np.asarray(core.blinded_witness, dtype=cv.fr), sigma_abc[0], sigma_abc[1], sigma_abc[2],
-        np.asarray(core.sigma_o, dtype=cv.fr), np.asarray(core.gamma, dtype=cv.fr)[0])
+        np.asarray(core.sigma_o, dtype=cv.fr).reshape(-1)[0],
+        np.asarray(core.gamma, dtype=cv.fr).reshape(-1)[0])
 
 
 def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
@@ -421,11 +422,10 @@ def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
     out += b"\x01"  # FirstRoundMessage.randomness = Some
     for pt in (p.comm_r_a, p.comm_r_b, p.comm_r_c, p.comm_1, p.comm_2):
         out += curve.point_to_bytes(cv, pt)
-    bw = np.asarray(p.blinded_witness, dtype=cv.fr)
-    out += struct.pack("<Q", bw.shape[0]) + bw.tobytes()  # blinded-witness Vec<Fr>
+    out += struct.pack("<Q", p.blinded_witness.shape[0]) + p.blinded_witness.tobytes()  # Vec<Fr>
     out += b"\x01"  # SecondRoundMessage.randomness = Some
     for s in (p.sigma_a, p.sigma_b, p.sigma_c, p.sigma_o):
-        out += np.asarray(s, dtype=cv.fr).tobytes()
+        out += s.tobytes()
     return bytes(out)
 
 
@@ -475,7 +475,7 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
 
 
 def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list[int],
-                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> np.ndarray:
+                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> Any:
     """ark `R1CSNark::compute_challenge` (gamma) over host commitment points, as an
     `fr` scalar.
 
@@ -485,4 +485,4 @@ def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list
     rstack = jcurve.stack_affine(cv, randomness) if randomness is not None else None
     ch = _gamma_finish(cv, _gamma_pre_sponge(cv, params, matrices_hash, inputs),
                        jcurve.stack_affine(cv, comms), rstack)
-    return np.asarray(ch, dtype=cv.fr)[0]
+    return np.asarray(ch, dtype=cv.fr).reshape(-1)[0]
