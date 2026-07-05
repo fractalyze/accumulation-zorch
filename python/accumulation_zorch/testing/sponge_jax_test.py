@@ -2,7 +2,7 @@
 
 The CPU port's `sponge.squeeze_challenges` decodes each squeezed Fq element to a
 Python bigint and slices bits in a Python loop (`squeeze_bits` /
-`squeeze_nonnative`) — not jit-able. `jsponge.challenges_from_fq` does the same
+`squeeze_nonnative`) — not jit-able. `sponge.challenges_from_fq` does the same
 ark-sponge bit math (low `CAPACITY=254` bits per element, concatenate, window
 into `size`-bit challenges, repack LE into Fr) entirely in jax, returning the
 challenges as an Fr field-element array (the on-device form the fused core
@@ -17,7 +17,7 @@ Two gates:
 
 Run under Bazel:
 
-    bazel test //python/accumulation_zorch/testing:jsponge_test
+    bazel test //python/accumulation_zorch/testing:sponge_jax_test
 """
 
 import json
@@ -28,7 +28,7 @@ import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
-from accumulation_zorch import absorbable, curve, jsponge, nark, sponge
+from accumulation_zorch import absorbable, curve, nark, sponge
 
 cv = curve.PALLAS
 
@@ -74,13 +74,13 @@ def _n_elems(k: int) -> int:
     return (num_bits + sponge.FQ_CAPACITY - 1) // sponge.FQ_CAPACITY
 
 
-class JspongeTest(absltest.TestCase):
+class SpongeJaxTest(absltest.TestCase):
     def test_gamma_challenge_matches_arkworks(self) -> None:
         g = json.loads(_ABSORB.read_text())["gamma"]
         self.assertIsNone(g["randomness"])
         sp = _gamma_sponge(_params(), g)
         _, elems = sp.squeeze(_n_elems(1))
-        fr = jsponge.challenges_from_fq(jnp.asarray(elems), 1, _SIZE, cv)
+        fr = sponge.challenges_from_fq(jnp.asarray(elems), 1, _SIZE, cv)
         got = np.asarray(fr)[0].tobytes().hex()
         self.assertEqual(got, g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}")
         print("  jit gamma challenge byte-matches R1CSNark::compute_challenge OK")
@@ -93,7 +93,7 @@ class JspongeTest(absltest.TestCase):
             base = absorbable.absorb_bytes(cv, sponge.new_sponge(params), bytes([k, 7, 9]))
             _, want = sponge.squeeze_challenges(base, k)  # CPU Python-loop ints
             _, elems = base.squeeze(_n_elems(k))
-            fr = jsponge.challenges_from_fq(jnp.asarray(elems), k, _SIZE, cv)
+            fr = sponge.challenges_from_fq(jnp.asarray(elems), k, _SIZE, cv)
             got = [int.from_bytes(np.asarray(fr)[i].tobytes(), "little") for i in range(k)]
             self.assertEqual(got, want, f"k={k}: {got} != {want}")
             print(f"  k={k} ({_n_elems(k)} Fq elems) matches CPU squeeze_challenges OK")

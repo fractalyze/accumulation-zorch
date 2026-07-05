@@ -15,7 +15,7 @@ from jax import lax
 
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import absorbable, curve, field, jcurve, jsponge, sponge
+from . import absorbable, curve, field, jcurve, sponge
 from .curve import Curve, FrScalar
 
 # ark `r1cs_nark::PROTOCOL_NAME` — the domain the NARK sponge is forked with.
@@ -469,7 +469,7 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
     if randomness is not None:
         parts.append(absorbable.point_to_field_array_jax(cv, randomness))
     sp = pre_sponge.absorb(jnp.concatenate(parts))
-    _, ch = jsponge.squeeze_challenges(sp, 1, _CHALLENGE_BITS, cv)
+    _, ch = sponge.squeeze_challenges_jax(sp, 1, _CHALLENGE_BITS, cv)
     return ch
 
 

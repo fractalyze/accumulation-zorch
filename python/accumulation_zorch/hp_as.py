@@ -16,7 +16,7 @@ import numpy as np
 from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import absorbable, curve, field, jcurve, jsponge, sponge
+from . import absorbable, curve, field, jcurve, sponge
 from .curve import Curve, FrScalar
 
 CHALLENGE_SIZE = 128  # bits, matching ark hp_as::CHALLENGE_SIZE
@@ -105,7 +105,7 @@ def squeeze_mu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[Duplex
     the `(n+1,)` fr array."""
     mu = jnp.asarray(np.array([1], dtype=cv.fr))
     if num_inputs > 1:
-        sp, rest = jsponge.squeeze_challenges(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
+        sp, rest = sponge.squeeze_challenges_jax(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
         mu = jnp.concatenate([mu, rest])
     mu_n = mu[1] * mu[num_inputs - 1]
     return sp, jnp.concatenate([mu, mu_n.reshape(1)])
@@ -114,7 +114,7 @@ def squeeze_mu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[Duplex
 def squeeze_nu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, jax.Array]:
     """`squeeze_nu_challenges` as jax: one truncated-128 `nu` expanded to its
     `2n-1` powers `[nu^0, …, nu^{2n-2}]`."""
-    sp, nu = jsponge.squeeze_challenges(sp, 1, _CHALLENGE_BITS, cv)
+    sp, nu = sponge.squeeze_challenges_jax(sp, 1, _CHALLENGE_BITS, cv)
     return sp, field.powers(nu, 2 * num_inputs - 1)
 
 

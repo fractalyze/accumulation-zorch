@@ -36,7 +36,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-from . import absorbable, curve, field, hp_as, jcurve, jsponge, nark, sponge
+from . import absorbable, curve, field, hp_as, jcurve, nark, sponge
 from .curve import Curve, FrVec
 
 # Challenge squeeze window (ark `CHALLENGE_SIZE`, capped at fr capacity). Both
@@ -195,7 +195,7 @@ def _beta_challenges_jax(cv: Curve, params: Any, as_matrices_hash: bytes, input_
         sp = sp.absorb(acc_inst_fe)
     sp = sp.absorb(input_inst_fe)
     sp = sp.absorb(proof_rand_fe)
-    sp, ch = jsponge.squeeze_challenges(sp, num_challenges, _CHALLENGE_BITS, cv)
+    sp, ch = sponge.squeeze_challenges_jax(sp, num_challenges, _CHALLENGE_BITS, cv)
     return jnp.concatenate([fr_one, ch])
 
 
