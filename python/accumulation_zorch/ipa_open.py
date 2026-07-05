@@ -17,11 +17,12 @@ module is the thin translation between the two shapes:
   fold is driven by the arkworks-faithful `ipa_challenger.ark_challenger`, so every
   squeezed challenge — hence every `L_j`/`R_j` and the collapsed `a` — is
   byte-identical to arkworks' fold.
-* zorch's `IpaProof` carries no folded generator (the fold collapses the basis
-  inside its `lax.scan` and drops it), so the accumulator's `final_comm_key` is
-  recovered the way zorch's verifier settles a claim (`verifier.settle`): re-derive
-  the round challenges through the challenger over the proof's own `L_j`/`R_j`, then
-  pay the one size-`n` MSM ``G_final = ⟨challenge_vector(u), G⟩``.
+* zorch's `_open_one` / `_open_one_zk` fold the committer generator in place and
+  return its collapsed head as `final_comm_key` (``g[0]``, equal to the
+  ``G_final = ⟨challenge_vector(u), G⟩`` the verifier recomputes in `settle`;
+  zorch#371) — the zk opener also returns the blinded `mod_commitment` it opened.
+  This adapter reads those straight from the fold, so recovering `final_comm_key`
+  needs no challenger replay and no second size-`n` MSM.
 
 The two `open_*` functions here mirror arkworks' `ipa_pc::open_individual_opening_challenges`
 (no-zk / zk) signatures, so `ipa_pc_as` calls them directly — this is the sole
@@ -37,11 +38,10 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array, lax
 
-from zorch.pcs.ipa.math import challenge_vector
 from zorch.pcs.ipa.prover import _open_one, _open_one_zk
 from zorch.pcs.ipa.setup import IpaKey
 
-from . import curve, ipa_challenger, ipa_pc
+from . import ipa_challenger, ipa_pc
 from .curve import Curve
 
 
@@ -81,38 +81,6 @@ def _pad_hiding_poly(cv: Curve, hiding_poly_raw: list[int], n: int) -> Array:
     return _fr_vec(cv, [int(c) for c in hiding_poly_raw] + [0] * (n - len(hiding_poly_raw)))
 
 
-def _fold_final_msm(
-    cv: Curve, params: Any, key: IpaKey, seed_commitment: Any, x: Array, value: Array,
-    l: Array, r: Array,
-) -> Array:
-    """The fully-folded generator, the way zorch's verifier settles
-    (`verifier.settle`): re-derive the round challenges by driving a fresh
-    `ark_challenger` over the proof's own `L_j`/`R_j` (seeded from the same
-    `(seed_commitment, x, value)` the fold used), then pay the one size-`n` MSM
-    ``G_final = ⟨challenge_vector(u), G⟩``. `seed_commitment` is the combined
-    commitment (no-zk) or the blinding-folded `mod_commitment` (zk) the fold actually
-    seeded from. Returns the raw `lax.msm` result — the callers apply their affine
-    normalization (:func:`_final_comm_key` host, :func:`_final_comm_key_traced`
-    in-trace)."""
-    ch = ipa_challenger.ark_challenger(cv, params)
-    ch, _xi0 = ch.seed(seed_commitment, x, value)
-    us = []
-    for j in range(l.shape[0]):
-        ch, uj = ch.challenge(l[j], r[j])
-        us.append(uj)
-    s = challenge_vector(jnp.stack(us))
-    return lax.msm(s, key.basis[: s.shape[0]])
-
-
-def _final_comm_key(
-    cv: Curve, params: Any, key: IpaKey, seed_commitment: Any, x: Array, value: Array,
-    l: Array, r: Array,
-) -> np.ndarray:
-    """`final_comm_key` as an affine point array (the host path — `open_no_zk` /
-    `open_zk`): :func:`_fold_final_msm` normalized to `cv.g1` via `np.asarray`."""
-    return _affine(cv, _fold_final_msm(cv, params, key, seed_commitment, x, value, l, r))
-
-
 def open_no_zk(
     cv: Curve, params: Any, svk_h: np.ndarray, combined_commitment: np.ndarray,
     point: int, coeffs: list[int], generators: list[np.ndarray],
@@ -131,32 +99,12 @@ def open_no_zk(
     commitment = jnp.asarray(_affine(cv, combined_commitment))
 
     fs = ipa_challenger.ark_challenger(cv, params)
-    _fs, value, proof = _open_one(key, commitment, coeffs_arr, x, fs)
+    _fs, _value, proof, final_comm_key = _open_one(key, commitment, coeffs_arr, x, fs)
 
-    final = _final_comm_key(cv, params, key, commitment, x, value, proof.l, proof.r)
+    final = _affine(cv, final_comm_key)
     l_vec = [_affine(cv, proof.l[j]) for j in range(proof.l.shape[0])]
     r_vec = [_affine(cv, proof.r[j]) for j in range(proof.r.shape[0])]
     return ipa_pc.IpaProof(l_vec, r_vec, final, _c_int(cv, proof.a))
-
-
-def _final_comm_key_traced(
-    cv: Curve, params: Any, key: IpaKey, seed_commitment: Array, x: Array, value: Array,
-    l: Array, r: Array,
-) -> Array:
-    """In-trace twin of :func:`_final_comm_key`: the fully-folded generator as a
-    `cv.g1` jax array (no host `np.asarray`), so it can ride the fused open core's
-    `@jax.jit` boundary. Same computation — re-derive the round challenges through a
-    fresh `ark_challenger` over `l`/`r`, then the one size-`n` MSM `⟨challenge_vector,
-    G⟩` — normalized to the basis' affine dtype (`convert_element_type`, the in-trace
-    form of `_affine`)."""
-    ch = ipa_challenger.ark_challenger(cv, params)
-    ch, _xi0 = ch.seed(seed_commitment, x, value)
-    us = []
-    for j in range(l.shape[0]):
-        ch, uj = ch.challenge(l[j], r[j])
-        us.append(uj)
-    s = challenge_vector(jnp.stack(us))
-    return lax.convert_element_type(lax.msm(s, key.basis[: s.shape[0]]), key.basis.dtype)
 
 
 def build_open_no_zk_core(
@@ -170,8 +118,9 @@ def build_open_no_zk_core(
     `basis` (`generators[:len(coeffs)]`, `cv.g1` affine) is the sole runtime input.
     Runs the whole sequential open on device — zorch's `_open_one` `lax.scan` fold
     (Poseidon squeezed on-device per round from that round's `L_j`/`R_j` via the
-    arkworks-faithful `ark_challenger`) plus the `final_comm_key` MSM — and returns
-    the opening proof leaves `(l, r, final_comm_key, c)` as `cv.g1`/`cv.fr` jax
+    arkworks-faithful `ark_challenger`), reading the fold's collapsed generator
+    `g[0]` as `final_comm_key` (zorch#371) — and returns the opening proof leaves
+    `(l, r, final_comm_key, c)` as `cv.g1`/`cv.fr` jax
     arrays for the Rust consumer to serialize into the folded accumulator's
     `IpaProof`.
 
@@ -189,8 +138,7 @@ def build_open_no_zk_core(
     def _core(basis: Array) -> tuple[Array, Array, Array, Array]:
         key = IpaKey(basis=basis, u=u, s=None)
         fs = ipa_challenger.ark_challenger(cv, params)
-        _fs, value, proof = _open_one(key, commitment, coeffs_arr, x, fs)
-        final = _final_comm_key_traced(cv, params, key, commitment, x, value, proof.l, proof.r)
+        _fs, _value, proof, final = _open_one(key, commitment, coeffs_arr, x, fs)
         return proof.l, proof.r, final, proof.a
 
     return _core
@@ -207,11 +155,9 @@ def build_open_zk_core(
     (`hiding_poly` / `hiding_rand` / `commitment_randomness`); the committer-key
     `basis` is the sole runtime input. Runs the hiding open on device — zorch's
     `_open_one_zk` (the `_hiding_commit` Pedersen commitment, the on-device
-    `hiding_challenge`, the blinded `lax.scan` fold) — then re-derives the
-    blinding-folded seed `mod_commitment` in-trace with the SAME `lax.msm` primitive
-    `_open_one_zk` uses internally (byte-identical to the fold's seed — more robust
-    than `open_zk`'s host `pedersen_commit`) to recover `final_comm_key`. Returns the
-    six hiding-proof leaves `(l, r, final_comm_key, c, hiding_comm, rand)`.
+    `hiding_challenge`, the blinded `lax.scan` fold) — and reads the fold's collapsed
+    generator `g[0]` as `final_comm_key` straight from it (zorch#371). Returns the six
+    hiding-proof leaves `(l, r, final_comm_key, c, hiding_comm, rand)`.
 
     The zk combine that produces `combined_commitment` / `point` / `coeffs` (the
     randomized commitment, the rlp-seeded check polynomial) stays host-side; the
@@ -222,7 +168,6 @@ def build_open_zk_core(
     coeffs_arr = _fr_vec(cv, coeffs)
     x = _fr_scalar(cv, point)
     commitment = jnp.asarray(_affine(cv, combined_commitment))
-    one = _fr_scalar(cv, 1)
     hiding_poly = _pad_hiding_poly(cv, hiding_poly_raw, n)
     hiding_rand_s = _fr_scalar(cv, hiding_rand)
     commitment_randomness_s = _fr_scalar(cv, commitment_randomness)
@@ -231,20 +176,10 @@ def build_open_zk_core(
     def _core(basis: Array) -> tuple[Array, Array, Array, Array, Array, Array]:
         key = IpaKey(basis=basis, u=u, s=s_pt)
         fs = ipa_challenger.ark_challenger(cv, params)
-        _fs, value, zkp = _open_one_zk(
+        _fs, _value, zkp, final, _mod_commitment = _open_one_zk(
             key, commitment, coeffs_arr, x, hiding_poly, hiding_rand_s,
             commitment_randomness_s, fs)
         hcomm = lax.convert_element_type(zkp.hiding_comm, key.basis.dtype)
-
-        # Re-derive the blinding-folded seed `mod_commitment = commitment +
-        # hc·hiding_comm − s·rand` (the point `_open_one_zk` opened) in-trace, to
-        # re-derive the round challenges for `final_comm_key` — the same `hc` and the
-        # same `lax.msm` fold `_open_one_zk` used, so byte-identical to its seed.
-        ch = ipa_challenger.ark_challenger(cv, params)
-        _ch, hc = ch.hiding_challenge(commitment, hcomm, x, value)
-        mod_commitment = lax.msm(
-            jnp.stack([one, hc, -zkp.rand]), jnp.stack([commitment, hcomm, s_pt]))
-        final = _final_comm_key_traced(cv, params, key, mod_commitment, x, value, zkp.l, zkp.r)
         return zkp.l, zkp.r, final, zkp.a, hcomm, zkp.rand
 
     return _core
@@ -277,32 +212,13 @@ def open_zk(
     commitment_randomness_s = _fr_scalar(cv, commitment_randomness)
 
     fs = ipa_challenger.ark_challenger(cv, params)
-    _fs, value, zkp = _open_one_zk(
+    _fs, _value, zkp, final_comm_key, _mod_commitment = _open_one_zk(
         key, commitment, coeffs_arr, x, hiding_poly, hiding_rand_s,
         commitment_randomness_s, fs)
 
-    hiding_comm = _affine(cv, zkp.hiding_comm)
-    combined_rand_int = _c_int(cv, zkp.rand)
-
-    # Recover the fold's seed `mod_commitment` (the blinding-folded commitment
-    # `combined_commitment + hc·hiding_comm − s·combined_rand`) to re-derive the
-    # round challenges for `final_comm_key`: re-squeeze the hiding challenge `hc`
-    # (byte-exact to the one `_open_one_zk` used), then reduce as `_open_one_zk`
-    # does. The result is affine, byte-identical to the fold's internal seed.
-    # NOTE: this `pedersen_commit` must stay affine-normalization-identical to
-    # zorch's `_open_one_zk`'s internal `lax.msm` fold (both reduce the same
-    # 3-term hiding fold); if the two MSM primitives ever diverged on point
-    # normalization, the re-seeded round challenges here would silently mismatch.
-    ch = ipa_challenger.ark_challenger(cv, params)
-    _ch, hc = ch.hiding_challenge(commitment, jnp.asarray(hiding_comm), x, value)
-    neg_rand = (-combined_rand_int) % cv.fr_modulus
-    mod_commitment = curve.pedersen_commit(
-        cv, [_affine(cv, combined_commitment), hiding_comm, _affine(cv, s)],
-        [1, _c_int(cv, hc), neg_rand])
-
-    final = _final_comm_key(cv, params, key, jnp.asarray(mod_commitment), x, value, zkp.l, zkp.r)
+    final = _affine(cv, final_comm_key)
     l_vec = [_affine(cv, zkp.l[j]) for j in range(zkp.l.shape[0])]
     r_vec = [_affine(cv, zkp.r[j]) for j in range(zkp.r.shape[0])]
     return ipa_pc.IpaProof(
         l_vec, r_vec, final, _c_int(cv, zkp.a),
-        hiding_comm=hiding_comm, rand=combined_rand_int)
+        hiding_comm=_affine(cv, zkp.hiding_comm), rand=_c_int(cv, zkp.rand))

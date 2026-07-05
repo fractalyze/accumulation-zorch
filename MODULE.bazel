@@ -28,8 +28,8 @@ git_override(
     # zorch main. Keep requirements.in's jax / zk-dtypes pins in lockstep with
     # this commit: accumulation-zorch's py_tests put BOTH this repo's pip hub and
     # zorch's on the runfiles, so a jax skew between the two silently breaks the
-    # arkworks byte-match (zorch @ this pin builds against 0.10.0.dev20260702023625).
-    commit = "8a67799e8abb4df4a04f7ec9b4de280bee3b4d53",
+    # arkworks byte-match (zorch @ this pin builds against 0.10.0.dev20260703054857).
+    commit = "1ccae5c7c9801986235f3af52676cfe208764803",
 )
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
