@@ -54,7 +54,7 @@ def _serialize_acc_instance(cv: Curve, r1cs_input: jax.Array | list[int], comm_a
                             hp_instance: hp_as.Instance) -> bytes:
     """`AccumulatorInstance` CanonicalSerialize: `r1cs_input` (`Vec<Fr>`), the
     three commitments (33B compressed), then the embedded HP instance."""
-    out = hp_as.serialize_fr_vec(cv, r1cs_input)
+    out = curve.serialize_fr_vec(cv, r1cs_input)
     out += (curve.point_to_bytes(cv, comm_a) + curve.point_to_bytes(cv, comm_b)
             + curve.point_to_bytes(cv, comm_c))
     out += hp_as.serialize_instance(cv, hp_instance)
@@ -66,8 +66,8 @@ def _serialize_acc_witness(cv: Curve, blinded_witness: jax.Array | list[int], hp
     """`AccumulatorWitness` CanonicalSerialize: `r1cs_blinded_witness`
     (`Vec<Fr>`), the HP witness (`a_vec`, `b_vec`, then `None` hiding flag), then
     the `None` accumulator-witness-randomness flag (both `None` for no-zk)."""
-    out = hp_as.serialize_fr_vec(cv, blinded_witness)
-    out += hp_as.serialize_fr_vec(cv, hp_a_vec) + hp_as.serialize_fr_vec(cv, hp_b_vec) + b"\x00"  # hp randomness None
+    out = curve.serialize_fr_vec(cv, blinded_witness)
+    out += curve.serialize_fr_vec(cv, hp_a_vec) + curve.serialize_fr_vec(cv, hp_b_vec) + b"\x00"  # hp randomness None
     out += b"\x00"  # AccumulatorWitness.randomness = None
     return out
 
@@ -145,7 +145,7 @@ def _serialize_acc_witness_zk(cv: Curve, blinded_witness: jax.Array | list[int],
     HP witness (with `Some` randomness), then `Some` accumulator-witness
     randomness (`sigma_a, sigma_b, sigma_c`). `sigmas` is a length-3 `cv.fr`
     array; `blinded_witness` a `cv.fr` array or int list."""
-    out = hp_as.serialize_fr_vec(cv, blinded_witness)
+    out = curve.serialize_fr_vec(cv, blinded_witness)
     out += hp_as.serialize_witness_zk(cv, hp_witness)
     out += b"\x01" + np.asarray(sigmas, dtype=cv.fr).tobytes()
     return out
@@ -157,7 +157,7 @@ def _serialize_proof_zk(cv: Curve, low: list[np.ndarray], high: list[np.ndarray]
     """AS `Proof` CanonicalSerialize (zk): the HP proof (with hiding comms), then
     `Some` `ProofRandomness` (`r1cs_r_input`, `comm_r_a/b/c`)."""
     out = hp_as.serialize_proof_zk(cv, low, high, hiding_comms)
-    out += b"\x01" + hp_as.serialize_fr_vec(cv, r1cs_r_input)
+    out += b"\x01" + curve.serialize_fr_vec(cv, r1cs_r_input)
     out += b"".join(curve.point_to_bytes(cv, c) for c in comm_r)
     return out
 

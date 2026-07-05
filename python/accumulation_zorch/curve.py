@@ -36,9 +36,11 @@ flag byte (``0x40`` infinity, ``0x80`` when ``y > p - y``, else ``0x00``). The
 (``0x40``) leaves only one spare high bit.
 """
 
+import struct
 from dataclasses import dataclass
 from typing import Any
 
+import jax
 import numpy as np
 import zk_dtypes as zk
 
@@ -114,6 +116,16 @@ def point_to_bytes(cv: Curve, point: np.ndarray) -> bytes:
     neg_y = cv.fq_modulus - y
     flag = _FLAG_NEG_Y if y > neg_y else _FLAG_POS_Y
     return x.to_bytes(32, "little") + bytes([flag])
+
+
+def serialize_fr_vec(cv: Curve, values: jax.Array | list[int]) -> bytes:
+    """`Vec<Fr>` CanonicalSerialize: `u64` LE length then each element 32B LE.
+    `values` is a length-`n` `cv.fr` array (a jit-core output) or an int list; both
+    canonicalize to the same bytes via `np.asarray(..., dtype=cv.fr)`. The single
+    `Vec<Fr>` serializer every prover module routes through, next to
+    :func:`point_to_bytes` (the point serializer they already import)."""
+    arr = np.asarray(values, dtype=cv.fr)
+    return struct.pack("<Q", arr.shape[0]) + arr.tobytes()
 
 
 def pedersen_commit(

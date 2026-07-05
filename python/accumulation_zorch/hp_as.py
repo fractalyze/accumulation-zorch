@@ -329,21 +329,11 @@ def materialize_zk(core: HpZkCore) -> tuple[
     return instance, witness, low, high, hiding_comms
 
 
-def serialize_fr_vec(cv: Curve, values: jax.Array | list[int]) -> bytes:
-    """`Vec<Fr>` CanonicalSerialize: `u64` LE length then each element 32B LE.
-    `values` is a length-`n` `cv.fr` array (a jit-core output) or an int list;
-    both canonicalize to the same bytes via `np.asarray(..., dtype=cv.fr)`. Shared
-    with the R1CS-NARK-AS serializers (which reuse this like the other
-    `serialize_*` primitives here)."""
-    arr = np.asarray(values, dtype=cv.fr)
-    return struct.pack("<Q", arr.shape[0]) + arr.tobytes()
-
-
 def serialize_witness_zk(cv: Curve, witness: tuple[jax.Array, jax.Array, jax.Array]) -> bytes:
     """`InputWitness` CanonicalSerialize (zk): `a_vec`, `b_vec`, then `Some`
     randomness (`rand_1, rand_2, rand_3`)."""
     a_vec, b_vec, rands = witness
-    out = serialize_fr_vec(cv, a_vec) + serialize_fr_vec(cv, b_vec) + b"\x01"
+    out = curve.serialize_fr_vec(cv, a_vec) + curve.serialize_fr_vec(cv, b_vec) + b"\x01"
     out += np.asarray(rands, dtype=cv.fr).tobytes()
     return out
 

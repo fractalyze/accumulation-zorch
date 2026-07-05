@@ -109,8 +109,7 @@ def _serialize_proof(cv: Curve, comm_a: np.ndarray, comm_b: np.ndarray, comm_c: 
     out = (curve.point_to_bytes(cv, comm_a) + curve.point_to_bytes(cv, comm_b)
            + curve.point_to_bytes(cv, comm_c))
     out += b"\x00"  # FirstRoundMessage.randomness = None
-    out += struct.pack("<Q", len(blinded_witness))
-    out += b"".join(cv.fr(w).tobytes() for w in blinded_witness)
+    out += curve.serialize_fr_vec(cv, blinded_witness)
     out += b"\x00"  # SecondRoundMessage.randomness = None
     return out
 
@@ -422,7 +421,7 @@ def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
     out += b"\x01"  # FirstRoundMessage.randomness = Some
     for pt in (p.comm_r_a, p.comm_r_b, p.comm_r_c, p.comm_1, p.comm_2):
         out += curve.point_to_bytes(cv, pt)
-    out += struct.pack("<Q", p.blinded_witness.shape[0]) + p.blinded_witness.tobytes()  # Vec<Fr>
+    out += curve.serialize_fr_vec(cv, p.blinded_witness)  # Vec<Fr>
     out += b"\x01"  # SecondRoundMessage.randomness = Some
     for s in (p.sigma_a, p.sigma_b, p.sigma_c, p.sigma_o):
         out += s.tobytes()
