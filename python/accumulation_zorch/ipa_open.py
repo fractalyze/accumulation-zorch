@@ -63,9 +63,11 @@ def _fr_scalar(cv: Curve, value: Any) -> Array:
     return jnp.asarray(np.array([int(value)], dtype=cv.fr))[0]
 
 
-def _fr_vec(cv: Curve, values: list[int]) -> Array:
-    """A list of `fr` ints as a 1-d `cv.fr` jax array."""
-    return jnp.asarray(np.array([int(v) for v in values], dtype=cv.fr))
+def _fr_vec(cv: Curve, values: Any) -> Array:
+    """`fr` scalars as a 1-d `cv.fr` jax array — an `fr` array (the combined check
+    polynomial) or a legacy int list; `np.asarray(_, dtype=cv.fr)` normalizes both,
+    so no `fr` value round-trips through a python int."""
+    return jnp.asarray(np.asarray(values, dtype=cv.fr))
 
 
 def _c_int(cv: Curve, a: Array) -> int:
@@ -83,7 +85,7 @@ def _pad_hiding_poly(cv: Curve, hiding_poly_raw: list[int], n: int) -> Array:
 
 def open_no_zk(
     cv: Curve, params: Any, svk_h: np.ndarray, combined_commitment: np.ndarray,
-    point: int, coeffs: list[int], generators: list[np.ndarray],
+    point: int, coeffs: np.ndarray, generators: list[np.ndarray],
 ) -> ipa_pc.IpaProof:
     """Drop-in for arkworks' `ipa_pc::open_individual_opening_challenges` (no-zk),
     driving zorch's `_open_one`: the IPA fold producing `(l_vec, r_vec,
@@ -109,7 +111,7 @@ def open_no_zk(
 
 def build_open_no_zk_core(
     cv: Curve, params: Any, svk_h: np.ndarray, combined_commitment: np.ndarray,
-    point: int, coeffs: list[int],
+    point: int, coeffs: np.ndarray,
 ):  # type: ignore[no-untyped-def]
     """The fused GPU **fold** core: a `@jax.jit` device twin of :func:`open_no_zk`.
 
@@ -146,7 +148,7 @@ def build_open_no_zk_core(
 
 def build_open_zk_core(
     cv: Curve, params: Any, svk_h: np.ndarray, s: np.ndarray, combined_commitment: np.ndarray,
-    point: int, coeffs: list[int], hiding_poly_raw: list[int], hiding_rand: int,
+    point: int, coeffs: np.ndarray, hiding_poly_raw: list[int], hiding_rand: int,
     commitment_randomness: int,
 ):  # type: ignore[no-untyped-def]
     """The fused GPU **zk fold** core: a `@jax.jit` device twin of :func:`open_zk`.
@@ -187,7 +189,7 @@ def build_open_zk_core(
 
 def open_zk(
     cv: Curve, params: Any, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
-    combined_commitment: np.ndarray, point: int, coeffs: list[int],
+    combined_commitment: np.ndarray, point: int, coeffs: np.ndarray,
     hiding_poly_raw: list[int], hiding_rand: int, commitment_randomness: int,
 ) -> ipa_pc.IpaProof:
     """Drop-in for arkworks' `ipa_pc::open_individual_opening_challenges` (zk),

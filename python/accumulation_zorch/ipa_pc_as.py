@@ -37,7 +37,7 @@ import numpy as np
 
 from . import absorbable, curve, ipa_open, ipa_pc, sponge
 from .curve import Curve
-from .field import fe_value, fe_values
+from .field import fe_value
 
 # ark `ipa_pc_as` AS-level domain (`ASForIpaPCDomain`).
 AS_DOMAIN = b"AS-FOR-IPA-PC-2020"
@@ -180,14 +180,17 @@ def _combined_evaluation_fr(cv: Curve, addends: list[tuple[int, list[int]]], poi
 def combine_check_polynomials(
     cv: Curve, addends: list[tuple[int, list[int]]],
     rlp_coeffs: list[int] | None = None,
-) -> list[int]:
+) -> np.ndarray:
     """`combine_succinct_check_polynomials(random_polynomial)`: the dense combined
-    check polynomial `Σ lc_challenge_j · h_j(X)` (length `d+1 = 2^log_d`), each `h_j`
-    densely expanded via `compute_coeffs`. When `rlp_coeffs` is given (the zk path)
-    the degree-1 random linear polynomial `rlp(X) = c0 + c1·X` seeds the two low
-    coefficients before the linear combination — arkworks seeds
+    check polynomial `Σ lc_challenge_j · h_j(X)` (length `d+1 = 2^log_d`) as an `fr`
+    array, each `h_j` densely expanded via `compute_coeffs`. When `rlp_coeffs` is
+    given (the zk path) the degree-1 random linear polynomial `rlp(X) = c0 + c1·X`
+    seeds the two low coefficients before the linear combination — arkworks seeds
     `combined = random_polynomial` then adds the weighted check polynomials.
-    `rlp_coeffs is None` ⇒ the no-zk path (arkworks `random_polynomial = None`)."""
+    `rlp_coeffs is None` ⇒ the no-zk path (arkworks `random_polynomial = None`).
+
+    Stays an `fr` array feeding the IPA opener (`ipa_open.open_*`), never decoded
+    back to canonical ints."""
     n = 1 << len(addends[0][1])  # 2^log_d
     combined = np.zeros(n, dtype=cv.fr)
     if rlp_coeffs is not None:
@@ -195,9 +198,9 @@ def combine_check_polynomials(
         combined[0] = cv.fr(c0)
         combined[1] = cv.fr(c1)
     for lc_challenge, check_poly in addends:
-        coeffs = np.array(ipa_pc.compute_coeffs(cv, check_poly), dtype=cv.fr)
+        coeffs = ipa_pc.compute_coeffs(cv, check_poly)
         combined = combined + np.array([lc_challenge], dtype=cv.fr) * coeffs
-    return fe_values(combined)
+    return combined
 
 
 def _rlp_pair(rlp_coeffs: list[int]) -> tuple[int, int]:
