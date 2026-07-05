@@ -18,7 +18,7 @@ from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, jcurve, jfield, jsponge, sponge
 from .curve import Curve
-from .field import fe_value, fe_values
+from .field import fe_value
 
 CHALLENGE_SIZE = 128  # bits, matching ark hp_as::CHALLENGE_SIZE
 # Both Pasta scalar fields are 254-cap > 128, so this is the curve-invariant 128.
@@ -73,12 +73,12 @@ def prove_no_zk_core(cv: Curve, real_inst: jax.Array, a_real: jax.Array, b_real:
 
 
 def materialize_no_zk(core: HpNoZkCore) -> tuple[
-        Instance, tuple[list[int], list[int]], list[np.ndarray], list[np.ndarray]]:
+        Instance, tuple[jax.Array, jax.Array], list[np.ndarray], list[np.ndarray]]:
     """Materialize an `HpNoZkCore` to the host serialize shape `(instance, (a_open,
     b_open), low, high)` — `low`/`high` are empty for the single-input fold."""
     inst_np = np.asarray(core.instance)
     instance = (inst_np[0], inst_np[1], inst_np[2])
-    return instance, (fe_values(core.a_open), fe_values(core.b_open)), [], []
+    return instance, (core.a_open, core.b_open), [], []
 
 
 # --- zk path (hiding vectors / commitments) --------------------------------
@@ -290,7 +290,7 @@ def prove_zk(cv: Curve, generators: list[np.ndarray], hiding: np.ndarray, instan
              input_rands: list[tuple[int, int, int] | None], supported_num_elems: int,
              params: Any, hiding_a: int, hiding_b: int, hiding_rand_1: int, hiding_rand_2: int,
              hiding_rand_3: int, base_sponge: DuplexSponge | None = None) -> tuple[
-                 Instance, tuple[list[int], list[int], tuple[int, int, int]],
+                 Instance, tuple[jax.Array, jax.Array, jax.Array],
                  list[np.ndarray], list[np.ndarray], Instance]:
     """zk HP prove over a single real input (the zero placeholder is added by the
     core, as the make_zk path does), replaying the prover's hiding randomness.
@@ -314,14 +314,14 @@ def prove_zk(cv: Curve, generators: list[np.ndarray], hiding: np.ndarray, instan
 
 
 def materialize_zk(core: HpZkCore) -> tuple[
-        Instance, tuple[list[int], list[int], tuple[int, int, int]],
+        Instance, tuple[jax.Array, jax.Array, jax.Array],
         list[np.ndarray], list[np.ndarray], Instance]:
     """Materialize an `HpZkCore` to the host serialize shape `(instance, (a_open,
     b_open, (rand_1, rand_2, rand_3)), low, high, hiding_comms)` — the serialize
     seam shared by `prove_zk` and the R1CS-NARK-AS path that embeds the HP proof."""
     inst_np = np.asarray(core.instance)
     instance = (inst_np[0], inst_np[1], inst_np[2])
-    witness = (fe_values(core.a_open), fe_values(core.b_open), tuple(fe_values(core.rand)))
+    witness = (core.a_open, core.b_open, core.rand)
     low = [np.asarray(core.low[i]) for i in range(core.low.shape[0])]
     high = [np.asarray(core.high[i]) for i in range(core.high.shape[0])]
     hc_np = np.asarray(core.hiding_comms)
@@ -329,16 +329,22 @@ def materialize_zk(core: HpZkCore) -> tuple[
     return instance, witness, low, high, hiding_comms
 
 
-def _serialize_fr_vec(cv: Curve, values: list[int]) -> bytes:
-    return struct.pack("<Q", len(values)) + b"".join(cv.fr(v).tobytes() for v in values)
+def serialize_fr_vec(cv: Curve, values: jax.Array | list[int]) -> bytes:
+    """`Vec<Fr>` CanonicalSerialize: `u64` LE length then each element 32B LE.
+    `values` is a length-`n` `cv.fr` array (a jit-core output) or an int list;
+    both canonicalize to the same bytes via `np.asarray(..., dtype=cv.fr)`. Shared
+    with the R1CS-NARK-AS serializers (which reuse this like the other
+    `serialize_*` primitives here)."""
+    arr = np.asarray(values, dtype=cv.fr)
+    return struct.pack("<Q", arr.shape[0]) + arr.tobytes()
 
 
-def serialize_witness_zk(cv: Curve, witness: tuple[list[int], list[int], tuple[int, int, int]]) -> bytes:
+def serialize_witness_zk(cv: Curve, witness: tuple[jax.Array, jax.Array, jax.Array]) -> bytes:
     """`InputWitness` CanonicalSerialize (zk): `a_vec`, `b_vec`, then `Some`
     randomness (`rand_1, rand_2, rand_3`)."""
     a_vec, b_vec, rands = witness
-    out = _serialize_fr_vec(cv, a_vec) + _serialize_fr_vec(cv, b_vec) + b"\x01"
-    out += b"".join(cv.fr(r).tobytes() for r in rands)
+    out = serialize_fr_vec(cv, a_vec) + serialize_fr_vec(cv, b_vec) + b"\x01"
+    out += np.asarray(rands, dtype=cv.fr).tobytes()
     return out
 
 
