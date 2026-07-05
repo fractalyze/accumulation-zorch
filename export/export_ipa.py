@@ -32,6 +32,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -100,7 +101,9 @@ def export_decider(cv: Curve) -> Path:
     core decides any accumulator at this degree."""
     core_fn, scalars, bases = build_decider_core(cv)
     t0 = time.perf_counter()
-    lowered = core_fn.lower(scalars, bases)
+    # `jcurve.msm` is a plain function (the per-leaf `@jit` was dropped); jit it
+    # here so the lowered core is the single fused MSM call the plugin consumes.
+    lowered = jax.jit(core_fn).lower(scalars, bases)
     t_lower = time.perf_counter() - t0
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / f"ipa_decider_msm_{cv.name}.mlirbc"
@@ -121,7 +124,7 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     bases = jcurve.stack_affine(cv, [_point(cv, d["generators"][0])] * n)
     scalars = jnp.asarray(np.zeros(n, dtype=cv.fr))
     t0 = time.perf_counter()
-    lowered = jcurve.msm.lower(scalars, bases)
+    lowered = jax.jit(jcurve.msm).lower(scalars, bases)
     t_lower = time.perf_counter() - t0
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / "ipa_decider_msm_bench.mlirbc"

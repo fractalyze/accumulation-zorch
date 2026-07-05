@@ -263,18 +263,38 @@ prior accumulator — `old_accumulators` non-empty, the IVC step). An accumulato
 an `InputInstance` of the same shape as an input, so arkworks succinct-checks the
 inputs then the accumulators into one list and combines them identically — the fold
 is the prove fed `[inputs…, accumulators…]`, a prior *hiding* accumulator's succinct
-check taking the zk path. Unlike the decider, this corner carries no GPU bench, and
-that *is* the result:
+check taking the zk path.
 
-- The accumulate's `IpaPC::open` is **sequential** — each round's Fiat-Shamir
-  challenge is squeezed from that round's `L`/`R` fold commitments, so the per-round
-  MSMs and the Poseidon sponge interleave with a two-way data dependency (the MSMs
-  need the prior challenge; the next challenge needs the MSMs). It is **host-bound by
-  design** — accumulation *defers* verification — so the GPU-value op for IPA-PC is
-  the decider above, mirror-image to R1CS-NARK where it is the accumulate.
+The fold's `IpaPC::open` is **sequential** — each round's Fiat-Shamir challenge is
+squeezed from that round's `L`/`R` fold commitments, so the per-round MSMs and the
+Poseidon sponge interleave with a two-way data dependency (the MSMs need the prior
+challenge; the next challenge needs the MSMs). There is no host-challenge shortcut
+like the decider has, so the fused fold core runs the **whole open on-device** — the
+`lax.scan` basis fold, the Poseidon sponge squeezed on-device per round, and the
+`final_comm_key` MSM — as **one** PJRT call (`fused::open_ipa_fold_fused`,
+`export/export_ipa_fold.py`). It byte-matches the golden folded accumulator's IPA
+proof (`l_vec`/`r_vec`/`final_comm_key`/`c`) over both curves — and the **zk** twin
+(`ipa_fold_zk_<curve>.mlirbc`, the hiding prelude + blinded fold) additionally
+reproduces `hiding_comm`/`rand`, completing no-zk + zk on GPU:
+
+| fold open (Pallas, d=7, 3 rounds) | warm GPU (1 PJRT call) |
+| --------------------------------: | ---------------------: |
+|      one input folded into acc    |            **~255 ms** |
+
+- That ~255 ms is a **fixed floor** — the Pippenger bucket-reduction MSM kernel is
+  size-independent (the same ~100 ms-class floor the R1CS prove hits), and the
+  accumulate's MSMs are *tiny* (8 coeffs), so the run is dominated by dispatch +
+  kernel overhead and does **not** beat the CPU open at accumulate scale. That *is*
+  the result: the accumulate is **host/overhead-bound by design** — accumulation
+  *defers* verification — so the GPU-value op for IPA-PC is the decider above,
+  mirror-image to R1CS-NARK where it is the accumulate.
 - The CPU port is **curve-generic and zk-agnostic in structure**: prove and fold,
   no-zk and zk, Pallas and Vesta all run the one combine + `IpaPC::open`, each
-  byte-matched to arkworks.
+  byte-matched to arkworks; the fused GPU fold core covers the fold both no-zk and
+  zk (both curves).
 - Reproduce: `ipa_as_test.py` (prove) and `ipa_as_fold_test.py` /
   `ipa_as_fold_zk_test.py` (fold), the CPU byte-match (run as in
-  [Python jax prove byte-match](#python-jax-prove-byte-match-cpu)).
+  [Python jax prove byte-match](#python-jax-prove-byte-match-cpu)); the GPU fold
+  byte-matches + bench are `gpu_fused_ipa_fold_byte_match` /
+  `gpu_fused_ipa_fold_zk_byte_match` / `gpu_fused_ipa_fold_bench` (as in
+  [Fused GPU byte-match](#fused-gpu-byte-match-one-core-proves-every-seed)).

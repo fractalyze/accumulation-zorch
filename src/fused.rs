@@ -597,6 +597,151 @@ where
     parse_point::<C>(&out[0])
 }
 
+/// The folded accumulator's IPA opening proof, recovered from the fused fold open
+/// core's four output leaves (`l`, `r`, `final_comm_key`, `c`) — the fields of
+/// `ipa_pc.IpaProof` (no-zk). Serialized into the folded `InputInstance` by the
+/// byte-match test; the instance's commitment/point/evaluation are the host combine
+/// (baked into the core, = the golden accumulator's).
+pub struct FusedIpaProof<C: PastaCurve> {
+    /// The `log_d` round cross-terms `L_j` (`ipa_proof.l_vec`).
+    pub l_vec: Vec<Affine<C>>,
+    /// The `log_d` round cross-terms `R_j` (`ipa_proof.r_vec`).
+    pub r_vec: Vec<Affine<C>>,
+    /// The fully-folded generator (`ipa_proof.final_comm_key`).
+    pub final_comm_key: Affine<C>,
+    /// The collapsed coefficient scalar (`ipa_proof.c`).
+    pub c: Fr<C>,
+}
+
+/// Run the fused **IPA-PC accumulation fold** open core (the sequential
+/// `IpaPC::open` of the fold's combined check polynomial) once on the GPU and
+/// return the folded accumulator's `IpaProof`. Unlike the decider's single
+/// host-fed MSM, the fold open is sequential — each round's Fiat-Shamir challenge
+/// is squeezed on-device (Poseidon) from that round's `L_j`/`R_j` MSM outputs — so
+/// the whole open (zorch's `_open_one` `lax.scan` fold + the `final_comm_key` MSM,
+/// driven by the arkworks-faithful `ipa_challenger`) is the one fused PJRT call.
+/// The combined check polynomial (the fold of the new input INTO `acc_prev`) is
+/// baked per fixture by `export/export_ipa_fold.py`; the committer-key `generators`
+/// is the sole runtime input. Byte-identical to the host `ipa_open.open_no_zk` and
+/// (the byte-match gate) to the golden accumulator's `ipa_proof`.
+pub fn open_ipa_fold_fused<C: PastaCurve>(mlirbc: &[u8], generators: &[Affine<C>]) -> FusedIpaProof<C>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
+    run_ipa_fold_fused::<C>(load_fused(mlirbc), generators)
+}
+
+/// Run an already-loaded fused fold open core `exe` once (one PJRT call) and return
+/// the folded `IpaProof`. Split from [`load_fused`] so the fold bench can compile
+/// the core once and time many warm runs (the run, not the compile, is the
+/// steady-state cost).
+pub fn run_ipa_fold_fused<C: PastaCurve>(
+    exe: &zkx_pjrt::Executable,
+    generators: &[Affine<C>],
+) -> FusedIpaProof<C>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
+    // (l[log_d], r[log_d], final_comm_key, c) — the `build_open_no_zk_core` pytree.
+    const IPA_FOLD_OUTPUTS: usize = 4;
+    let gens_bytes = wire::g1_array_to_bytes(generators);
+    let inputs = [(gens_bytes.as_slice(), vec![generators.len() as i64], C::G1_AFFINE)];
+    // Safety: `exe` compiled by this same (leaked) client; the one rank-1 affine
+    // input (`generators`, the committer-key basis) is the fold open core's sole
+    // runtime argument (`export/export_ipa_fold.py`'s `_core(basis)`).
+    let out = unsafe { crate::gpu::session().run(exe, &inputs, IPA_FOLD_OUTPUTS) };
+    assert_eq!(
+        out.len(),
+        IPA_FOLD_OUTPUTS,
+        "IPA fold open core returned {} leaves, expected {IPA_FOLD_OUTPUTS}",
+        out.len()
+    );
+    let c = parse_scalars::<C>(&out[3]);
+    assert_eq!(c.len(), 1, "IPA fold open core `c` leaf must be a single scalar");
+    FusedIpaProof {
+        l_vec: parse_points::<C>(&out[0]),
+        r_vec: parse_points::<C>(&out[1]),
+        final_comm_key: parse_point::<C>(&out[2]),
+        c: c[0],
+    }
+}
+
+/// The folded *hiding* accumulator's zk IPA opening proof, recovered from the fused
+/// zk fold open core's six output leaves — the no-zk [`FusedIpaProof`] fields plus
+/// the two elements blinding adds (`ipa_pc.IpaProof`'s `hiding_comm` / `rand`).
+pub struct FusedIpaZkProof<C: PastaCurve> {
+    /// The `log_d` round cross-terms `L_j` (`ipa_proof.l_vec`).
+    pub l_vec: Vec<Affine<C>>,
+    /// The `log_d` round cross-terms `R_j` (`ipa_proof.r_vec`).
+    pub r_vec: Vec<Affine<C>>,
+    /// The fully-folded generator (`ipa_proof.final_comm_key`).
+    pub final_comm_key: Affine<C>,
+    /// The collapsed coefficient scalar (`ipa_proof.c`).
+    pub c: Fr<C>,
+    /// The Pedersen commitment to the blinding polynomial (`ipa_proof.hiding_comm`).
+    pub hiding_comm: Affine<C>,
+    /// The accumulated commitment randomness (`ipa_proof.rand`).
+    pub rand: Fr<C>,
+}
+
+/// Run the fused **zk (hiding) IPA-PC accumulation fold** open core once on the GPU
+/// and return the folded hiding accumulator's `IpaProof`. The zk twin of
+/// [`open_ipa_fold_fused`]: the core additionally runs zorch's `_open_one_zk` hiding
+/// prelude on-device (the blinding Pedersen commitment, the on-device
+/// `hiding_challenge`, the blinded fold) and returns the two extra leaves
+/// (`hiding_comm`, `rand`). The rlp-seeded combined check polynomial + the open's
+/// replayed hiding blinders are baked per fixture (`export/export_ipa_fold.py … zk`);
+/// `generators` is the sole runtime input. Byte-identical to the host
+/// `ipa_open.open_zk` and (the byte-match gate) to the golden hiding accumulator's
+/// `ipa_proof`.
+pub fn open_ipa_fold_zk_fused<C: PastaCurve>(
+    mlirbc: &[u8],
+    generators: &[Affine<C>],
+) -> FusedIpaZkProof<C>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
+    run_ipa_fold_zk_fused::<C>(load_fused(mlirbc), generators)
+}
+
+/// Run an already-loaded fused zk fold open core `exe` once (one PJRT call) and
+/// return the folded hiding `IpaProof`. Split from [`load_fused`] so a bench can
+/// compile once and time many warm runs.
+pub fn run_ipa_fold_zk_fused<C: PastaCurve>(
+    exe: &zkx_pjrt::Executable,
+    generators: &[Affine<C>],
+) -> FusedIpaZkProof<C>
+where
+    <C::Params as ModelParameters>::BaseField: PrimeField,
+{
+    // (l[log_d], r[log_d], final_comm_key, c, hiding_comm, rand) — the
+    // `build_open_zk_core` pytree.
+    const IPA_FOLD_ZK_OUTPUTS: usize = 6;
+    let gens_bytes = wire::g1_array_to_bytes(generators);
+    let inputs = [(gens_bytes.as_slice(), vec![generators.len() as i64], C::G1_AFFINE)];
+    // Safety: `exe` compiled by this same (leaked) client; the one rank-1 affine
+    // input (`generators`) is the zk fold open core's sole runtime argument.
+    let out = unsafe { crate::gpu::session().run(exe, &inputs, IPA_FOLD_ZK_OUTPUTS) };
+    assert_eq!(
+        out.len(),
+        IPA_FOLD_ZK_OUTPUTS,
+        "zk IPA fold open core returned {} leaves, expected {IPA_FOLD_ZK_OUTPUTS}",
+        out.len()
+    );
+    let c = parse_scalars::<C>(&out[3]);
+    let rand = parse_scalars::<C>(&out[5]);
+    assert_eq!(c.len(), 1, "zk IPA fold open core `c` leaf must be a single scalar");
+    assert_eq!(rand.len(), 1, "zk IPA fold open core `rand` leaf must be a single scalar");
+    FusedIpaZkProof {
+        l_vec: parse_points::<C>(&out[0]),
+        r_vec: parse_points::<C>(&out[1]),
+        final_comm_key: parse_point::<C>(&out[2]),
+        c: c[0],
+        hiding_comm: parse_point::<C>(&out[4]),
+        rand: rand[0],
+    }
+}
+
 /// Serialize each element of `items` individually (struct fields, no `Vec`
 /// length prefix).
 fn serialize_each<T: CanonicalSerialize>(items: &[T], out: &mut Vec<u8>) {

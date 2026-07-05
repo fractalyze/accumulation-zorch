@@ -36,9 +36,13 @@ Encodings are byte-identical to the NumPy oracle:
   ``fq(CHALLENGE_BYTES + prev·2**64)``. ``prev`` (an ``fr`` value < 2**128) is
   reinterpreted to ``fq`` by its canonical LE bytes (``fr → u8 → fq`` bitcast),
   and ``prev·2**64 < 2**192 < fq_modulus`` stays canonical.
-* the **seed** scalars ``point`` / ``value`` are bound once (before the rounds,
-  host-side) via the ``_fr32`` 32-byte LE encoding, matching ``ipa_pc._fr32`` and
-  the oracle's ``to_bytes![point, value]`` byte-for-byte.
+* the **seed** scalars ``point`` / ``value`` are absorbed in-trace too
+  (``_seed_pv_fq`` → ``absorbable.u8_batch_field_array_jax``): each is bitcast to
+  its 32-byte canonical LE repr (as the previous-challenge absorb does), then the
+  ``u8`` batch packing (``to_bytes![point, value]``) is reproduced with jax ops so
+  ``seed`` traces cleanly (the fused open core seeds from the on-device combined
+  ``value``). Byte-identical to the oracle's ``to_bytes![point, value]``, so the
+  eager CPU port is unchanged.
 
 The squeeze is the in-trace truncated-128 nonnative squeeze
 (``jsponge.challenges_from_fq`` via ``jsponge.squeeze_challenges``): one ``fq``
@@ -85,15 +89,25 @@ _CHALLENGE_BYTES = (_CHALLENGE_SIZE + 7) // 8
 _U64_SHIFT = 1 << 64
 
 
-def _fr32(cv: Curve, value: Array | int) -> bytes:
-    """`to_bytes![Fr]` — the 32-byte canonical LE serialization of a scalar. Matches
-    `ipa_pc._fr32`. `value` is a host int (the bound opening statement) or a 0-d
-    ``fr`` array (read back through its canonical LE bytes)."""
-    if isinstance(value, (int, np.integer)):
-        v = int(value)
-    else:
-        v = int.from_bytes(np.asarray(value, dtype=cv.fr).tobytes(), "little")
-    return v.to_bytes(32, "little")
+def _as_fr(cv: Curve, x: Array | int) -> Array:
+    """A host int or `fr`-ish array as a 0-d ``cv.fr`` jax array (traced-safe). The
+    `squeeze` enforces the 0-d contract for a `(1,)`-shaped array input (bitcasting a
+    rank-1 scalar would give a `(1, 32)` byte array and skew the u8-batch packing)."""
+    if isinstance(x, (int, np.integer)):
+        return jnp.asarray(np.array([int(x)], dtype=cv.fr))[0]
+    return jnp.squeeze(jnp.asarray(x, dtype=cv.fr))
+
+
+def _seed_pv_fq(cv: Curve, point: Array | int, value: Array | int) -> Array:
+    """In-trace ``to_bytes![point, value]`` u8-batch packing (each a 32-byte canonical
+    LE ``fr``), for :meth:`ArkIpaChallenger.seed` / :meth:`hiding_challenge`. The
+    jit-able twin of the former host ``_fr32(point) + _fr32(value)`` →
+    ``u8_batch_field_array``: bitcast each scalar to its 32 LE bytes (canonical, as in
+    ``_absorb_prev``), concatenate, and pack in-trace so the seed rides the fused open
+    core's ``@jit`` boundary. Byte-identical eagerly, so the CPU port is unchanged."""
+    pb = lax.bitcast_convert_type(_as_fr(cv, point), jnp.uint8)  # (32,) LE
+    vb = lax.bitcast_convert_type(_as_fr(cv, value), jnp.uint8)  # (32,) LE
+    return absorbable.u8_batch_field_array_jax(cv, jnp.concatenate([pb, vb]))
 
 
 @partial(
@@ -162,11 +176,7 @@ class ArkIpaChallenger:
         cv = self.cv
         sp = self._sponge()
         sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(commitment).reshape(1))
-        sp = sp.absorb(
-            jnp.asarray(
-                absorbable.u8_batch_field_array(cv, _fr32(cv, point) + _fr32(cv, value))
-            )
-        )
+        sp = sp.absorb(_seed_pv_fq(cv, point, value))
         xi0 = self._squeeze(sp)
         return ArkIpaChallenger(self.state, xi0, cv, self.params, self.mode, self.pos), xi0
 
@@ -199,11 +209,7 @@ class ArkIpaChallenger:
         sp = self._sponge()
         sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(commitment).reshape(1))
         sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(hiding_comm).reshape(1))
-        sp = sp.absorb(
-            jnp.asarray(
-                absorbable.u8_batch_field_array(cv, _fr32(cv, point) + _fr32(cv, value))
-            )
-        )
+        sp = sp.absorb(_seed_pv_fq(cv, point, value))
         hc = self._squeeze(sp)
         return ArkIpaChallenger(self.state, hc, cv, self.params, self.mode, self.pos), hc
 
