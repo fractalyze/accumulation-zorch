@@ -29,7 +29,7 @@ import numpy as np
 from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import curve, jcurve
+from . import curve
 from .curve import Curve
 
 # ark-ff `[u8]::to_field_elements` chunk size = CAPACITY / 8 (both Pasta fq are
@@ -93,7 +93,7 @@ def point_to_field_array(cv: Curve, point: np.ndarray) -> np.ndarray:
 
 def absorb_point(cv: Curve, sp: DuplexSponge, point: np.ndarray) -> DuplexSponge:
     """Absorb an SW-affine point Absorbable into the sponge (packed in-jit)."""
-    return sp.absorb(point_to_field_array_jax(cv, jcurve.stack_affine(cv, [point])))
+    return sp.absorb(point_to_field_array_jax(cv, curve.stack_affine(cv, [point])))
 
 
 def fork(cv: Curve, sp: DuplexSponge, domain: bytes) -> DuplexSponge:
@@ -174,7 +174,7 @@ def absorb_option_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) 
     `Some` case: a single `F::from(true)` flag, then each point's `[x, y,
     infinity]` — all in one absorb (e.g. `Some(ProofHidingCommitments)`)."""
     arr = jnp.concatenate([jnp.asarray(option_flag(cv, True)),
-                           point_to_field_array_jax(cv, jcurve.stack_affine(cv, points))])
+                           point_to_field_array_jax(cv, curve.stack_affine(cv, points))])
     return sp.absorb(arr)
 
 
@@ -184,7 +184,7 @@ def absorb_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) -> Dupl
     the concatenation of each point's `[x, y, infinity]`."""
     if not points:
         return sp
-    return sp.absorb(point_to_field_array_jax(cv, jcurve.stack_affine(cv, points)))
+    return sp.absorb(point_to_field_array_jax(cv, curve.stack_affine(cv, points)))
 
 
 def absorb_points_jax(cv: Curve, sp: DuplexSponge, points: jax.Array) -> DuplexSponge:

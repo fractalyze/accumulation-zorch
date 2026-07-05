@@ -36,7 +36,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-from . import absorbable, curve, field, hp_as, jcurve, nark, sponge
+from . import absorbable, curve, field, hp_as, nark, sponge
 from .curve import Curve, FrVec
 
 # Challenge squeeze window (ark `CHALLENGE_SIZE`, capped at fr capacity). Both
@@ -94,7 +94,7 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
     `comm_a, comm_b, comm_c, hp.instance(3,), hp.a_open, hp.b_open`."""
     rows = len(a)  # num_constraints; a/b/c share the row count
     n = len(r1cs_input) + len(blinded_witness)  # z length = the circuit's num_vars (static)
-    bases = jcurve.stack_affine(cv, generators[:rows])
+    bases = curve.stack_affine(cv, generators[:rows])
     a_dense, b_dense, c_dense = (jnp.asarray(nark.to_dense(cv, m, n)) for m in (a, b, c))
     r1cs_input_arr = jnp.asarray(np.array(list(r1cs_input), dtype=cv.fr))
     blinded_witness_arr = jnp.asarray(np.array(list(blinded_witness), dtype=cv.fr))
@@ -243,8 +243,8 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
     # scatter-add the zkx GPU atomic-RMW path can't lower; a dense matvec (constant
     # matrix · runtime vector) has no scatter (the no-zk general core's approach).
     a_dense, b_dense, c_dense = (jnp.asarray(nark.to_dense(cv, m, n)) for m in (a, b, c))
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
-    id_pt = jcurve.stack_affine(cv, [cv.g1((0, 0))])
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])
 
     # The example assignment + randomness arrays carry the runtime shapes for
     # lowering (`in`/`wit`/`r` fr; `blinders` (8,); `r_in`/`r_wit` fr; `as_rand`
@@ -284,9 +284,9 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
 
         # comm_r_M = commit(M·(r1cs_r_input ‖ r1cs_r_witness)).
         zr = jnp.concatenate([r_in_arr, r_wit_arr])
-        comm_r_a = jcurve.commit_hiding(cv, _mz(a_dense, zr), as_rand_arr[0], bases_h)
-        comm_r_b = jcurve.commit_hiding(cv, _mz(b_dense, zr), as_rand_arr[1], bases_h)
-        comm_r_c = jcurve.commit_hiding(cv, _mz(c_dense, zr), as_rand_arr[2], bases_h)
+        comm_r_a = curve.commit_hiding(cv, _mz(a_dense, zr), as_rand_arr[0], bases_h)
+        comm_r_b = curve.commit_hiding(cv, _mz(b_dense, zr), as_rand_arr[1], bases_h)
+        comm_r_c = curve.commit_hiding(cv, _mz(c_dense, zr), as_rand_arr[2], bases_h)
 
         # Blinded commitments: fold the NARK first-round randomness in, scaled by
         # gamma (each `comm + coeff·comm_r` is one lax.msm fold).
@@ -463,9 +463,9 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     acc_input_bytes = b"".join(cv.fr(v).tobytes() for v in acc_r1cs_input)
 
     rows = len(a)
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
-    id_pt = jcurve.stack_affine(cv, [cv.g1((0, 0))])
-    acc_comms_arr = jcurve.stack_affine(cv, list(acc_comms))  # (6,)
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])
+    acc_comms_arr = curve.stack_affine(cv, list(acc_comms))  # (6,)
 
     # The fold's `M·v` reduces are all over BAKED vectors (the circuit + the replayed
     # randomness are fixed at export time), so they are computed HOST-SIDE and baked
@@ -501,9 +501,9 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
 
         # The fold's AS proof-randomness commitments comm_r_M = commit(M·z_r, as_r_M)
         # (M·z_r pre-baked host-side — `mz_r` above).
-        comm_r_a = jcurve.commit_hiding(cv, mz_r[0], as_r1, bases_h)
-        comm_r_b = jcurve.commit_hiding(cv, mz_r[1], as_r2, bases_h)
-        comm_r_c = jcurve.commit_hiding(cv, mz_r[2], as_r3, bases_h)
+        comm_r_a = curve.commit_hiding(cv, mz_r[0], as_r1, bases_h)
+        comm_r_b = curve.commit_hiding(cv, mz_r[1], as_r2, bases_h)
+        comm_r_c = curve.commit_hiding(cv, mz_r[2], as_r3, bases_h)
 
         # input's gamma-blinded NARK commitments + the HP comm_prod (gamma² term).
         one_gamma = jnp.concatenate([fr_one, gamma])

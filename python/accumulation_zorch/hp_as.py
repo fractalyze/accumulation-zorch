@@ -16,7 +16,7 @@ import numpy as np
 from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import absorbable, curve, field, jcurve, sponge
+from . import absorbable, curve, field, sponge
 from .curve import Curve, FrScalar
 
 CHALLENGE_SIZE = 128  # bits, matching ark hp_as::CHALLENGE_SIZE
@@ -204,10 +204,10 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
         hr = jnp.asarray(np.array([hr1, hr2, hr3], dtype=cv.fr))
 
     # Hiding commitments (the cross term mixes input₀'s b-row with the row-1 a-row).
-    comm_h1 = jcurve.commit_hiding(cv, hiding_a_vec, hr1, bases_h)
-    comm_h2 = jcurve.commit_hiding(cv, hiding_b_vec, hr2, bases_h)
+    comm_h1 = curve.commit_hiding(cv, hiding_a_vec, hr1, bases_h)
+    comm_h2 = curve.commit_hiding(cv, hiding_b_vec, hr2, bases_h)
     rand_prods_sum = hiding_a_vec * b[0] + a[num_inputs - 1] * hiding_b_vec
-    comm_h3 = jcurve.commit_hiding(cv, rand_prods_sum, hr3, bases_h)
+    comm_h3 = curve.commit_hiding(cv, rand_prods_sum, hr3, bases_h)
     hiding_comms = jnp.stack([comm_h1, comm_h2, comm_h3])  # (3,)
 
     # Transcript: supported size, the input commitments (+ the row-1 commitments),
@@ -298,9 +298,9 @@ def prove_zk(cv: Curve, generators: list[np.ndarray], hiding: np.ndarray, instan
     (rand_1, rand_2, rand_3)), low, high, hiding_comms)` at the serialize seam."""
     assert len(instances) == 1, "this prover folds a single real input"
     L = len(a_vecs[0])
-    bases_h = jcurve.stack_affine(cv, list(generators[:L]) + [hiding])
-    real_inst = jcurve.stack_affine(cv, list(instances[0]))
-    id_pt = jcurve.stack_affine(cv, [cv.g1((0, 0))])  # (1,) identity affine
+    bases_h = curve.stack_affine(cv, list(generators[:L]) + [hiding])
+    real_inst = curve.stack_affine(cv, list(instances[0]))
+    id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])  # (1,) identity affine
     a_real = jnp.asarray(np.array(a_vecs[0], dtype=cv.fr))
     b_real = jnp.asarray(np.array(b_vecs[0], dtype=cv.fr))
     ir = input_rands[0]

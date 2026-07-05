@@ -39,7 +39,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from accumulation_zorch import curve, field, jcurve, nark
+from accumulation_zorch import curve, field, nark
 from accumulation_zorch.curve import Curve
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
@@ -112,12 +112,12 @@ def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix
         cv_vec = field.matvec(c_dense, z)
         product = hp_a * hp_b  # Hadamard a_vec ∘ b_vec (fr element-wise)
         return (
-            jcurve.commit_hiding(cv, av, rand6[0], bases_h),
-            jcurve.commit_hiding(cv, bv, rand6[1], bases_h),
-            jcurve.commit_hiding(cv, cv_vec, rand6[2], bases_h),
-            jcurve.commit_hiding(cv, hp_a, rand6[3], bases_h),
-            jcurve.commit_hiding(cv, hp_b, rand6[4], bases_h),
-            jcurve.commit_hiding(cv, product, rand6[5], bases_h),
+            curve.commit_hiding(cv, av, rand6[0], bases_h),
+            curve.commit_hiding(cv, bv, rand6[1], bases_h),
+            curve.commit_hiding(cv, cv_vec, rand6[2], bases_h),
+            curve.commit_hiding(cv, hp_a, rand6[3], bases_h),
+            curve.commit_hiding(cv, hp_b, rand6[4], bases_h),
+            curve.commit_hiding(cv, product, rand6[5], bases_h),
         )
 
     return _core
@@ -137,7 +137,7 @@ def export_decider(cv: Curve) -> Path:
     num_vars = len(d["seeds"][0]["r1cs_input"]) + len(d["seeds"][0]["blinded_witness"])
 
     core = build_decider_core(cv, a, b, c, num_vars)
-    bases_h = jcurve.stack_affine(cv, generators[:rows] + [hiding])
+    bases_h = curve.stack_affine(cv, generators[:rows] + [hiding])
     z = jnp.asarray(np.zeros(num_vars, dtype=cv.fr))
     hp_vec = jnp.asarray(np.zeros(rows, dtype=cv.fr))
     rand6 = jnp.asarray(np.zeros(6, dtype=cv.fr))
@@ -165,12 +165,12 @@ def build_decider_bench_core(cv: Curve) -> Any:
               rand6: jax.Array) -> tuple:
         product = av * bv
         return (
-            jcurve.commit_hiding(cv, av, rand6[0], bases_h),
-            jcurve.commit_hiding(cv, bv, rand6[1], bases_h),
-            jcurve.commit_hiding(cv, cv_vec, rand6[2], bases_h),
-            jcurve.commit_hiding(cv, av, rand6[3], bases_h),
-            jcurve.commit_hiding(cv, bv, rand6[4], bases_h),
-            jcurve.commit_hiding(cv, product, rand6[5], bases_h),
+            curve.commit_hiding(cv, av, rand6[0], bases_h),
+            curve.commit_hiding(cv, bv, rand6[1], bases_h),
+            curve.commit_hiding(cv, cv_vec, rand6[2], bases_h),
+            curve.commit_hiding(cv, av, rand6[3], bases_h),
+            curve.commit_hiding(cv, bv, rand6[4], bases_h),
+            curve.commit_hiding(cv, product, rand6[5], bases_h),
         )
 
     return _core
@@ -187,7 +187,7 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     d = json.loads(_FIXTURE[cv.name].read_text())
     g0 = _point(cv, d["generators"][0])
     core = build_decider_bench_core(cv)
-    bases_h = jcurve.stack_affine(cv, [g0] * (n + 1))
+    bases_h = curve.stack_affine(cv, [g0] * (n + 1))
     zeros_n = jnp.asarray(np.zeros(n, dtype=cv.fr))
     rand6 = jnp.asarray(np.zeros(6, dtype=cv.fr))
 

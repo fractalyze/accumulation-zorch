@@ -15,7 +15,7 @@ from jax import lax
 
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import absorbable, curve, field, jcurve, sponge
+from . import absorbable, curve, field, sponge
 from .curve import Curve, FrScalar
 
 # ark `r1cs_nark::PROTOCOL_NAME` — the domain the NARK sponge is forked with.
@@ -53,7 +53,7 @@ def hash_matrices(cv: Curve, domain: bytes, a: Matrix, b: Matrix, c: Matrix) -> 
 
 def to_dense(cv: Curve, matrix: Matrix, num_vars: int) -> np.ndarray:
     """Densify a sparse `Matrix<Fr>` (rows of `(coeff, var_index)`) to a
-    `(rows × num_vars)` fr array — the dense form `jcurve.commit_dense` reduces
+    `(rows × num_vars)` fr array — the dense form `curve.commit_dense` reduces
     on-device (`M·z`). Host-side data prep; the DummyCircuit matrices are tiny,
     and jagged commitment is a Phase-2 perf concern."""
     dense = np.zeros((len(matrix), num_vars), dtype=cv.fr)
@@ -156,7 +156,7 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     StableHLO module). Mirrors `r1cs_nark_as._build_zk_core` for the no-zk NARK."""
     rows = len(a)
     z = jnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
-    bases = jcurve.stack_affine(cv, list(generators))
+    bases = curve.stack_affine(cv, list(generators))
     coo_a, coo_b, coo_c = (_coo_dev(to_coo(cv, m)) for m in (a, b, c))
 
     @jax.jit
@@ -369,7 +369,7 @@ def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
     of `build_no_zk_core`; `fork=False` selects the standalone half-step's unforked
     gamma sponge."""
     rows = len(a)
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
 
     @jax.jit
     def core_fn(bases_h: jax.Array) -> NarkZkCore:
@@ -481,7 +481,7 @@ def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list
     `inputs` are fr values as ints; `comms` is the three first-round commitment
     points. `randomness`, when present (zk path), is the five first-round
     randomness commitments `[comm_r_a, comm_r_b, comm_r_c, comm_1, comm_2]`."""
-    rstack = jcurve.stack_affine(cv, randomness) if randomness is not None else None
+    rstack = curve.stack_affine(cv, randomness) if randomness is not None else None
     ch = _gamma_finish(cv, _gamma_pre_sponge(cv, params, matrices_hash, inputs),
-                       jcurve.stack_affine(cv, comms), rstack)
+                       curve.stack_affine(cv, comms), rstack)
     return np.asarray(ch, dtype=cv.fr).reshape(-1)[0]

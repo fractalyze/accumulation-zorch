@@ -35,7 +35,7 @@ import numpy as np
 from absl.testing import absltest
 from jax import lax
 
-from accumulation_zorch import absorbable, curve, field, hp_as, jcurve, nark, sponge
+from accumulation_zorch import absorbable, curve, field, hp_as, nark, sponge
 
 cv = curve.PALLAS
 
@@ -91,9 +91,9 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
     old_rand = jnp.asarray(np.array(
         [_fr(accw["hp_rand_1"]), _fr(accw["hp_rand_2"]), _fr(accw["hp_rand_3"])], dtype=cv.fr))
 
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
-    id_pt = jcurve.stack_affine(cv, [cv.g1((0, 0))])
-    old_hp_comms = jcurve.stack_affine(
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])
+    old_hp_comms = curve.stack_affine(
         cv, [_point(acc["hp_comm_1"]), _point(acc["hp_comm_2"]), _point(acc["hp_comm_3"])])
 
     @jax.jit
