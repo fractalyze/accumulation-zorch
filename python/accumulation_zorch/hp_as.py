@@ -17,7 +17,7 @@ from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, jcurve, jfield, jsponge, sponge
-from .curve import Curve
+from .curve import Curve, FrScalar
 
 CHALLENGE_SIZE = 128  # bits, matching ark hp_as::CHALLENGE_SIZE
 # Both Pasta scalar fields are 254-cap > 128, so this is the curve-invariant 128.
@@ -136,7 +136,7 @@ def _product_poly_comm_jax(bases: jax.Array, t_vecs: jax.Array,
 
 
 def _combine_randomness(cv: Curve, rands: list[int | None], challenges: list[int],
-                        hiding: int | None = None) -> Any:
+                        hiding: int | None = None) -> FrScalar:
     """`combine_randomness`: `Σ rands[i]·challenges[i]` over the `Some` entries
     (`None` contributes nothing), plus an optional hiding addend — as an `fr`
     scalar (fed to `pedersen_commit`'s randomizer), never decoded to a python int."""
@@ -329,21 +329,11 @@ def materialize_zk(core: HpZkCore) -> tuple[
     return instance, witness, low, high, hiding_comms
 
 
-def serialize_fr_vec(cv: Curve, values: jax.Array | list[int]) -> bytes:
-    """`Vec<Fr>` CanonicalSerialize: `u64` LE length then each element 32B LE.
-    `values` is a length-`n` `cv.fr` array (a jit-core output) or an int list;
-    both canonicalize to the same bytes via `np.asarray(..., dtype=cv.fr)`. Shared
-    with the R1CS-NARK-AS serializers (which reuse this like the other
-    `serialize_*` primitives here)."""
-    arr = np.asarray(values, dtype=cv.fr)
-    return struct.pack("<Q", arr.shape[0]) + arr.tobytes()
-
-
 def serialize_witness_zk(cv: Curve, witness: tuple[jax.Array, jax.Array, jax.Array]) -> bytes:
     """`InputWitness` CanonicalSerialize (zk): `a_vec`, `b_vec`, then `Some`
     randomness (`rand_1, rand_2, rand_3`)."""
     a_vec, b_vec, rands = witness
-    out = serialize_fr_vec(cv, a_vec) + serialize_fr_vec(cv, b_vec) + b"\x01"
+    out = curve.serialize_fr_vec(cv, a_vec) + curve.serialize_fr_vec(cv, b_vec) + b"\x01"
     out += np.asarray(rands, dtype=cv.fr).tobytes()
     return out
 

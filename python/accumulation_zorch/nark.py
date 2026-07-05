@@ -16,7 +16,7 @@ from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, jcurve, jfield, jsponge, sponge
-from .curve import Curve
+from .curve import Curve, FrScalar
 
 # ark `r1cs_nark::PROTOCOL_NAME` — the domain the NARK sponge is forked with.
 PROTOCOL_NAME = b"R1CS-NARK-2020"
@@ -109,8 +109,7 @@ def _serialize_proof(cv: Curve, comm_a: np.ndarray, comm_b: np.ndarray, comm_c: 
     out = (curve.point_to_bytes(cv, comm_a) + curve.point_to_bytes(cv, comm_b)
            + curve.point_to_bytes(cv, comm_c))
     out += b"\x00"  # FirstRoundMessage.randomness = None
-    out += struct.pack("<Q", len(blinded_witness))
-    out += b"".join(cv.fr(w).tobytes() for w in blinded_witness)
+    out += curve.serialize_fr_vec(cv, blinded_witness)
     out += b"\x00"  # SecondRoundMessage.randomness = None
     return out
 
@@ -195,11 +194,11 @@ class NarkZkProof(NamedTuple):
     comm_1: np.ndarray
     comm_2: np.ndarray
     blinded_witness: np.ndarray  # (witness_len,) fr
-    sigma_a: Any                 # response sigma fr scalars
-    sigma_b: Any
-    sigma_c: Any
-    sigma_o: Any
-    gamma: Any                   # retained fr scalar (the AS path re-derives it)
+    sigma_a: FrScalar            # response sigma fr scalars
+    sigma_b: FrScalar
+    sigma_c: FrScalar
+    sigma_o: FrScalar
+    gamma: FrScalar              # retained fr scalar (the AS path re-derives it)
 
 
 class NarkZkCore(NamedTuple):
@@ -422,7 +421,7 @@ def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
     out += b"\x01"  # FirstRoundMessage.randomness = Some
     for pt in (p.comm_r_a, p.comm_r_b, p.comm_r_c, p.comm_1, p.comm_2):
         out += curve.point_to_bytes(cv, pt)
-    out += struct.pack("<Q", p.blinded_witness.shape[0]) + p.blinded_witness.tobytes()  # Vec<Fr>
+    out += curve.serialize_fr_vec(cv, p.blinded_witness)  # Vec<Fr>
     out += b"\x01"  # SecondRoundMessage.randomness = Some
     for s in (p.sigma_a, p.sigma_b, p.sigma_c, p.sigma_o):
         out += s.tobytes()
@@ -475,7 +474,7 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
 
 
 def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list[int],
-                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> Any:
+                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> FrScalar:
     """ark `R1CSNark::compute_challenge` (gamma) over host commitment points, as an
     `fr` scalar.
 

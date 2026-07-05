@@ -36,9 +36,11 @@ flag byte (``0x40`` infinity, ``0x80`` when ``y > p - y``, else ``0x00``). The
 (``0x40``) leaves only one spare high bit.
 """
 
+import struct
 from dataclasses import dataclass
 from typing import Any
 
+import jax
 import numpy as np
 import zk_dtypes as zk
 
@@ -46,6 +48,15 @@ import zk_dtypes as zk
 _FLAG_INFINITY = 0x40
 _FLAG_NEG_Y = 0x80
 _FLAG_POS_Y = 0x00
+
+# `fr` seam vocabulary. The scalar dtype is per-curve (`cv.fr`), so an `fr` value
+# can't be spelled as a return/field type — `FrScalar` names the intent a bare
+# `Any` would hide (the repo convention: `fr` scalars stay `cv.fr`, never a python
+# int). `FrVec` is the polymorphic `Vec<Fr>` a serializer / commit accepts — an
+# `fr` array (a jit-core output or host field array) or an int list (e.g.
+# sponge-squeezed challenges), which `np.asarray(_, dtype=cv.fr)` unifies.
+FrScalar = Any
+FrVec = np.ndarray | jax.Array | list[int]
 
 
 @dataclass(frozen=True)
@@ -116,12 +127,22 @@ def point_to_bytes(cv: Curve, point: np.ndarray) -> bytes:
     return x.to_bytes(32, "little") + bytes([flag])
 
 
+def serialize_fr_vec(cv: Curve, values: FrVec) -> bytes:
+    """`Vec<Fr>` CanonicalSerialize: `u64` LE length then each element 32B LE.
+    `values` is a length-`n` `cv.fr` array (a jit-core output) or an int list; both
+    canonicalize to the same bytes via `np.asarray(..., dtype=cv.fr)`. The single
+    `Vec<Fr>` serializer every prover module routes through, next to
+    :func:`point_to_bytes` (the point serializer they already import)."""
+    arr = np.asarray(values, dtype=cv.fr)
+    return struct.pack("<Q", arr.shape[0]) + arr.tobytes()
+
+
 def pedersen_commit(
     cv: Curve,
     generators: list[np.ndarray],
-    elems: Any,
+    elems: FrVec,
     hiding: np.ndarray | None = None,
-    randomizer: Any | None = None,
+    randomizer: FrScalar | None = None,
 ) -> np.ndarray:
     """``Σ generatorsᵢ·elemsᵢ (+ randomizer·hiding)`` as a CPU group reduction —
     the byte-match oracle (NOT the jit/``lax.msm`` prove path, which is

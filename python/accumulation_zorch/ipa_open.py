@@ -42,7 +42,7 @@ from zorch.pcs.ipa.prover import _open_one, _open_one_zk
 from zorch.pcs.ipa.setup import IpaKey
 
 from . import ipa_challenger, ipa_pc
-from .curve import Curve
+from .curve import Curve, FrVec
 
 
 def _affine(cv: Curve, point: Any) -> np.ndarray:
@@ -63,7 +63,7 @@ def _fr_scalar(cv: Curve, value: Any) -> Array:
     return jnp.asarray(np.array([int(value)], dtype=cv.fr))[0]
 
 
-def _fr_vec(cv: Curve, values: Any) -> Array:
+def _fr_vec(cv: Curve, values: FrVec) -> Array:
     """`fr` scalars as a 1-d `cv.fr` jax array — an `fr` array (the combined check
     polynomial) or an int list; `np.asarray(_, dtype=cv.fr)` normalizes both, so no
     `fr` value round-trips through a python int."""
