@@ -36,7 +36,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-from . import absorbable, curve, hp_as, jcurve, jfield, jsponge, nark, sponge
+from . import absorbable, curve, field, hp_as, jcurve, jsponge, nark, sponge
 from .curve import Curve, FrVec
 
 # Challenge squeeze window (ark `CHALLENGE_SIZE`, capped at fr capacity). Both
@@ -102,9 +102,9 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
     @jax.jit
     def _core(bases: jax.Array, r1cs_input: jax.Array, blinded_witness: jax.Array) -> tuple:
         z = jnp.concatenate([r1cs_input, blinded_witness])
-        a_arr = jfield.matvec(a_dense, z)
-        b_arr = jfield.matvec(b_dense, z)
-        c_arr = jfield.matvec(c_dense, z)
+        a_arr = field.matvec(a_dense, z)
+        b_arr = field.matvec(b_dense, z)
+        c_arr = field.matvec(c_dense, z)
         comm_a, comm_b, comm_c = (lax.msm(a_arr, bases), lax.msm(b_arr, bases),
                                   lax.msm(c_arr, bases))
         # HP input: instance (comm_a, comm_b, comm_prod=comm_c) + opening (A·z, B·z).
@@ -280,7 +280,7 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
             no GPU scatter), threaded straight into the commitments / HP opening
             with no host round-trip. See the `a_dense` note above for why the
             general core densifies instead of reducing the sparse COO."""
-            return jfield.matvec(dense_m, vec)
+            return field.matvec(dense_m, vec)
 
         # comm_r_M = commit(M·(r1cs_r_input ‖ r1cs_r_witness)).
         zr = jnp.concatenate([r_in_arr, r_wit_arr])
@@ -327,11 +327,11 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
         beta = _beta_challenges_jax(cv, params, as_matrices_hash, inst_fe, pr_fe)  # (2,) = [1, c]
 
         # Fold the input + proof randomness under beta, all on-device.
-        combined_input = jfield.combine_vectors(jnp.stack([in_arr, r_in_arr]), beta)
+        combined_input = field.combine_vectors(jnp.stack([in_arr, r_in_arr]), beta)
         combined_comm_a = lax.msm(beta, jnp.stack([blinded_comm_a, comm_r_a]))
         combined_comm_b = lax.msm(beta, jnp.stack([blinded_comm_b, comm_r_b]))
         combined_comm_c = lax.msm(beta, jnp.stack([blinded_comm_c, comm_r_c]))
-        combined_blinded_witness = jfield.combine_vectors(
+        combined_blinded_witness = field.combine_vectors(
             jnp.stack([nk.blinded_witness, r_wit_arr]), beta)
         # combined sigma_M = sigma_M·beta[0] + as_r_M·beta[1] (both addends Some).
         combined_sigmas = nk.sigma_abc * beta[0] + as_rand_arr * beta[1]
@@ -553,12 +553,12 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
             cv, params, as_matrices_hash, inst_fe, pr_fe, acc_inst_fe=acc_inst_fe, num_challenges=2)
 
         # AS-level fold under beta, order [acc, input, proof_randomness].
-        combined_input = jfield.combine_vectors(
+        combined_input = field.combine_vectors(
             jnp.asarray(np.array([acc_r1cs_input, r1cs_input, r1cs_r_input], dtype=cv.fr)), beta)
         cca = lax.msm(beta, jnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
         ccb = lax.msm(beta, jnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
         ccc = lax.msm(beta, jnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
-        combined_blinded_witness = jfield.combine_vectors(jnp.stack([
+        combined_blinded_witness = field.combine_vectors(jnp.stack([
             jnp.asarray(np.array(acc_blinded_witness, dtype=cv.fr)), nk.blinded_witness,
             jnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))]), beta)
         combined_sigmas = (jnp.asarray(np.array(list(acc_sigma_abc), dtype=cv.fr)) * beta[0]

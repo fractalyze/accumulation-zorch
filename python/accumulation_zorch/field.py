@@ -1,11 +1,12 @@
-"""Jit-able Fr field/vector/polynomial kernels — the jit/GPU-exportable
-replacement for the numpy `zk_dtypes` arithmetic in `hp_as.py` (the
-jit/GPU-exportable port).
+"""Fr field / vector / polynomial kernels for the prove path — jax over the
+`cv.fr` dtype, inlined into the prove cores' outermost `@jax.jit` (GPU-lowerable).
+All Fr arithmetic on the prove path runs here; there is no host `zk_dtypes`
+field-math counterpart (the old int-decode `field.py` was dropped once `fr`
+values started riding the prove path as `cv.fr` arrays).
 
 Each kernel takes Fr `jnp` arrays and returns Fr `jnp` arrays; the orchestration
 (the AS / NARK prove cores) keeps the challenge / opening values as int lists and
-rebuilds the arrays at the kernel boundary (data movement, not arithmetic). No
-`zk_dtypes` numpy field math runs on the prove path.
+rebuilds the arrays at the kernel boundary (data movement, not arithmetic).
 """
 
 import jax

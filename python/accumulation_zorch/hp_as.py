@@ -16,7 +16,7 @@ import numpy as np
 from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import absorbable, curve, jcurve, jfield, jsponge, sponge
+from . import absorbable, curve, field, jcurve, jsponge, sponge
 from .curve import Curve, FrScalar
 
 CHALLENGE_SIZE = 128  # bits, matching ark hp_as::CHALLENGE_SIZE
@@ -115,7 +115,7 @@ def squeeze_nu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[Duplex
     """`squeeze_nu_challenges` as jax: one truncated-128 `nu` expanded to its
     `2n-1` powers `[nu^0, …, nu^{2n-2}]`."""
     sp, nu = jsponge.squeeze_challenges(sp, 1, _CHALLENGE_BITS, cv)
-    return sp, jfield.powers(nu, 2 * num_inputs - 1)
+    return sp, field.powers(nu, 2 * num_inputs - 1)
 
 
 def _product_poly_comm_jax(bases: jax.Array, t_vecs: jax.Array,
@@ -217,7 +217,7 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     sp = absorbable.absorb_option_points_jax(cv, sp, hiding_comms)
 
     sp, mu = squeeze_mu_jax(cv, sp, num_inputs)  # (3,) = [1, c, mu_n]
-    t_vecs = jfield.t_vecs_zk(a, b, mu[:num_inputs], hiding_a_vec, hiding_b_vec,
+    t_vecs = field.t_vecs_zk(a, b, mu[:num_inputs], hiding_a_vec, hiding_b_vec,
                               mu[num_inputs].reshape(1), mu[1].reshape(1))
     low, high = _product_poly_comm_jax(bases, t_vecs, num_inputs)
 
@@ -245,8 +245,8 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     instance = jnp.stack([cc1, cc2, cc3])
 
     # Combined openings + randomness over both rows (placeholder row → inert).
-    a_open = jfield.combine_vectors(a, combined) + mu[num_inputs] * hiding_a_vec
-    b_open = jfield.combine_vectors(jnp.flip(b, 0), nu[:num_inputs]) + mu[1] * hiding_b_vec
+    a_open = field.combine_vectors(a, combined) + mu[num_inputs] * hiding_a_vec
+    b_open = field.combine_vectors(jnp.flip(b, 0), nu[:num_inputs]) + mu[1] * hiding_b_vec
     a_rand = (input_rand[0] * combined[0] + row1_rand[0] * combined[1]
               + hr[0] * mu[num_inputs])
     b_rand = row1_rand[1] * nu[0] + input_rand[1] * nu[1] + hr[1] * mu[1]

@@ -39,7 +39,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from accumulation_zorch import curve, jcurve, jfield, nark
+from accumulation_zorch import curve, field, jcurve, nark
 from accumulation_zorch.curve import Curve
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
@@ -107,9 +107,9 @@ def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix
     @jax.jit
     def _core(bases_h: jax.Array, z: jax.Array, hp_a: jax.Array, hp_b: jax.Array,
               rand6: jax.Array) -> tuple:
-        av = jfield.matvec(a_dense, z)
-        bv = jfield.matvec(b_dense, z)
-        cv_vec = jfield.matvec(c_dense, z)
+        av = field.matvec(a_dense, z)
+        bv = field.matvec(b_dense, z)
+        cv_vec = field.matvec(c_dense, z)
         product = hp_a * hp_b  # Hadamard a_vec ∘ b_vec (fr element-wise)
         return (
             jcurve.commit_hiding(cv, av, rand6[0], bases_h),

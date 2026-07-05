@@ -5,7 +5,7 @@
 //! folded `acc.instance ‖ acc.witness ‖ proof` arkworks produces — the same golden
 //! the CPU byte-match (`recursion_fold_zk_test.py`) already hits, but with a single
 //! fused dispatch whose `M·z` is reduced on-device from the sparse COO
-//! (`jfield.sparse_matvec` → `stablehlo.scatter`) instead of the per-MSM
+//! (`field.sparse_matvec` → `stablehlo.scatter`) instead of the per-MSM
 //! `GpuBackend` fold dispatch.
 //!
 //! This is the GPU half of the IVC fold gate, and the bar acceptance-criterion

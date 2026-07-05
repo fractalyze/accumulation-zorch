@@ -22,7 +22,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-from . import jfield
+from . import field
 from .curve import Curve
 
 
@@ -48,7 +48,7 @@ def commit_dense(coeffs: jax.Array, z: jax.Array, bases: jax.Array) -> jax.Array
     commitment is one `lax.msm` → a single affine point, byte-identical to
     `PedersenCommitment::commit`.
     """
-    return lax.msm(jfield.matvec(coeffs, z), bases)
+    return lax.msm(field.matvec(coeffs, z), bases)
 
 
 def commit_hiding(cv: Curve, scalars: jax.Array, randomizer: int | jax.Array,
