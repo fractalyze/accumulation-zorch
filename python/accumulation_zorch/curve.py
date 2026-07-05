@@ -119,24 +119,32 @@ def point_to_bytes(cv: Curve, point: np.ndarray) -> bytes:
 def pedersen_commit(
     cv: Curve,
     generators: list[np.ndarray],
-    elems: list[int],
+    elems: Any,
     hiding: np.ndarray | None = None,
-    randomizer: int | None = None,
+    randomizer: Any | None = None,
 ) -> np.ndarray:
     """``Σ generatorsᵢ·elemsᵢ (+ randomizer·hiding)`` as a CPU group reduction —
     the byte-match oracle (NOT the jit/``lax.msm`` prove path, which is
     :mod:`jcurve`). Byte-identical to arkworks ``PedersenCommitment::commit`` (the
     sum is associative, so the hiding term folds in as one extra ``(base, scalar)``
-    pair). ``generators``/``hiding`` are affine point arrays; ``elems``/
-    ``randomizer`` are ints in ``fr``.
+    pair). ``generators``/``hiding`` are affine point arrays.
+
+    ``elems`` / ``randomizer`` are ``fr`` scalars: an ``fr`` array (a jit kernel's
+    output or a host field array) or a legacy int list — ``np.asarray(_, dtype=
+    cv.fr)`` normalizes both to canonical ``fr`` and the element multiplies the
+    base directly, so no ``fr`` value round-trips through a python int here.
 
     zk_dtypes' ``point * fr`` / ``point + point`` produce a jacobian; the running
     sum stays jacobian and is normalized back to affine on return (the affine
     cast :func:`point_coords` would also do), so the result serializes as ``x ‖ y``.
     """
-    terms = [g * cv.fr(int(s)) for g, s in zip(generators, elems)]
+    scalars = np.asarray(elems, dtype=cv.fr)
+    terms = [g * s for g, s in zip(generators, scalars)]
     if randomizer is not None:
-        terms.append(hiding * cv.fr(int(randomizer)))
+        # `[()]` reads the 0-d array as an `fr` scalar — the same element type
+        # iterating `scalars` yields, which `point * fr` accepts (a bare 0-d array
+        # does not).
+        terms.append(hiding * np.asarray(randomizer, dtype=cv.fr)[()])
     acc = terms[0]
     for t in terms[1:]:
         acc = acc + t

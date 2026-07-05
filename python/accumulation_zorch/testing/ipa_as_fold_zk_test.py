@@ -152,7 +152,7 @@ class IpaAsFoldZkTest(absltest.TestCase):
                 cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec,
                 s, acc.hiding_comm, acc.rand)
             coeffs = ipa_pc.compute_coeffs(cv, check_poly)
-            got = [cv.fr(c).tobytes().hex() for c in coeffs]
+            got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
             self.assertEqual(got, want, f"[{cv.name}] zk decider_coeffs: port != fixture")
             print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's zk "

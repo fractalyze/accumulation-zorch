@@ -84,20 +84,20 @@ def to_coo(cv: Curve, matrix: Matrix) -> tuple[np.ndarray, np.ndarray, np.ndarra
             np.array(vals, dtype=cv.fr))
 
 
-def matrix_vec_mul(cv: Curve, matrix: Matrix, input: list[int], witness: list[int]) -> list[int]:
-    """ark `matrix_vec_mul`: `matrix * (input ‖ witness)` in fr. `matrix` is a
-    sparse `Vec<Vec<(coeff, var_index)>>`; `input`/`witness` are fr ints. The
-    per-row inner product runs over `cv.fr` arrays, so the dtype reduces mod r — no
-    manual `% fr_modulus`."""
+def matrix_vec_mul(cv: Curve, matrix: Matrix, input: list[int], witness: list[int]) -> np.ndarray:
+    """ark `matrix_vec_mul`: `matrix * (input ‖ witness)` in fr, as an `fr` array.
+    `matrix` is a sparse `Vec<Vec<(coeff, var_index)>>`; `input`/`witness` are fr
+    ints. The per-row inner product runs over `cv.fr` arrays, so the dtype reduces
+    mod r — no manual `% fr_modulus`. Stays an `fr` array end-to-end (feeding
+    `pedersen_commit` / the device `z`), never decoded back to a python int."""
     z = np.array(list(input) + list(witness), dtype=cv.fr)
-    out: list[int] = []
-    for row in matrix:
+    out = np.zeros(len(matrix), dtype=cv.fr)
+    for i, row in enumerate(matrix):
         if not row:
-            out.append(0)
-            continue
+            continue  # empty row → the `fr` zero already in `out`
         coeffs = np.array([coeff for coeff, _ in row], dtype=cv.fr)
         idxs = [idx for _, idx in row]
-        out.append(fe_value(np.dot(coeffs, z[idxs])))
+        out[i] = np.dot(coeffs, z[idxs])
     return out
 
 
