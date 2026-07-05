@@ -94,7 +94,7 @@ class IpaAsFoldTest(absltest.TestCase):
 
             self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
             self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(cv.fr(acc.evaluation).tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
 
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
@@ -139,7 +139,7 @@ class IpaAsFoldTest(absltest.TestCase):
             check_poly = ipa_pc.succinct_check_challenges(
                 cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec)
             coeffs = ipa_pc.compute_coeffs(cv, check_poly)
-            got = [cv.fr(c).tobytes().hex() for c in coeffs]
+            got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
             self.assertEqual(got, want, f"[{cv.name}] decider_coeffs: port {got} != fixture {want}")
             print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's "

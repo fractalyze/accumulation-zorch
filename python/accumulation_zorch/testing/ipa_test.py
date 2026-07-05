@@ -29,6 +29,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from absl.testing import absltest
 
 from accumulation_zorch import curve, ipa_pc, sponge
@@ -89,10 +90,10 @@ class IpaTest(absltest.TestCase):
             coeffs = ipa_pc.compute_coeffs(cv, challenges)
             self.assertEqual(len(coeffs), len(d["coeffs"]), f"[{cv.name}] coeff count")
             for i, want_hex in enumerate(d["coeffs"]):
-                got_hex = cv.fr(coeffs[i]).tobytes().hex()
+                got_hex = coeffs[i].tobytes().hex()
                 self.assertEqual(got_hex, want_hex, f"[{cv.name}] h(X) coeff[{i}]: {got_hex} != {want_hex}")
 
-            got_eval = cv.fr(ipa_pc.evaluate(cv, challenges, point)).tobytes().hex()
+            got_eval = np.asarray(ipa_pc.evaluate_fr(cv, challenges, point), dtype=cv.fr).tobytes().hex()
             self.assertEqual(got_eval, d["eval_at_point"], (
                 f"[{cv.name}] h(point): {got_eval} != {d['eval_at_point']}"))
             print(f"  [{cv.name}] h(X) compute_coeffs ({len(coeffs)} coeffs) + evaluate "
@@ -107,7 +108,7 @@ class IpaTest(absltest.TestCase):
             challenges = ipa_pc.succinct_check_challenges(cv, params, commitment, point, value, l_vec, r_vec)
             coeffs = ipa_pc.compute_coeffs(cv, challenges)
             for i, want_hex in enumerate(d["coeffs"]):
-                got_hex = cv.fr(coeffs[i]).tobytes().hex()
+                got_hex = coeffs[i].tobytes().hex()
                 self.assertEqual(got_hex, want_hex, (
                     f"[{cv.name}] end-to-end h(X) coeff[{i}]: {got_hex} != {want_hex}"))
             print(f"  [{cv.name}] end-to-end (sponge → h(X) coeffs) byte-matches arkworks")

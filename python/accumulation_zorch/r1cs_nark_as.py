@@ -38,7 +38,6 @@ from jax import lax
 
 from . import absorbable, curve, hp_as, jcurve, jfield, jsponge, nark, sponge
 from .curve import Curve
-from .field import fe_values
 
 # Challenge squeeze window (ark `CHALLENGE_SIZE`, capped at fr capacity). Both
 # Pasta scalar fields are 254-cap > 128, so this is the curve-invariant 128.
@@ -354,8 +353,8 @@ def prove_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_inp
     """zk `ASForR1CSNark::prove` over a single input, no prior accumulators — the
     zk acceptance criterion. Replays every sampled randomness value (NARK, AS, HP)
     rather than re-deriving arkworks' RNG. The whole prove is one fused `@jax.jit`
-    core (`_build_zk_core`); materialization (`np.asarray` / `fe_values`) is the
-    serialize seam below."""
+    core (`_build_zk_core`); materialization (`np.asarray` to host `fr` arrays) is
+    the serialize seam below."""
     r1cs_r_input = [as_r1cs_r_input] * len(r1cs_input)
     (core_fn, bases_h, id_pt, ex_in, ex_wit, ex_r, ex_blinders, ex_r_in, ex_r_wit,
      ex_as_rand, ex_hp_rand, ex_in_u8b, ex_r_in_u8b) = _build_zk_core(
@@ -423,7 +422,7 @@ def decide(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
     # is the host oracle, so it uses a vectorized numpy `fr` multiply (the `fr`
     # dtype reduces mod r) — host arithmetic, not jax, and vectorized rather than
     # a per-element scalar multiply (which would dispatch to jax once per element).
-    product = fe_values(np.array(acc.hp_a_vec, dtype=cv.fr) * np.array(acc.hp_b_vec, dtype=cv.fr))
+    product = np.array(acc.hp_a_vec, dtype=cv.fr) * np.array(acc.hp_b_vec, dtype=cv.fr)
     rand_1, rand_2, rand_3 = acc.hp_rand if acc.hp_rand is not None else (None, None, None)
     hp_comm_1 = curve.pedersen_commit(cv, generators[:len(acc.hp_a_vec)], acc.hp_a_vec, hiding, rand_1)
     hp_comm_2 = curve.pedersen_commit(cv, generators[:len(acc.hp_b_vec)], acc.hp_b_vec, hiding, rand_2)
@@ -480,7 +479,7 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     # matvec is still exercised by the standalone NARK half-step; only the fold's
     # constant reduces are pre-baked here.
     def _host_mz(m: nark.Matrix, inp: list[int], wit: list[int]) -> jax.Array:
-        return jnp.asarray(np.array(nark.matrix_vec_mul(cv, m, inp, wit), dtype=cv.fr))
+        return jnp.asarray(nark.matrix_vec_mul(cv, m, inp, wit))
 
     # comm_r = commit(M·(r1cs_r_input ‖ r1cs_r_witness)); the AS proof-randomness reduce.
     mz_r = [_host_mz(m, r1cs_r_input, r1cs_r_witness) for m in (a, b, c)]

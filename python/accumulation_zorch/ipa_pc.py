@@ -36,7 +36,6 @@ from zorch.pcs.ipa.math import challenge_vector, eval_challenge_poly
 
 from . import absorbable, curve, sponge
 from .curve import Curve
-from .field import fe_value, fe_values
 
 # ark `ipa_pc` domain (`IpaPCDomain`): every fresh succinct-check sponge is a
 # `DomainSeparatedSponge` forked with this label before anything is absorbed.
@@ -135,19 +134,19 @@ def succinct_check_challenges_zk(
     return _round_challenges_from_seed(cv, params, seed, point, value, l_vec, r_vec)
 
 
-def compute_coeffs(cv: Curve, challenges: list[int]) -> list[int]:
+def compute_coeffs(cv: Curve, challenges: list[int]) -> np.ndarray:
     """`SuccinctCheckPolynomial::compute_coeffs` — the dense `2^log_d` coefficients
-    of `h(X) = ∏_{i=1..log_d} (1 + ξ_i · X^{2^(log_d − i)})`, as canonical `fr`
-    ints. `coeffs[k]` is the product of the ξ_i whose power-of-two block covers
-    index `k` (descending: ξ₁ multiplies the `X^{2^(log_d−1)}` block).
+    of `h(X) = ∏_{i=1..log_d} (1 + ξ_i · X^{2^(log_d − i)})`, as a host `fr` array.
+    `coeffs[k]` is the product of the ξ_i whose power-of-two block covers index `k`
+    (descending: ξ₁ multiplies the `X^{2^(log_d−1)}` block).
 
     Delegates to zorch's `pcs/ipa/math.challenge_vector` — the identical dense
     check-polynomial coefficients (`s ← concat(s, ξ_i·s)` unrolled last-to-first,
     same descending index order), pinned against this same arkworks oracle in
-    zorch. This port only decodes the resulting `fr` array to canonical ints at
-    the serialization boundary."""
+    zorch. Materialized to a host `cv.fr` array at the boundary (fed straight to
+    `pedersen_commit` / the combined check polynomial), never decoded to ints."""
     u = jnp.asarray(np.array(challenges, dtype=cv.fr))
-    return fe_values(challenge_vector(u))
+    return np.asarray(challenge_vector(u), dtype=cv.fr)
 
 
 def evaluate_fr(cv: Curve, challenges: list[int], point: int) -> Array:
@@ -156,17 +155,10 @@ def evaluate_fr(cv: Curve, challenges: list[int], point: int) -> Array:
     `pcs/ipa/math.eval_challenge_poly` (the O(log_d), no-inverse read of
     `compute_coeffs`, `point^{2^m}` by repeated squaring). For callers that keep
     working in the field — e.g. the AS combined evaluation's `Σ lc·h` weighted sum
-    — so the per-input `h_j` never round-trips through a canonical int.
-    :func:`evaluate` is the int-decoding boundary wrapper over this."""
+    — so the per-input `h_j` never round-trips through a canonical int."""
     u = jnp.asarray(np.array(challenges, dtype=cv.fr))
     x = jnp.asarray(cv.fr(point))
     return eval_challenge_poly(u, x)
-
-
-def evaluate(cv: Curve, challenges: list[int], point: int) -> int:
-    """`SuccinctCheckPolynomial::evaluate(point)` as a canonical int — the
-    serialization-boundary decode of :func:`evaluate_fr`."""
-    return fe_value(evaluate_fr(cv, challenges, point))
 
 
 class IpaProof(NamedTuple):

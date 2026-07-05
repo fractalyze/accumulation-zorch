@@ -37,7 +37,6 @@ import numpy as np
 
 from . import absorbable, curve, ipa_open, ipa_pc, sponge
 from .curve import Curve
-from .field import fe_value, fe_values
 
 # ark `ipa_pc_as` AS-level domain (`ASForIpaPCDomain`).
 AS_DOMAIN = b"AS-FOR-IPA-PC-2020"
@@ -148,46 +147,43 @@ def compute_new_challenge(
     return point[0]
 
 
-def combined_evaluation(
+def _combined_evaluation_fr(
     cv: Curve, addends: list[tuple[int, list[int]]], point: int,
     rlp_coeffs: list[int] | None = None,
-) -> int:
+) -> Any:
     """`evaluate_combined_succinct_check_polynomials(point, random_polynomial)`:
-    `Σ lc_challenge_j · h_j(point)` — the combined check polynomial is linear in the
-    per-input check polynomials, so its evaluation is the weighted sum of the
-    succinct `h_j(point)`. When `rlp_coeffs` is given (the zk path) the degree-1
-    random linear polynomial `rlp(point) = c0 + c1·point` is added on top.
-    `rlp_coeffs is None` ⇒ the no-zk path (arkworks `random_polynomial = None`)."""
-    eval_fr = _combined_evaluation_fr(cv, addends, point)
-    if rlp_coeffs is not None:
-        c0, c1 = _rlp_pair(rlp_coeffs)
-        eval_fr = eval_fr + (cv.fr(c0) + cv.fr(c1) * cv.fr(point))
-    return fe_value(eval_fr)
-
-
-def _combined_evaluation_fr(cv: Curve, addends: list[tuple[int, list[int]]], point: int):  # type: ignore[no-untyped-def]
-    """`Σ lc_challenge_j · h_j(point)` as an `fr` scalar — the field-native core of
-    :func:`combined_evaluation`. Each `h_j` comes from :func:`ipa_pc.evaluate_fr` as
-    an `fr` value (no per-input int decode); the public wrapper crosses the
-    dtype→int boundary once at the end. Returns a numpy `fr` scalar so the zk
-    path's `+ rlp(point)` stays numpy-native."""
+    `Σ lc_challenge_j · h_j(point)` as an `fr` scalar — the combined check
+    polynomial is linear in the per-input check polynomials, so its evaluation is
+    the weighted sum of the succinct `h_j(point)`, each `h_j` from
+    :func:`ipa_pc.evaluate_fr` as an `fr` value (no per-input int decode). When
+    `rlp_coeffs` is given (the zk path) the degree-1 random linear polynomial
+    `rlp(point) = c0 + c1·point` is added on top; `rlp_coeffs is None` ⇒ the no-zk
+    path (arkworks `random_polynomial = None`). Stays a numpy `fr` scalar — the new
+    accumulator's `evaluation` — never decoded to a python int."""
     lc = jnp.asarray(np.array([lc_challenge for lc_challenge, _ in addends], dtype=cv.fr))
     h = jnp.concatenate(
         [ipa_pc.evaluate_fr(cv, check_poly, point).reshape(1) for _, check_poly in addends])
-    return np.asarray(jnp.sum(lc * h), dtype=cv.fr)
+    eval_fr = np.asarray(jnp.sum(lc * h), dtype=cv.fr)
+    if rlp_coeffs is not None:
+        c0, c1 = _rlp_pair(rlp_coeffs)
+        eval_fr = eval_fr + (cv.fr(c0) + cv.fr(c1) * cv.fr(point))
+    return eval_fr
 
 
 def combine_check_polynomials(
     cv: Curve, addends: list[tuple[int, list[int]]],
     rlp_coeffs: list[int] | None = None,
-) -> list[int]:
+) -> np.ndarray:
     """`combine_succinct_check_polynomials(random_polynomial)`: the dense combined
-    check polynomial `Σ lc_challenge_j · h_j(X)` (length `d+1 = 2^log_d`), each `h_j`
-    densely expanded via `compute_coeffs`. When `rlp_coeffs` is given (the zk path)
-    the degree-1 random linear polynomial `rlp(X) = c0 + c1·X` seeds the two low
-    coefficients before the linear combination — arkworks seeds
+    check polynomial `Σ lc_challenge_j · h_j(X)` (length `d+1 = 2^log_d`) as an `fr`
+    array, each `h_j` densely expanded via `compute_coeffs`. When `rlp_coeffs` is
+    given (the zk path) the degree-1 random linear polynomial `rlp(X) = c0 + c1·X`
+    seeds the two low coefficients before the linear combination — arkworks seeds
     `combined = random_polynomial` then adds the weighted check polynomials.
-    `rlp_coeffs is None` ⇒ the no-zk path (arkworks `random_polynomial = None`)."""
+    `rlp_coeffs is None` ⇒ the no-zk path (arkworks `random_polynomial = None`).
+
+    Stays an `fr` array feeding the IPA opener (`ipa_open.open_*`), never decoded
+    back to canonical ints."""
     n = 1 << len(addends[0][1])  # 2^log_d
     combined = np.zeros(n, dtype=cv.fr)
     if rlp_coeffs is not None:
@@ -195,9 +191,9 @@ def combine_check_polynomials(
         combined[0] = cv.fr(c0)
         combined[1] = cv.fr(c1)
     for lc_challenge, check_poly in addends:
-        coeffs = np.array(ipa_pc.compute_coeffs(cv, check_poly), dtype=cv.fr)
+        coeffs = ipa_pc.compute_coeffs(cv, check_poly)
         combined = combined + np.array([lc_challenge], dtype=cv.fr) * coeffs
-    return fe_values(combined)
+    return combined
 
 
 def _rlp_pair(rlp_coeffs: list[int]) -> tuple[int, int]:
@@ -215,7 +211,7 @@ class AccumulatorInstance(NamedTuple):
     evaluation."""
     commitment: np.ndarray
     point: int
-    evaluation: int
+    evaluation: Any  # combined-evaluation `fr` scalar
 
 
 class Accumulator(NamedTuple):
@@ -223,7 +219,7 @@ class Accumulator(NamedTuple):
     opening proof of the combined check polynomial at the new point."""
     commitment: np.ndarray
     point: int
-    evaluation: int
+    evaluation: Any  # combined-evaluation `fr` scalar
     ipa_proof: ipa_pc.IpaProof
 
 
@@ -239,7 +235,7 @@ def _prove_instance(cv: Curve, params, succinct_checks: list[SuccinctCheck],
     rlp = proof.rlp_coeffs if proof is not None else None
     combined, randomized, addends = combine(cv, params, succinct_checks, proof, s)
     point = compute_new_challenge(cv, params, combined, addends, rlp)
-    evaluation = combined_evaluation(cv, addends, point, rlp)
+    evaluation = _combined_evaluation_fr(cv, addends, point, rlp)
     return AccumulatorInstance(randomized, point, evaluation), addends
 
 
