@@ -17,7 +17,6 @@ from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, jcurve, jfield, jsponge, sponge
 from .curve import Curve
-from .field import fe_value, fe_values
 
 # ark `r1cs_nark::PROTOCOL_NAME` — the domain the NARK sponge is forked with.
 PROTOCOL_NAME = b"R1CS-NARK-2020"
@@ -195,12 +194,12 @@ class NarkZkProof(NamedTuple):
     comm_r_c: np.ndarray
     comm_1: np.ndarray
     comm_2: np.ndarray
-    blinded_witness: list[int]
-    sigma_a: int
-    sigma_b: int
-    sigma_c: int
-    sigma_o: int
-    gamma: int
+    blinded_witness: np.ndarray  # (witness_len,) fr
+    sigma_a: np.ndarray          # response sigma fr scalars
+    sigma_b: np.ndarray
+    sigma_c: np.ndarray
+    sigma_o: np.ndarray
+    gamma: np.ndarray            # retained fr scalar (the AS path re-derives it)
 
 
 class NarkZkCore(NamedTuple):
@@ -395,7 +394,7 @@ def prove_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witne
     derives `gamma`, and forms the blinded witness `w + gamma·r` and the response
     sigmas. The device compute (`prove_zk_core`) is one fused `@jax.jit` trace
     closing over the host sponge constants, with the committer key (`bases_h`) as
-    its affine argument; materialization (`np.asarray` / `fe_values`) is the
+    its affine argument; materialization (`np.asarray` to host `fr` arrays) is the
     serialize seam. See `prove_zk_core` for the un-materialized (AS-threaded)
     form."""
     core_fn, bases_h = build_zk_core(cv, a, b, c, input, witness, generators, hiding, params,
@@ -403,13 +402,13 @@ def prove_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witne
                                      r_a_blinder, r_b_blinder, r_c_blinder, blinder_1, blinder_2,
                                      fork)
     core = core_fn(bases_h)
-    sigma_a, sigma_b, sigma_c = fe_values(core.sigma_abc)
+    sigma_abc = np.asarray(core.sigma_abc, dtype=cv.fr)
     return NarkZkProof(
         np.asarray(core.comm_a), np.asarray(core.comm_b), np.asarray(core.comm_c),
         np.asarray(core.comm_r_a), np.asarray(core.comm_r_b), np.asarray(core.comm_r_c),
         np.asarray(core.comm_1), np.asarray(core.comm_2),
-        fe_values(core.blinded_witness), sigma_a, sigma_b, sigma_c,
-        fe_value(core.sigma_o), fe_values(core.gamma)[0])
+        np.asarray(core.blinded_witness, dtype=cv.fr), sigma_abc[0], sigma_abc[1], sigma_abc[2],
+        np.asarray(core.sigma_o, dtype=cv.fr), np.asarray(core.gamma, dtype=cv.fr)[0])
 
 
 def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
@@ -422,11 +421,11 @@ def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
     out += b"\x01"  # FirstRoundMessage.randomness = Some
     for pt in (p.comm_r_a, p.comm_r_b, p.comm_r_c, p.comm_1, p.comm_2):
         out += curve.point_to_bytes(cv, pt)
-    out += struct.pack("<Q", len(p.blinded_witness))
-    out += b"".join(cv.fr(w).tobytes() for w in p.blinded_witness)
+    bw = np.asarray(p.blinded_witness, dtype=cv.fr)
+    out += struct.pack("<Q", bw.shape[0]) + bw.tobytes()  # blinded-witness Vec<Fr>
     out += b"\x01"  # SecondRoundMessage.randomness = Some
     for s in (p.sigma_a, p.sigma_b, p.sigma_c, p.sigma_o):
-        out += cv.fr(s).tobytes()
+        out += np.asarray(s, dtype=cv.fr).tobytes()
     return bytes(out)
 
 
@@ -476,8 +475,9 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
 
 
 def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list[int],
-                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> int:
-    """ark `R1CSNark::compute_challenge` (gamma) over host commitment points.
+                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> np.ndarray:
+    """ark `R1CSNark::compute_challenge` (gamma) over host commitment points, as an
+    `fr` scalar.
 
     `inputs` are fr values as ints; `comms` is the three first-round commitment
     points. `randomness`, when present (zk path), is the five first-round
@@ -485,4 +485,4 @@ def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list
     rstack = jcurve.stack_affine(cv, randomness) if randomness is not None else None
     ch = _gamma_finish(cv, _gamma_pre_sponge(cv, params, matrices_hash, inputs),
                        jcurve.stack_affine(cv, comms), rstack)
-    return fe_values(ch)[0]
+    return np.asarray(ch, dtype=cv.fr)[0]

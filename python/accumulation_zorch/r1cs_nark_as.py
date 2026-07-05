@@ -353,8 +353,8 @@ def prove_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_inp
     """zk `ASForR1CSNark::prove` over a single input, no prior accumulators — the
     zk acceptance criterion. Replays every sampled randomness value (NARK, AS, HP)
     rather than re-deriving arkworks' RNG. The whole prove is one fused `@jax.jit`
-    core (`_build_zk_core`); materialization (`np.asarray` / `fe_values`) is the
-    serialize seam below."""
+    core (`_build_zk_core`); materialization (`np.asarray` to host `fr` arrays) is
+    the serialize seam below."""
     r1cs_r_input = [as_r1cs_r_input] * len(r1cs_input)
     (core_fn, bases_h, id_pt, ex_in, ex_wit, ex_r, ex_blinders, ex_r_in, ex_r_wit,
      ex_as_rand, ex_hp_rand, ex_in_u8b, ex_r_in_u8b) = _build_zk_core(
