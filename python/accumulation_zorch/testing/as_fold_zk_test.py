@@ -27,6 +27,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
+from jax import lax
 
 from accumulation_zorch import absorbable, curve, jcurve, jfield, nark, r1cs_nark_as, sponge
 
@@ -117,9 +118,9 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
 
         # input₂'s gamma-blinded NARK commitments (the addend the input contributes).
         one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = jcurve.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = jcurve.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        blinded_comm_c = jcurve.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
+        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
+        blinded_comm_c = lax.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
 
         # beta over num_addends=3: as_sponge absorbs the accumulator instance, then
         # the input instance, then the proof randomness; squeeze 2 challenges.
@@ -142,9 +143,9 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
         # Fold under beta, in the order [acc, input, proof_randomness].
         combined_input = jfield.combine_vectors(
             jnp.asarray(np.array([acc_r1cs_input, input2, r1cs_r_input], dtype=cv.fr)), beta)
-        combined_comm_a = jcurve.msm(beta, jnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
-        combined_comm_b = jcurve.msm(beta, jnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
-        combined_comm_c = jcurve.msm(beta, jnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
+        combined_comm_a = lax.msm(beta, jnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
+        combined_comm_b = lax.msm(beta, jnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
+        combined_comm_c = lax.msm(beta, jnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
 
         # Witness combine (no sponge — reuses beta): blinded witness + sigma_{a,b,c}
         # over the same [acc, input, proof_randomness] order. The fold's proof

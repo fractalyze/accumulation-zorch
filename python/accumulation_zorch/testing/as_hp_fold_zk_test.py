@@ -33,6 +33,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
+from jax import lax
 
 from accumulation_zorch import absorbable, curve, hp_as, jcurve, jfield, nark, sponge
 
@@ -106,9 +107,9 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
         # input₂'s HP instance: the gamma-blinded NARK commitments
         # (comm_prod folds comm_1, comm_2 at gamma, gamma²).
         one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = jcurve.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = jcurve.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        comm_prod = jcurve.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
+        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
+        comm_prod = lax.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
                                jnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
 
         # input₂'s HP opening: M·z over z = r1cs_input ‖ blinded_witness; the HP

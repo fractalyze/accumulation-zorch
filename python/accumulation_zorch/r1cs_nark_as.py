@@ -35,6 +35,7 @@ from typing import Any, NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import lax
 
 from . import absorbable, curve, hp_as, jcurve, jfield, jsponge, nark, sponge
 from .curve import Curve
@@ -110,8 +111,8 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
         a_arr = jfield.matvec(a_dense, z)
         b_arr = jfield.matvec(b_dense, z)
         c_arr = jfield.matvec(c_dense, z)
-        comm_a, comm_b, comm_c = (jcurve.msm(a_arr, bases), jcurve.msm(b_arr, bases),
-                                  jcurve.msm(c_arr, bases))
+        comm_a, comm_b, comm_c = (lax.msm(a_arr, bases), lax.msm(b_arr, bases),
+                                  lax.msm(c_arr, bases))
         # HP input: instance (comm_a, comm_b, comm_prod=comm_c) + opening (A·z, B·z).
         hp_sponge = absorbable.fork(cv, sponge.new_sponge(params), HP_AS_PROTOCOL_NAME)
         hp = hp_as.prove_no_zk_core(cv, jnp.stack([comm_a, comm_b, comm_c]), a_arr, b_arr,
@@ -295,10 +296,10 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
         # Blinded commitments: fold the NARK first-round randomness in, scaled by
         # gamma (each `comm + coeff·comm_r` is one lax.msm fold).
         one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = jcurve.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = jcurve.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        blinded_comm_c = jcurve.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
-        comm_prod = jcurve.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
+        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
+        blinded_comm_c = lax.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
+        comm_prod = lax.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
                                jnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
 
         # HP input from the blinded commitments + the NARK opening; the HP zk core
@@ -332,9 +333,9 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
 
         # Fold the input + proof randomness under beta, all on-device.
         combined_input = jfield.combine_vectors(jnp.stack([in_arr, r_in_arr]), beta)
-        combined_comm_a = jcurve.msm(beta, jnp.stack([blinded_comm_a, comm_r_a]))
-        combined_comm_b = jcurve.msm(beta, jnp.stack([blinded_comm_b, comm_r_b]))
-        combined_comm_c = jcurve.msm(beta, jnp.stack([blinded_comm_c, comm_r_c]))
+        combined_comm_a = lax.msm(beta, jnp.stack([blinded_comm_a, comm_r_a]))
+        combined_comm_b = lax.msm(beta, jnp.stack([blinded_comm_b, comm_r_b]))
+        combined_comm_c = lax.msm(beta, jnp.stack([blinded_comm_c, comm_r_c]))
         combined_blinded_witness = jfield.combine_vectors(
             jnp.stack([nk.blinded_witness, r_wit_arr]), beta)
         # combined sigma_M = sigma_M·beta[0] + as_r_M·beta[1] (both addends Some).
@@ -512,10 +513,10 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
 
         # input's gamma-blinded NARK commitments + the HP comm_prod (gamma² term).
         one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = jcurve.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = jcurve.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        blinded_comm_c = jcurve.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
-        comm_prod = jcurve.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
+        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
+        blinded_comm_c = lax.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
+        comm_prod = lax.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
                                jnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
 
         # HP-level fold: input's HP input (blinded comms + M·z openings, NARK
@@ -560,9 +561,9 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
         # AS-level fold under beta, order [acc, input, proof_randomness].
         combined_input = jfield.combine_vectors(
             jnp.asarray(np.array([acc_r1cs_input, r1cs_input, r1cs_r_input], dtype=cv.fr)), beta)
-        cca = jcurve.msm(beta, jnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
-        ccb = jcurve.msm(beta, jnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
-        ccc = jcurve.msm(beta, jnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
+        cca = lax.msm(beta, jnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
+        ccb = lax.msm(beta, jnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
+        ccc = lax.msm(beta, jnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
         combined_blinded_witness = jfield.combine_vectors(jnp.stack([
             jnp.asarray(np.array(acc_blinded_witness, dtype=cv.fr)), nk.blinded_witness,
             jnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))]), beta)

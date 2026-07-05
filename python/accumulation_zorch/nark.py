@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import lax
 
 from zorch.hash.duplex_sponge import DuplexSponge
 
@@ -143,7 +144,7 @@ def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: jax
     doesn't lower). No blinders (no-zk), so a commitment is just `Σ (M·z)ᵢ·basesᵢ`."""
     def commit(coo: tuple) -> jax.Array:
         row_idx, col_idx, vals = coo
-        return jcurve.msm(jfield.sparse_matvec(vals, col_idx, row_idx, z, num_rows), bases)
+        return lax.msm(jfield.sparse_matvec(vals, col_idx, row_idx, z, num_rows), bases)
     return NoZkNarkCore(commit(coo_a), commit(coo_b), commit(coo_c))
 
 
@@ -300,7 +301,7 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     challenge (its `FirstRoundMessage` point absorb), and the gamma-blinded
     responses are all one trace."""
     def commit(scalars: jax.Array, rand: jax.Array) -> jax.Array:
-        return jcurve.msm(jnp.concatenate([scalars, rand.reshape(1)]), bases_h)
+        return lax.msm(jnp.concatenate([scalars, rand.reshape(1)]), bases_h)
 
     # `dense` (the runtime/general path) reduces `M·v` as a dense matvec (constant
     # matrix · runtime vector → no GPU scatter); otherwise the sparse COO path (the

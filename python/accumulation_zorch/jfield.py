@@ -15,7 +15,9 @@ import jax.numpy as jnp
 def matvec(coeffs: jax.Array, z: jax.Array) -> jax.Array:
     """`M·z` over Fr: a dense `(rows × vars)` matrix times the `(vars,)` vector
     `z = r1cs_input ‖ witness`, as a broadcast multiply-and-sum → `(rows,)` Fr.
-    (`@`/`einsum` don't lower for the field dtype.)"""
+    (`coeffs @ z` / `einsum` also lower over the field dtype — a body-once
+    `scf.for` — so this explicit reduction is an idiom choice matching zorch's i256
+    inner products, not a lowering workaround.)"""
     return jnp.sum(coeffs * z[jnp.newaxis, :], axis=1)
 
 
