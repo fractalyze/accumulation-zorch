@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
@@ -92,17 +91,17 @@ class AbsorbTest(absltest.TestCase):
             self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"point_absorb {case['label']}")
             print(f"  point absorb ({case['label']}) OK")
 
-    def test_point_to_field_array_jax_matches_host(self) -> None:
-        """The in-jit batched affine short-Weierstrass point packing reproduces the
-        host `point_to_field_array` concatenation byte-for-byte, including the
-        arkworks identity `[0, 1, 1]` convention (the all-zero point in the batch)."""
-        g = json.loads(_ABSORB.read_text())["gamma"]
-        points = [_point_from_fixture(c) for c in g["comms"]] + [cv.g1((0, 0))]
-        host = np.concatenate([absorbable.point_to_field_array(cv, p) for p in points])
+    def test_point_to_field_array_jax_identity_matches_arkworks(self) -> None:
+        """The in-jit device packing of the identity (infinity) point matches the
+        arkworks `[0, 1, 1]` field-element golden — the jit twin of
+        `test_identity_point_packs_as_0_1_1`. Non-identity / batched packing is
+        covered end-to-end by the fused-core byte-match tests (as_fold_zk, nark)."""
+        want = json.loads(_ABSORB.read_text())["identity_to_field_elements_le_hex"]
         pack = jax.jit(lambda pts: absorbable.point_to_field_array_jax(cv, pts))
-        got = np.asarray(pack(curve.stack_affine(cv, points)))
-        self.assertEqual(host.tobytes(), got.tobytes(), "in-jit point packing != host packing")
-        print("  point_to_field_array_jax byte-matches host (incl identity) OK")
+        fes = np.asarray(pack(curve.stack_affine(cv, [cv.g1((0, 0))])))
+        got = [fes[i].tobytes().hex() for i in range(fes.shape[0])]
+        self.assertEqual(got, want, f"in-jit identity packing: {got} != {want}")
+        print("  point_to_field_array_jax identity packing byte-matches arkworks OK")
 
     def test_gamma_challenge_matches_arkworks(self) -> None:
         g = json.loads(_ABSORB.read_text())["gamma"]
