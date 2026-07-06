@@ -27,7 +27,7 @@ Faithful to the arkworks no-zk path (`combine_succinct_check_polynomials_and_com
   `h_j(point)` weighted by the lc challenges).
 
 The per-input check polynomials and `final_comm_key`s come from
-:mod:`ipa_pc` succinct checks (Slice 1).
+:mod:`ipa_challenger` succinct checks (Slice 1).
 """
 
 from typing import Any, NamedTuple
@@ -35,7 +35,7 @@ from typing import Any, NamedTuple
 import jax.numpy as jnp
 import numpy as np
 
-from . import absorbable, curve, ipa_open, ipa_pc, sponge
+from . import absorbable, curve, ipa_challenger, ipa_open, sponge
 from .curve import Curve, FrScalar
 
 # ark `ipa_pc_as` AS-level domain (`ASForIpaPCDomain`).
@@ -155,14 +155,14 @@ def _combined_evaluation_fr(
     `Σ lc_challenge_j · h_j(point)` as an `fr` scalar — the combined check
     polynomial is linear in the per-input check polynomials, so its evaluation is
     the weighted sum of the succinct `h_j(point)`, each `h_j` from
-    :func:`ipa_pc.evaluate_fr` as an `fr` value (no per-input int decode). When
+    :func:`ipa_challenger.evaluate_fr` as an `fr` value (no per-input int decode). When
     `rlp_coeffs` is given (the zk path) the degree-1 random linear polynomial
     `rlp(point) = c0 + c1·point` is added on top; `rlp_coeffs is None` ⇒ the no-zk
     path (arkworks `random_polynomial = None`). Stays a numpy `fr` scalar — the new
     accumulator's `evaluation` — never decoded to a python int."""
     lc = jnp.asarray(np.array([lc_challenge for lc_challenge, _ in addends], dtype=cv.fr))
     h = jnp.concatenate(
-        [ipa_pc.evaluate_fr(cv, check_poly, point).reshape(1) for _, check_poly in addends])
+        [ipa_challenger.evaluate_fr(cv, check_poly, point).reshape(1) for _, check_poly in addends])
     eval_fr = np.asarray(jnp.sum(lc * h), dtype=cv.fr)
     if rlp_coeffs is not None:
         c0, c1 = _rlp_pair(rlp_coeffs)
@@ -191,7 +191,7 @@ def combine_check_polynomials(
         combined[0] = cv.fr(c0)
         combined[1] = cv.fr(c1)
     for lc_challenge, check_poly in addends:
-        coeffs = ipa_pc.compute_coeffs(cv, check_poly)
+        coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
         combined = combined + np.array([lc_challenge], dtype=cv.fr) * coeffs
     return combined
 
@@ -220,7 +220,7 @@ class Accumulator(NamedTuple):
     commitment: np.ndarray
     point: int
     evaluation: FrScalar  # combined-evaluation `fr` scalar
-    ipa_proof: ipa_pc.IpaProof
+    ipa_proof: ipa_open.IpaProof
 
 
 def _prove_instance(cv: Curve, params, succinct_checks: list[SuccinctCheck],
@@ -311,9 +311,9 @@ def _input_check_poly(cv: Curve, params, inst: Any, s: np.ndarray | None):  # ty
     the round challenges (a prior accumulator from a zk prove). `s is None` ⇒ the
     no-zk succinct check."""
     if s is None:
-        return ipa_pc.succinct_check_challenges(
+        return ipa_challenger.succinct_check_challenges(
             cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec)
-    return ipa_pc.succinct_check_challenges_zk(
+    return ipa_challenger.succinct_check_challenges_zk(
         cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec,
         s, inst.hiding_comm, inst.rand)
 
@@ -339,5 +339,5 @@ def decide_final_key(cv: Curve, params, generators: list[np.ndarray], inst: Any,
     Pass `s` (the verifier key's hiding generator) for a hiding accumulator — the
     **zk** succinct check folds its `hiding_comm`/`rand` seed with `s`; `s is None`
     ⇒ the no-zk decider."""
-    coeffs = ipa_pc.compute_coeffs(cv, _input_check_poly(cv, params, inst, s))
+    coeffs = ipa_challenger.compute_coeffs(cv, _input_check_poly(cv, params, inst, s))
     return curve.pedersen_commit(cv, generators, coeffs)

@@ -1,4 +1,4 @@
-"""Adapter: produce accumulation-zorch's `ipa_pc.IpaProof` by driving zorch's
+"""Adapter: produce accumulation-zorch's `IpaProof` by driving zorch's
 `pcs/ipa` fold — the replacement for accumulation-zorch's former local port of
 arkworks' `ipa_pc::open_individual_opening_challenges` (Task 4 / Phase 2; the
 local port was deleted in Task 5 once this adapter was byte-matching through
@@ -31,7 +31,7 @@ IPA-fold implementation left in the tree.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -41,13 +41,26 @@ from jax import Array, lax
 from zorch.pcs.ipa.prover import _open_one, _open_one_zk
 from zorch.pcs.ipa.setup import IpaKey
 
-from . import ipa_challenger, ipa_pc
+from . import ipa_challenger
 from .curve import Curve, FrVec
+
+
+class IpaProof(NamedTuple):
+    """The IPA opening proof: the per-round fold commitments, the fully-folded
+    generator and coefficient, and (zk only) the hiding commitment + combined
+    blinder. No-zk leaves `hiding_comm`/`rand` as `None`. Produced here by driving
+    zorch's fold; the AS combinator (`ipa_pc_as.Accumulator`) carries it."""
+    l_vec: list[np.ndarray]
+    r_vec: list[np.ndarray]
+    final_comm_key: np.ndarray
+    c: int
+    hiding_comm: np.ndarray | None = None
+    rand: int | None = None
 
 
 def _affine(cv: Curve, point: Any) -> np.ndarray:
     """Normalize a (possibly jacobian) `lax.msm`/fold result to an affine point
-    array — the form `ipa_pc.IpaProof`'s fields and the byte comparison expect."""
+    array — the form `IpaProof`'s fields and the byte comparison expect."""
     return np.asarray(point, dtype=cv.g1)
 
 
@@ -86,7 +99,7 @@ def _pad_hiding_poly(cv: Curve, hiding_poly_raw: list[int], n: int) -> Array:
 def open_no_zk(
     cv: Curve, params: Any, svk_h: np.ndarray, combined_commitment: np.ndarray,
     point: int, coeffs: np.ndarray, generators: list[np.ndarray],
-) -> ipa_pc.IpaProof:
+) -> IpaProof:
     """Drop-in for arkworks' `ipa_pc::open_individual_opening_challenges` (no-zk),
     driving zorch's `_open_one`: the IPA fold producing `(l_vec, r_vec,
     final_comm_key, c)` byte-identical to arkworks' fold.
@@ -106,7 +119,7 @@ def open_no_zk(
     final = _affine(cv, final_comm_key)
     l_vec = [_affine(cv, proof.l[j]) for j in range(proof.l.shape[0])]
     r_vec = [_affine(cv, proof.r[j]) for j in range(proof.r.shape[0])]
-    return ipa_pc.IpaProof(l_vec, r_vec, final, _c_int(cv, proof.a))
+    return IpaProof(l_vec, r_vec, final, _c_int(cv, proof.a))
 
 
 def build_open_no_zk_core(
@@ -191,7 +204,7 @@ def open_zk(
     cv: Curve, params: Any, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
     combined_commitment: np.ndarray, point: int, coeffs: np.ndarray,
     hiding_poly_raw: list[int], hiding_rand: int, commitment_randomness: int,
-) -> ipa_pc.IpaProof:
+) -> IpaProof:
     """Drop-in for arkworks' `ipa_pc::open_individual_opening_challenges` (zk),
     driving zorch's `_open_one_zk`: the hiding prelude + shared fold producing
     `(l_vec, r_vec, final_comm_key, c, hiding_comm, rand)` byte-identical to
@@ -221,6 +234,6 @@ def open_zk(
     final = _affine(cv, final_comm_key)
     l_vec = [_affine(cv, zkp.l[j]) for j in range(zkp.l.shape[0])]
     r_vec = [_affine(cv, zkp.r[j]) for j in range(zkp.r.shape[0])]
-    return ipa_pc.IpaProof(
+    return IpaProof(
         l_vec, r_vec, final, _c_int(cv, zkp.a),
         hiding_comm=_affine(cv, zkp.hiding_comm), rand=_c_int(cv, zkp.rand))

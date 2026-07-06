@@ -30,7 +30,7 @@ from typing import Any
 import numpy as np
 from absl.testing import absltest
 
-from accumulation_zorch import curve, ipa_pc, sponge
+from accumulation_zorch import curve, ipa_challenger, sponge
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
@@ -69,7 +69,7 @@ def _load(cv: curve.Curve, ipa_fixture: Path) -> Any:
 
 
 def _zk_challenges(cv: curve.Curve, params: Any, f: Any) -> list[int]:
-    return ipa_pc.succinct_check_challenges_zk(
+    return ipa_challenger.succinct_check_challenges_zk(
         cv, params, f["commitment"], f["point"], f["value"], f["l_vec"], f["r_vec"],
         f["s"], f["hiding_comm"], f["rand"])
 
@@ -97,12 +97,12 @@ class IpaZkTest(absltest.TestCase):
             challenges = [_fr(h) for h in d["round_challenges"]]
             point = _fr(d["point"])
 
-            coeffs = ipa_pc.compute_coeffs(cv, challenges)
+            coeffs = ipa_challenger.compute_coeffs(cv, challenges)
             for i, want_hex in enumerate(d["coeffs"]):
                 got_hex = coeffs[i].tobytes().hex()
                 self.assertEqual(got_hex, want_hex, f"[{cv.name}] zk h(X) coeff[{i}]: {got_hex} != {want_hex}")
 
-            got_eval = np.asarray(ipa_pc.evaluate_fr(cv, challenges, point), dtype=cv.fr).tobytes().hex()
+            got_eval = np.asarray(ipa_challenger.evaluate_fr(cv, challenges, point), dtype=cv.fr).tobytes().hex()
             self.assertEqual(got_eval, d["eval_at_point"], f"[{cv.name}] zk h(point): {got_eval} != {d['eval_at_point']}")
             print(f"  [{cv.name}] zk h(X) compute_coeffs ({len(coeffs)} coeffs) + evaluate "
                   f"byte-match arkworks")
@@ -113,7 +113,7 @@ class IpaZkTest(absltest.TestCase):
             params = _params(cv, sponge_fixture)
             f = _load(cv, ipa_fixture)
             challenges = _zk_challenges(cv, params, f)
-            coeffs = ipa_pc.compute_coeffs(cv, challenges)
+            coeffs = ipa_challenger.compute_coeffs(cv, challenges)
             for i, want_hex in enumerate(f["d"]["coeffs"]):
                 got_hex = coeffs[i].tobytes().hex()
                 self.assertEqual(got_hex, want_hex, f"[{cv.name}] zk end-to-end h(X) coeff[{i}]: {got_hex} != {want_hex}")

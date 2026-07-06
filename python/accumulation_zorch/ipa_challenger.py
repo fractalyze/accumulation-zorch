@@ -1,14 +1,20 @@
-"""`ArkIpaChallenger` — the arkworks-faithful IPA-PC Fiat-Shamir, in JAX, in-trace.
+"""accumulation-zorch's IPA-PC succinct check (verifier side): the arkworks-faithful
+Fiat-Shamir challenger `ArkIpaChallenger`, the host `succinct_check_challenges`
+drivers that pull a `SuccinctCheckPolynomial`'s round challenges out of it, and the
+dense `h(X)` expansion (`compute_coeffs` / `evaluate_fr`, delegated to zorch's
+`pcs/ipa/math`). Together these are the port of ark-poly-commit
+`ipa_pc::succinct_check` + `SuccinctCheckPolynomial` — the MSM-free field/sponge half
+of the IPA accumulation verifier the AS combinator (`ipa_pc_as`) consumes. The IPA
+*fold* itself lives in zorch's `zorch.pcs.ipa` (a Bazel dep), driven from `ipa_open`.
 
-zorch's IPA fold (`zorch.pcs.ipa.challenger.IpaChallenger`) derives its round
-challenges through a challenger it carries as a `lax.scan` carry. This is the
-accumulation-consumer's challenger: a byte-exact re-derivation of
-`ipa_pc.succinct_check_challenges` (ark-poly-commit `ipa_pc::succinct_check`, no-zk)
-built entirely on the jit-able `sponge` / `absorbable` primitives, so the same
-challenger drives the CPU port and the fused GPU core and yields byte-identical
-challenges.
+`ArkIpaChallenger` is the single Fiat-Shamir implementation: zorch's IPA fold
+(`zorch.pcs.ipa.challenger.IpaChallenger`) derives its round challenges through a
+challenger it carries as a `lax.scan` carry, and this is the accumulation-consumer's
+byte-exact challenger, built entirely on the jit-able `sponge` / `absorbable`
+primitives, so the same challenger drives the CPU port, the fused GPU core, and the
+host `succinct_check_challenges` below — all yielding byte-identical challenges.
 
-The reproduced Fiat-Shamir (faithful to `ipa_pc._round_challenges_from_seed`):
+The reproduced Fiat-Shamir (faithful to ark-poly-commit `ipa_pc::succinct_check`):
 
 * Every challenge is squeezed from a **fresh** ``"IPA-PC-2020"``-forked
   ``DomainSeparatedSponge`` — the seed round AND each per-round L/R squeeze — NOT
@@ -68,12 +74,13 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array, lax
 from jax.tree_util import register_dataclass
+from zorch.pcs.ipa.math import challenge_vector, eval_challenge_poly
 
-from . import absorbable, sponge
+from . import absorbable, curve, sponge
 from .curve import Curve
 
 # ark `ipa_pc` domain (`IpaPCDomain`): every fresh succinct-check sponge is a
-# `DomainSeparatedSponge` forked with this label. Mirrors `ipa_pc.IPA_PC_DOMAIN`.
+# `DomainSeparatedSponge` forked with this label before anything is absorbed.
 IPA_PC_DOMAIN = b"IPA-PC-2020"
 
 # Each challenge is a `Truncated(CHALLENGE_SIZE=128)` squeeze; both Pasta scalar
@@ -145,7 +152,7 @@ class ArkIpaChallenger:
 
     def _squeeze(self, sp) -> Array:  # type: ignore[no-untyped-def]
         """One truncated-128 challenge as an `cv.fr` scalar (in-trace nonnative
-        squeeze), matching `ipa_pc._squeeze_challenge`."""
+        squeeze) — the `Truncated(CHALLENGE_SIZE=128)` succinct-check squeeze."""
         _, ch = sponge.squeeze_challenges_jax(
             sp, 1, min(_CHALLENGE_SIZE, self.cv.fr_capacity), self.cv
         )
@@ -197,7 +204,7 @@ class ArkIpaChallenger:
         self, commitment: Array, hiding_comm: Array, point: Array, value: Array
     ) -> tuple[ArkIpaChallenger, Array]:
         """The zk/hiding opening's one pre-fold challenge (`ZkIpaChallenger`),
-        byte-exact to `ipa_pc.succinct_check_challenges_zk`'s hiding-challenge
+        byte-exact to `succinct_check_challenges_zk`'s hiding-challenge
         derivation: a fresh `"IPA-PC-2020"` sponge absorbs `commitment`, then
         `hiding_comm`, then ``to_bytes![point, value]``, and squeezes one
         truncated-128 challenge. It is `seed` with the extra `hiding_comm` point
@@ -221,3 +228,101 @@ def ark_challenger(cv: Curve, params: Any) -> ArkIpaChallenger:
     base = absorbable.fork(cv, sponge.new_sponge(params), IPA_PC_DOMAIN)
     zero = jnp.asarray(np.array([0], dtype=cv.fr))[0]
     return ArkIpaChallenger(base._state, zero, cv, params, base._mode, base._pos)
+
+
+# --- host succinct-check drivers ---------------------------------------------
+# The `SuccinctCheckPolynomial` round challenges of `ipa_pc::succinct_check`, pulled
+# out of the single `ArkIpaChallenger` FS as canonical `fr` ints — the AS combinator
+# (`ipa_pc_as`) consumes these host-side (absorbed as bytes into the AS sponge). Each
+# round challenge depends only on the absorbed `(L_i, R_i)` and the previous
+# challenge, NOT on the running folded commitment, so the whole vector is derivable
+# without the L/R fold (that fold — the IPA *open* — is zorch's, driven by `ipa_open`).
+
+
+def _challenge_int(cv: Curve, u: Array) -> int:
+    """A 0-d `fr` challenge as its canonical `fr` int (the `check_poly` element form)."""
+    return int.from_bytes(np.asarray(u, dtype=cv.fr).tobytes(), "little")
+
+
+def succinct_check_challenges(
+    cv: Curve, params, commitment: np.ndarray, point: int, value: int,
+    l_vec: list[np.ndarray], r_vec: list[np.ndarray],
+) -> list[int]:  # type: ignore[no-untyped-def]
+    """The `SuccinctCheckPolynomial` round challenges (ξ₁..ξ_log_d) of
+    `ipa_pc::succinct_check` (no-zk), as canonical `fr` ints, by driving
+    :class:`ArkIpaChallenger`: `seed(commitment, point, value)` gives ξ₀ (consumed by
+    the fold seed, not pushed into the check polynomial), then each round's
+    `challenge(L_i, R_i)` gives ξ_i.
+
+    `commitment` is the (combined) IPA commitment point; `point` / `value` are the
+    opening's scalar point and claimed evaluation; `l_vec` / `r_vec` are the proof's
+    per-round fold commitments (host affine point arrays). No-zk ⇒ the round-challenge
+    seed is the bare combined commitment (no hiding fold)."""
+    fs = ark_challenger(cv, params)
+    fs, _xi0 = fs.seed(commitment, point, value)
+    challenges: list[int] = []
+    for l, r in zip(l_vec, r_vec):
+        fs, u = fs.challenge(l, r)
+        challenges.append(_challenge_int(cv, u))
+    return challenges
+
+
+def succinct_check_challenges_zk(
+    cv: Curve, params, commitment: np.ndarray, point: int, value: int,
+    l_vec: list[np.ndarray], r_vec: list[np.ndarray],
+    s: np.ndarray, hiding_comm: np.ndarray, rand: int,
+) -> list[int]:  # type: ignore[no-untyped-def]
+    """The zk/hiding `ipa_pc::succinct_check` round challenges. Before the round
+    challenges, `ArkIpaChallenger.hiding_challenge` absorbs `commitment`, `hiding_comm`,
+    then `to_bytes![point, value]` and squeezes one `Truncated(128)` `hiding_challenge`;
+    the commitment is folded to `commitment + hiding_comm·hiding_challenge − s·rand`,
+    and the round challenges are seeded from THAT (`ArkIpaChallenger.seed`). `s` is the
+    succinct verifier key's hiding generator; `hiding_comm` / `rand` are the zk proof's
+    `hiding_comm` / `rand`."""
+    fs = ark_challenger(cv, params)
+    fs, hc = fs.hiding_challenge(commitment, hiding_comm, point, value)
+
+    # combined_commitment + hiding_comm·hiding_challenge − s·rand, as one group
+    # reduction (the `−s·rand` term rides as `s·(r − rand)`, canonical in `fr`). The
+    # hiding challenge leaves `fs.state` at the fresh domain fork, so the same `fs`
+    # seeds the rounds from the folded commitment.
+    neg_rand = (-int(rand)) % cv.fr_modulus
+    seed = curve.pedersen_commit(
+        cv, [commitment, hiding_comm, s], [1, _challenge_int(cv, hc), neg_rand])
+
+    fs, _xi0 = fs.seed(seed, point, value)
+    challenges: list[int] = []
+    for l, r in zip(l_vec, r_vec):
+        fs, u = fs.challenge(l, r)
+        challenges.append(_challenge_int(cv, u))
+    return challenges
+
+
+# --- the h(X) check polynomial (zorch's `pcs/ipa/math`) -----------------------
+
+
+def compute_coeffs(cv: Curve, challenges: list[int]) -> np.ndarray:
+    """`SuccinctCheckPolynomial::compute_coeffs` — the dense `2^log_d` coefficients of
+    `h(X) = ∏_{i=1..log_d} (1 + ξ_i · X^{2^(log_d − i)})`, as a host `fr` array.
+    `coeffs[k]` is the product of the ξ_i whose power-of-two block covers index `k`
+    (descending: ξ₁ multiplies the `X^{2^(log_d−1)}` block).
+
+    Delegates to zorch's `pcs/ipa/math.challenge_vector` — the identical dense
+    check-polynomial coefficients (`s ← concat(s, ξ_i·s)` unrolled last-to-first, same
+    descending index order), pinned against this same arkworks oracle in zorch.
+    Materialized to a host `cv.fr` array at the boundary (fed straight to
+    `pedersen_commit` / the combined check polynomial), never decoded to ints."""
+    u = jnp.asarray(np.array(challenges, dtype=cv.fr))
+    return np.asarray(challenge_vector(u), dtype=cv.fr)
+
+
+def evaluate_fr(cv: Curve, challenges: list[int], point: int) -> Array:
+    """`SuccinctCheckPolynomial::evaluate(point)` as the `fr` scalar itself (no int
+    decode) — `∏ (1 + ξ_i · point^{2^(log_d − i)})` from zorch's
+    `pcs/ipa/math.eval_challenge_poly` (the O(log_d), no-inverse read of
+    `compute_coeffs`, `point^{2^m}` by repeated squaring). For callers that keep
+    working in the field — e.g. the AS combined evaluation's `Σ lc·h` weighted sum — so
+    the per-input `h_j` never round-trips through a canonical int."""
+    u = jnp.asarray(np.array(challenges, dtype=cv.fr))
+    x = jnp.asarray(cv.fr(point))
+    return eval_challenge_poly(u, x)
