@@ -46,8 +46,6 @@ import numpy as np
 import zk_dtypes as zk
 from jax import lax
 
-from . import field
-
 # SW flag byte values (ark-serialize 0.2 `SWFlags`).
 _FLAG_INFINITY = 0x40
 _FLAG_NEG_Y = 0x80
@@ -150,9 +148,9 @@ def pedersen_commit(
 ) -> np.ndarray:
     """``Σ generatorsᵢ·elemsᵢ (+ randomizer·hiding)`` as a CPU group reduction —
     the byte-match oracle (NOT the jit/``lax.msm`` prove path, which is
-    :func:`commit_dense` / :func:`commit_hiding` below). Byte-identical to arkworks
-    ``PedersenCommitment::commit`` (the
-    sum is associative, so the hiding term folds in as one extra ``(base, scalar)``
+    :func:`commit_hiding` below and the direct ``lax.msm`` commits in ``nark``).
+    Byte-identical to arkworks ``PedersenCommitment::commit`` (the sum is
+    associative, so the hiding term folds in as one extra ``(base, scalar)``
     pair). ``generators``/``hiding`` are affine point arrays.
 
     ``elems`` / ``randomizer`` are ``fr`` scalars: an ``fr`` array (a jit kernel's
@@ -192,27 +190,11 @@ def pedersen_commit(
 
 def stack_affine(cv: Curve, points: list[np.ndarray]) -> jax.Array:
     """Stack a list of affine points into one `(n,)` G1 array — the `bases` layout
-    `commit_dense`/`lax.msm` consume. `dtype=cv.g1` normalizes each point (a
+    `lax.msm` consumes. `dtype=cv.g1` normalizes each point (a
     `cv.g1((x, y))` scalar, or a jacobian from a CPU group op) to the affine form
     before the byte concat."""
     raw = b"".join(np.asarray(p, dtype=cv.g1).tobytes() for p in points)
     return jnp.asarray(np.frombuffer(raw, dtype=cv.g1).copy())
-
-
-def commit_dense(coeffs: jax.Array, z: jax.Array, bases: jax.Array) -> jax.Array:
-    """`commit(M·z) = Σ_i (Σ_j coeffs[i,j]·z[j]) · bases[i]` — the first-round
-    NARK commitment, computed entirely in jax.
-
-    `coeffs` is a dense `(rows × vars)` `fr` matrix (a sparse `Matrix<Fr>`
-    densified host-side), `z` the `(vars,)` `fr` vector (`r1cs_input ‖ witness`),
-    and `bases` the `(rows,)` G1 affine generators. The `M·z` reduction is a
-    broadcast multiply-and-sum over `fr` (`@`/`einsum`/`dot` also lower over the
-    field dtype — a body-once `scf.for` — so the explicit reduction is an idiom
-    choice matching zorch's i256 inner products, not a lowering workaround); the
-    commitment is one `lax.msm` → a single affine point, byte-identical to
-    `PedersenCommitment::commit`.
-    """
-    return lax.msm(field.matvec(coeffs, z), bases)
 
 
 def commit_hiding(cv: Curve, scalars: jax.Array, randomizer: int | jax.Array,

@@ -53,8 +53,9 @@ def hash_matrices(cv: Curve, domain: bytes, a: Matrix, b: Matrix, c: Matrix) -> 
 
 def to_dense(cv: Curve, matrix: Matrix, num_vars: int) -> np.ndarray:
     """Densify a sparse `Matrix<Fr>` (rows of `(coeff, var_index)`) to a
-    `(rows × num_vars)` fr array — the dense form `curve.commit_dense` reduces
-    on-device (`M·z`). Host-side data prep; the DummyCircuit matrices are tiny,
+    `(rows × num_vars)` fr array — the dense form `_prove_zk_segment` reduces
+    on-device (`M·z` via `field.matvec`). Host-side data prep; the DummyCircuit
+    matrices are tiny,
     and jagged commitment is a Phase-2 perf concern."""
     dense = np.zeros((len(matrix), num_vars), dtype=cv.fr)
     for r, row in enumerate(matrix):

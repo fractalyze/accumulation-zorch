@@ -9,7 +9,7 @@ The R1CS-NARK-AS decider's GPU-value work is the **six size-`n` MSMs** it runs
     test_comm_1 = commit(A·z, ρ₁)   test_comm_2 = commit(B·z, ρ₂)   test_comm_3 = commit(A·z∘B·z, ρ₃)
 
 and the decider accepts iff these equal the accumulator's stored commitments.
-This lowers exactly that — the three `M·z` reduces (`commit_dense` = matvec +
+This lowers exactly that — the three `M·z` reduces (`field.matvec` +
 `lax.msm`) and the HP Hadamard product, then the six `commit_hiding` MSMs over
 `generators ‖ hiding` — to a single PJRT call. The committer key (`bases_h`), the
 assignment (`z`), and the six randomizers (`rand6`, all 0 on the no-zk path,
