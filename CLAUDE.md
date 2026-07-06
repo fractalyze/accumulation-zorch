@@ -19,3 +19,8 @@ The rules every change must respect:
 - **Curve-generic, not duplicated.** Pallas and Vesta are two instantiations of
   one generic prover (`PastaCurve` in Rust, the `Curve` record in Python), never
   per-curve copies.
+- **Twin tests pin to the golden, not to each other.** Many primitives have a
+  CPU/host impl and a jit/device twin (the `*_jax` convention). A device-twin
+  test asserts the jit output against the arkworks golden fixture directly —
+  never against the CPU twin's output, a weak oracle where both twins can share a
+  bug. Look for an existing golden case before writing a jax-vs-CPU differential.
