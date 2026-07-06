@@ -30,6 +30,7 @@ _TESTS = [
     "ipa_as_test",
     "ipa_as_zk_test",
     "ipa_challenger_test",
+    "ipa_seam_zk_test",
     "ipa_test",
     "ipa_zk_test",
     "sponge_jax_test",

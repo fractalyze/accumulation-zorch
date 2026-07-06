@@ -15,6 +15,6 @@
 # the GPU byte-match is on the Rust side.
 absl-py
 numpy
-jax==0.10.0.dev20260705083732
-jaxlib==0.10.0.dev20260705083732
-zk-dtypes==0.0.7
+jax==0.10.0.dev20260705214208
+jaxlib==0.10.0.dev20260705214208
+zk-dtypes==0.0.8

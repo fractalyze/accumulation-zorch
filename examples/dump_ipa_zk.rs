@@ -159,7 +159,10 @@ where
         Some(&mut rng),
     )
     .unwrap();
-    assert!(proof.hiding_comm.is_some() && proof.rand.is_some(), "zk proof must carry hiding");
+    assert!(
+        proof.hiding_comm.is_some() && proof.rand.is_some(),
+        "zk proof must carry hiding"
+    );
 
     // The crate's real succinct check — single commitment, constant-`1` opening
     // challenges. With hiding present it runs the hiding block before the round
@@ -179,8 +182,39 @@ where
 
     let commitment = labeled_commitment.commitment().comm;
 
+    // Prover-gate inputs: the committed polynomial + the open's hiding blinders, so a
+    // consumer can re-run zorch's zk open and byte-match this golden proof. The
+    // polynomial and the commit blinder are in hand; the hiding polynomial + its
+    // blinder are drawn INSIDE `IpaPC::open` and never returned, so recover them by
+    // replaying the deterministic `test_rng()` draw schedule up to `open` (the same
+    // technique as `dump_ipa_as_zk.rs`). The `point` self-check asserts the replay
+    // reached the exact state the prover entered `open` with, so the recovered
+    // `hiding_polynomial` / `hiding_rand` are the ones the golden proof used.
+    let polynomial = labeled_polynomial.polynomial().coeffs.clone();
+    let commitment_randomness = randomness.rand;
+
+    let mut rep = test_rng();
+    let rep_pp = IpaPC::<P>::setup(DEGREE, None, &mut rep).unwrap();
+    let (rep_ck, _) = IpaPC::<P>::trim(&rep_pp, DEGREE, DEGREE, None).unwrap();
+    let rep_polys = vec![LabeledPolynomial::new(
+        PolynomialLabel::new(),
+        DensePolynomial::<P::ScalarField>::rand(DEGREE, &mut rep),
+        None,
+        Some(DEGREE),
+    )];
+    let _ = IpaPC::<P>::commit(&rep_ck, &rep_polys, Some(&mut rep)).unwrap();
+    let rep_point = P::ScalarField::rand(&mut rep);
+    assert_eq!(rep_point, point, "replay schedule mismatch (point)");
+    // `IpaPC::open` (hiding) draws the raw degree-`d` hiding polynomial then its
+    // blinder; the port applies the `−eval(point)` vanish shift before committing.
+    let hiding_polynomial = DensePolynomial::<P::ScalarField>::rand(DEGREE, &mut rep);
+    let hiding_rand = P::ScalarField::rand(&mut rep);
+
     println!("{{");
-    println!("  \"note\": \"IPA-PC succinct_check zk/hiding fixtures ({} curve)\",", curve);
+    println!(
+        "  \"note\": \"IPA-PC succinct_check zk/hiding fixtures ({} curve)\",",
+        curve
+    );
     println!("  \"curve\": \"{}\",", curve);
     println!("  \"supported_degree\": {},", svk.supported_degree);
     println!("  \"h\": {},", point_json(&svk.h));
@@ -188,13 +222,32 @@ where
     println!("  \"commitment\": {},", point_json(&commitment));
     println!("  \"point\": \"{}\",", fe_hex(&point));
     println!("  \"evaluation\": \"{}\",", fe_hex(&evaluation));
+    println!("  \"polynomial\": {},", fr_list_json(&polynomial));
+    println!(
+        "  \"commitment_randomness\": \"{}\",",
+        fe_hex(&commitment_randomness)
+    );
+    println!(
+        "  \"hiding_polynomial\": {},",
+        fr_list_json(&hiding_polynomial.coeffs)
+    );
+    println!("  \"hiding_rand\": \"{}\",", fe_hex(&hiding_rand));
     println!("  \"l_vec\": {},", points_json(&proof.l_vec));
     println!("  \"r_vec\": {},", points_json(&proof.r_vec));
-    println!("  \"final_comm_key\": {},", point_json(&proof.final_comm_key));
+    println!(
+        "  \"final_comm_key\": {},",
+        point_json(&proof.final_comm_key)
+    );
     println!("  \"c\": \"{}\",", fe_hex(&proof.c));
-    println!("  \"hiding_comm\": {},", point_json(&proof.hiding_comm.unwrap()));
+    println!(
+        "  \"hiding_comm\": {},",
+        point_json(&proof.hiding_comm.unwrap())
+    );
     println!("  \"rand\": \"{}\",", fe_hex(&proof.rand.unwrap()));
-    println!("  \"round_challenges\": {},", fr_list_json(round_challenges));
+    println!(
+        "  \"round_challenges\": {},",
+        fr_list_json(round_challenges)
+    );
     println!("  \"coeffs\": {},", fr_list_json(&coeffs));
     println!("  \"eval_at_point\": \"{}\"", fe_hex(&eval_at_point));
     println!("}}");
