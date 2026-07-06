@@ -32,7 +32,7 @@ from typing import Any
 import numpy as np
 from absl.testing import absltest
 
-from accumulation_zorch import curve, ipa_pc, sponge
+from accumulation_zorch import curve, ipa_challenger, sponge
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
@@ -71,7 +71,7 @@ class IpaTest(absltest.TestCase):
         for cv, ipa_fixture, sponge_fixture in _CURVES:
             params = _params(cv, sponge_fixture)
             d, commitment, point, value, l_vec, r_vec = _load(cv, ipa_fixture)
-            got = ipa_pc.succinct_check_challenges(cv, params, commitment, point, value, l_vec, r_vec)
+            got = ipa_challenger.succinct_check_challenges(cv, params, commitment, point, value, l_vec, r_vec)
             self.assertEqual(len(got), len(d["round_challenges"]), f"[{cv.name}] challenge count")
             for i, want_hex in enumerate(d["round_challenges"]):
                 got_hex = cv.fr(got[i]).tobytes().hex()
@@ -87,13 +87,13 @@ class IpaTest(absltest.TestCase):
             d, _, point, _, _, _ = _load(cv, ipa_fixture)
             challenges = [_fr(h) for h in d["round_challenges"]]
 
-            coeffs = ipa_pc.compute_coeffs(cv, challenges)
+            coeffs = ipa_challenger.compute_coeffs(cv, challenges)
             self.assertEqual(len(coeffs), len(d["coeffs"]), f"[{cv.name}] coeff count")
             for i, want_hex in enumerate(d["coeffs"]):
                 got_hex = coeffs[i].tobytes().hex()
                 self.assertEqual(got_hex, want_hex, f"[{cv.name}] h(X) coeff[{i}]: {got_hex} != {want_hex}")
 
-            got_eval = np.asarray(ipa_pc.evaluate_fr(cv, challenges, point), dtype=cv.fr).tobytes().hex()
+            got_eval = np.asarray(ipa_challenger.evaluate_fr(cv, challenges, point), dtype=cv.fr).tobytes().hex()
             self.assertEqual(got_eval, d["eval_at_point"], (
                 f"[{cv.name}] h(point): {got_eval} != {d['eval_at_point']}"))
             print(f"  [{cv.name}] h(X) compute_coeffs ({len(coeffs)} coeffs) + evaluate "
@@ -105,8 +105,8 @@ class IpaTest(absltest.TestCase):
         for cv, ipa_fixture, sponge_fixture in _CURVES:
             params = _params(cv, sponge_fixture)
             d, commitment, point, value, l_vec, r_vec = _load(cv, ipa_fixture)
-            challenges = ipa_pc.succinct_check_challenges(cv, params, commitment, point, value, l_vec, r_vec)
-            coeffs = ipa_pc.compute_coeffs(cv, challenges)
+            challenges = ipa_challenger.succinct_check_challenges(cv, params, commitment, point, value, l_vec, r_vec)
+            coeffs = ipa_challenger.compute_coeffs(cv, challenges)
             for i, want_hex in enumerate(d["coeffs"]):
                 got_hex = coeffs[i].tobytes().hex()
                 self.assertEqual(got_hex, want_hex, (

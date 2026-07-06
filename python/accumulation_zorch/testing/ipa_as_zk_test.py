@@ -173,17 +173,17 @@ class IpaAsZkTest(absltest.TestCase):
         Slice-5e fused GPU decider MSM — are exactly the port's
         `compute_coeffs(zk_succinct_check(accumulator))`, tying the GPU core's runtime
         input to the byte-matched CPU port."""
-        from accumulation_zorch import ipa_pc
+        from accumulation_zorch import ipa_challenger
         for cv, as_fixture, sponge_fixture in _CURVES:
             params = _params(cv, sponge_fixture)
             d = json.loads(as_fixture.read_text())
             s = _point(cv, d["s"])
             acc = _parse_input(cv, d["accumulator"])
 
-            check_poly = ipa_pc.succinct_check_challenges_zk(
+            check_poly = ipa_challenger.succinct_check_challenges_zk(
                 cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec,
                 s, acc.hiding_comm, acc.rand)
-            coeffs = ipa_pc.compute_coeffs(cv, check_poly)
+            coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
             got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
             self.assertEqual(got, want, f"[{cv.name}] zk decider_coeffs: port != fixture")

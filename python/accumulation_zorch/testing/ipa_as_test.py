@@ -25,7 +25,7 @@ from typing import Any, NamedTuple
 
 from absl.testing import absltest
 
-from accumulation_zorch import curve, ipa_pc, ipa_pc_as, sponge
+from accumulation_zorch import curve, ipa_challenger, ipa_pc_as, sponge
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
@@ -160,9 +160,9 @@ class IpaAsTest(absltest.TestCase):
             d = json.loads(as_fixture.read_text())
             acc = _parse_input(cv, d["accumulator"])
 
-            check_poly = ipa_pc.succinct_check_challenges(
+            check_poly = ipa_challenger.succinct_check_challenges(
                 cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec)
-            coeffs = ipa_pc.compute_coeffs(cv, check_poly)
+            coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
             got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
             self.assertEqual(got, want, f"[{cv.name}] decider_coeffs: port {got} != fixture {want}")
