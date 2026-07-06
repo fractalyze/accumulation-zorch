@@ -11,16 +11,17 @@ its single IPA-PC math impl.
   `ipa_zk_fixtures.json`: the round challenges (hiding-folded seed) byte-match
   arkworks' `round_challenges`, `final_comm_key = <h(u), G>` byte-matches, and
   `settle()` accepts.
-* PROVER — `_open_one_zk` vs the port's `ipa_pc.open_zk` (the repo's
-  arkworks-faithful zk oracle) on a witness poly with the fixture's blinding poly /
-  randomizers: `commit_zk` + l_vec/r_vec/c + hiding_comm + rand byte-match.
+* PROVER — `_open_one_zk` over the fixture's witness polynomial + hiding blinders,
+  byte-matched against the arkworks golden zk proof in `ipa_zk_fixtures.json`:
+  `commit_zk` == the golden hiding commitment, then l_vec/r_vec/c + hiding_comm +
+  rand + final_comm_key == the golden proof.
 
 zorch ships only the running-transcript default challenger (`TranscriptChallenger`,
 not arkworks-byte-exact); the byte-exact Fiat-Shamir is the consumer's job (see
-`zorch/pcs/ipa/challenger.py`). `ArkZkIpaChallenger` below is that consumer
-challenger, wrapping this repo's `sponge`/`absorbable`/`ipa_pc` primitives: a fresh
-`IPA-PC-2020` sponge per challenge, the previous challenge re-absorbed, a
-truncated-128 squeeze, plus the extra pre-fold hiding squeeze.
+`zorch/pcs/ipa/challenger.py`). Both gates inject `ark_challenger`
+(`accumulation_zorch.ipa_challenger`), the arkworks-faithful `IPA-PC-2020`
+challenger — a jax-traceable `register_dataclass` pytree that rides the fold's
+`lax.scan` carry, so the prover's on-device fold derives byte-exact challenges.
 
 Basis from `ipa_as_zk_*fixtures.json` `generators` (same deterministic
 `IpaPC::setup(7, test_rng())`; h/s byte-match across both fixtures).
@@ -44,19 +45,18 @@ On GPU (Pasta plugin):
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-import zk_dtypes as zk
 from absl.testing import absltest
 from jax import lax
 
-from accumulation_zorch import absorbable, curve, ipa_pc, sponge
+from accumulation_zorch import curve, sponge
 from accumulation_zorch.curve import Curve
+from accumulation_zorch.ipa_challenger import ark_challenger
 
 from zorch.pcs.ipa.config import IpaZkProof
 from zorch.pcs.ipa.math import challenge_vector
@@ -66,14 +66,11 @@ from zorch.pcs.ipa.verifier import reduce_opening_zk, settle
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
-# A deterministic degree-7 witness poly for the prover gate (any poly works).
-_POLY = [3, 1, 4, 1, 5, 9, 2, 6]
-
-# (name, curve, scalar mont dtype, ipa-zk fixture, ipa-as-zk fixture, sponge fixture)
+# (name, curve, ipa-zk fixture, ipa-as-zk fixture, sponge fixture)
 _CURVES = [
-    ("pallas", curve.PALLAS, zk.pallas_sf_mont,
+    ("pallas", curve.PALLAS,
      "ipa_zk_fixtures.json", "ipa_as_zk_fixtures.json", "sponge_fixtures.json"),
-    ("vesta", curve.VESTA, zk.vesta_sf_mont,
+    ("vesta", curve.VESTA,
      "ipa_zk_vesta_fixtures.json", "ipa_as_zk_vesta_fixtures.json", "sponge_vesta_fixtures.json"),
 ]
 
@@ -98,12 +95,6 @@ def _params(cv: Curve, sponge_fixture: str) -> Any:
     return sponge.poseidon_params(cv, ark_le)
 
 
-def _canon_int(x: jax.Array) -> int:
-    """Canonical int of a zorch scalar Array — `int()` decodes regardless of the
-    Montgomery storage. The arkworks FS absorbs canonical 32B LE."""
-    return int(np.asarray(x))
-
-
 def _host_point(p: jax.Array) -> np.ndarray:
     """zorch g1-affine Array (0-d) -> host np point (standard affine)."""
     return np.asarray(p)
@@ -118,61 +109,14 @@ def _point_hex(p: jax.Array) -> tuple[str, str]:
     return raw[:32].hex(), raw[32:64].hex()
 
 
-@dataclass(frozen=True)
-class ArkZkIpaChallenger:
-    """arkworks `ipa_pc` **zk** Fiat-Shamir as a zorch `ZkIpaChallenger`. `seed` /
-    `challenge` are the no-zk chain (a fresh `IPA-PC-2020` sponge per challenge, the
-    previous challenge re-absorbed, a truncated-128 squeeze); `hiding_challenge` is
-    the extra pre-fold squeeze over `(commitment, hiding_comm, point, value)`.
-    Wraps the accumulation-zorch port's primitives; threads only the prev challenge."""
-
-    cv: Curve
-    params: Any
-    dtype: Any
-    prev: int | None = None
-
-    def _wrap(self, ch: int) -> tuple[ArkZkIpaChallenger, jax.Array]:
-        return (ArkZkIpaChallenger(self.cv, self.params, self.dtype, ch),
-                jnp.asarray(np.array(ch, dtype=self.dtype)))
-
-    def hiding_challenge(self, commitment: jax.Array, hiding_comm: jax.Array,
-                         point: jax.Array, value: jax.Array
-                         ) -> tuple[ArkZkIpaChallenger, jax.Array]:
-        sp = ipa_pc._new(self.cv, self.params)
-        sp = absorbable.absorb_point(self.cv, sp, _host_point(commitment))
-        sp = absorbable.absorb_point(self.cv, sp, _host_point(hiding_comm))
-        sp = absorbable.absorb_bytes(
-            self.cv, sp,
-            ipa_pc._fr32(_canon_int(point)) + ipa_pc._fr32(_canon_int(value)))
-        return self._wrap(ipa_pc._squeeze_challenge(self.cv, sp))
-
-    def seed(self, commitment: jax.Array, point: jax.Array,
-             value: jax.Array) -> tuple[ArkZkIpaChallenger, jax.Array]:
-        sp = ipa_pc._new(self.cv, self.params)
-        sp = absorbable.absorb_point(self.cv, sp, _host_point(commitment))
-        sp = absorbable.absorb_bytes(
-            self.cv, sp,
-            ipa_pc._fr32(_canon_int(point)) + ipa_pc._fr32(_canon_int(value)))
-        return self._wrap(ipa_pc._squeeze_challenge(self.cv, sp))
-
-    def challenge(self, l: jax.Array, r: jax.Array) -> tuple[ArkZkIpaChallenger, jax.Array]:
-        assert self.prev is not None, "challenge() before seed()"
-        sp = ipa_pc._new(self.cv, self.params)
-        sp = absorbable.absorb_bytes(
-            self.cv, sp, int(self.prev).to_bytes(ipa_pc._CHALLENGE_BYTES, "little"))
-        sp = absorbable.absorb_point(self.cv, sp, _host_point(l))
-        sp = absorbable.absorb_point(self.cv, sp, _host_point(r))
-        return self._wrap(ipa_pc._squeeze_challenge(self.cv, sp))
-
-
 class IpaSeamZkTest(absltest.TestCase):
     """zorch `pcs/ipa` zk seam ≡ arkworks `ipa_pc` zk, driven by the consumer's
-    arkworks-faithful `ArkZkIpaChallenger`, over Pallas + Vesta."""
+    arkworks-faithful `ark_challenger`, over Pallas + Vesta."""
 
     def test_verifier_reduce_opening_zk_byte_matches_arkworks(self) -> None:
         """`reduce_opening_zk` + `settle` over the static arkworks zk proof: round
         challenges (hiding-folded seed) + `final_comm_key` byte-match, and accept."""
-        for name, cv, mont, ipa_zk_f, ipa_as_zk_f, sponge_f in _CURVES:
+        for name, cv, ipa_zk_f, ipa_as_zk_f, sponge_f in _CURVES:
             z = json.loads((_TESTDATA / ipa_zk_f).read_text())
             a = json.loads((_TESTDATA / ipa_as_zk_f).read_text())
             params = _params(cv, sponge_f)
@@ -182,17 +126,17 @@ class IpaSeamZkTest(absltest.TestCase):
             proof = IpaZkProof(
                 jnp.stack([_jax_point(cv, p) for p in z["l_vec"]]),
                 jnp.stack([_jax_point(cv, p) for p in z["r_vec"]]),
-                jnp.asarray(np.array(_fr(z["c"]), dtype=mont)),
+                jnp.asarray(np.array(_fr(z["c"]), dtype=cv.fr)),
                 _jax_point(cv, z["hiding_comm"]),
-                jnp.asarray(np.array(_fr(z["rand"]), dtype=mont)),
+                jnp.asarray(np.array(_fr(z["rand"]), dtype=cv.fr)),
             )
             commitment = _jax_point(cv, z["commitment"])
-            point = jnp.asarray(np.array(_fr(z["point"]), dtype=mont))
-            value = jnp.asarray(np.array(_fr(z["evaluation"]), dtype=mont))
+            point = jnp.asarray(np.array(_fr(z["point"]), dtype=cv.fr))
+            value = jnp.asarray(np.array(_fr(z["evaluation"]), dtype=cv.fr))
 
             _, claim = reduce_opening_zk(
                 key, commitment, point, value, proof,
-                ArkZkIpaChallenger(cv, params, mont))
+                ark_challenger(cv, params))
 
             for j, want in enumerate(z["round_challenges"]):
                 self.assertEqual(_hexs(cv, claim.u[j]), want,
@@ -211,55 +155,51 @@ class IpaSeamZkTest(absltest.TestCase):
                   f"(hiding-folded seed) + final_comm_key byte-match arkworks; settle accepts")
 
     def test_prover_open_one_zk_byte_matches_port(self) -> None:
-        """`commit_zk` + `_open_one_zk` on a witness poly vs the port's `open_zk`
-        (arkworks-faithful zk oracle): commit_zk + l_vec/r_vec/c + hiding_comm + rand."""
-        for name, cv, mont, ipa_zk_f, ipa_as_zk_f, sponge_f in _CURVES:
+        """`commit_zk` + `_open_one_zk` over the fixture's witness polynomial and
+        hiding blinders, byte-matched against the arkworks golden zk proof in
+        `ipa_zk_fixtures.json`: commit_zk == the golden hiding commitment, then
+        l_vec/r_vec/c + hiding_comm + rand + final_comm_key == the golden proof."""
+        for name, cv, ipa_zk_f, ipa_as_zk_f, sponge_f in _CURVES:
             z = json.loads((_TESTDATA / ipa_zk_f).read_text())
             a = json.loads((_TESTDATA / ipa_as_zk_f).read_text())
             params = _params(cv, sponge_f)
+            # IPA-PC committer generators are hash-derived (deterministic), so the
+            # ipa-as fixture's `generators` are the same set this zk proof used.
             basis = jnp.stack([_jax_point(cv, g) for g in a["generators"]])
             key = setup(basis, _jax_point(cv, z["h"]), _jax_point(cv, z["s"]))
-            point_int = _fr(z["point"])
 
-            generators_np = [_np_point(cv, g) for g in a["generators"]]
-            svk_h_np = _np_point(cv, a["h"])
-            s_np = _np_point(cv, a["s"])
-            hiding_poly = [_fr(h) for h in a["hiding_polynomial"]]
-            hiding_rand = _fr(a["hiding_rand"])
-            crand = _fr(a["commitment_randomness"])
+            coeffs = jnp.asarray(np.array([_fr(c) for c in z["polynomial"]], dtype=cv.fr))
+            crand_j = jnp.asarray(np.array(_fr(z["commitment_randomness"]), dtype=cv.fr))
+            point = jnp.asarray(np.array(_fr(z["point"]), dtype=cv.fr))
+            hiding_j = jnp.asarray(
+                np.array([_fr(h) for h in z["hiding_polynomial"]], dtype=cv.fr))
+            hrand_j = jnp.asarray(np.array(_fr(z["hiding_rand"]), dtype=cv.fr))
 
-            # Hiding commit: zorch commit_zk == the port's hiding pedersen_commit.
-            coeffs = jnp.asarray(np.array(_POLY, dtype=mont))
-            crand_j = jnp.asarray(np.array(crand, dtype=mont))
+            # `commit_zk` reproduces the golden (hiding) commitment.
             commitment_z, _ = IpaProver(key).commit_zk([coeffs], [crand_j])
-            comm_np = curve.pedersen_commit(cv, generators_np, _POLY, hiding=s_np,
-                                            randomizer=crand)
-            self.assertEqual(_host_point(commitment_z[0]).tobytes(), comm_np.tobytes(),
-                             f"[{name}] commit_zk != port hiding pedersen_commit")
+            self.assertEqual(_host_point(commitment_z[0]).tobytes(),
+                             _np_point(cv, z["commitment"]).tobytes(),
+                             f"[{name}] commit_zk != arkworks hiding commitment")
 
-            point = jnp.asarray(np.array(point_int, dtype=mont))
-            hiding_j = jnp.asarray(np.array(hiding_poly, dtype=mont))
-            hrand_j = jnp.asarray(np.array(hiding_rand, dtype=mont))
-
-            _, _, pz, _, _ = _open_one_zk(
+            _, _, pz, final_comm_key, _ = _open_one_zk(
                 key, commitment_z[0], coeffs, point, hiding_j, hrand_j, crand_j,
-                ArkZkIpaChallenger(cv, params, mont))
-            pp = ipa_pc.open_zk(cv, params, svk_h_np, s_np, generators_np, comm_np,
-                                point_int, _POLY, hiding_poly, hiding_rand, crand)
+                ark_challenger(cv, params))
 
-            for j in range(len(pp.l_vec)):
-                self.assertEqual(_host_point(pz.l[j]).tobytes(), pp.l_vec[j].tobytes(),
+            for j, (lw, rw) in enumerate(zip(z["l_vec"], z["r_vec"])):
+                self.assertEqual(_host_point(pz.l[j]).tobytes(), _np_point(cv, lw).tobytes(),
                                  f"[{name}] L[{j}]")
-                self.assertEqual(_host_point(pz.r[j]).tobytes(), pp.r_vec[j].tobytes(),
+                self.assertEqual(_host_point(pz.r[j]).tobytes(), _np_point(cv, rw).tobytes(),
                                  f"[{name}] R[{j}]")
-            self.assertEqual(cv.fr(int(np.asarray(pz.a))).tobytes(),
-                             cv.fr(int(pp.c)).tobytes(), f"[{name}] c")
+            self.assertEqual(_hexs(cv, pz.a), z["c"], f"[{name}] c")
             self.assertEqual(_host_point(pz.hiding_comm).tobytes(),
-                             pp.hiding_comm.tobytes(), f"[{name}] hiding_comm")
-            self.assertEqual(cv.fr(int(np.asarray(pz.rand))).tobytes(),
-                             cv.fr(int(pp.rand)).tobytes(), f"[{name}] rand")
-            print(f"  [{name}] prover: commit_zk + l_vec[{len(pp.l_vec)}] + r_vec + c + "
-                  f"hiding_comm + rand == port open_zk (arkworks)")
+                             _np_point(cv, z["hiding_comm"]).tobytes(), f"[{name}] hiding_comm")
+            self.assertEqual(_hexs(cv, pz.rand), z["rand"], f"[{name}] rand")
+            self.assertEqual(
+                _point_hex(final_comm_key),
+                (z["final_comm_key"]["x_le_hex"], z["final_comm_key"]["y_le_hex"]),
+                f"[{name}] final_comm_key")
+            print(f"  [{name}] prover: commit_zk + l_vec[{len(z['l_vec'])}] + r_vec + c + "
+                  f"hiding_comm + rand + final_comm_key byte-match arkworks golden")
 
 
 if __name__ == "__main__":
