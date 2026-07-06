@@ -15,7 +15,7 @@ from jax import lax
 
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import absorbable, curve, jcurve, jfield, jsponge, sponge
+from . import absorbable, curve, field, sponge
 from .curve import Curve, FrScalar
 
 # ark `r1cs_nark::PROTOCOL_NAME` — the domain the NARK sponge is forked with.
@@ -53,7 +53,7 @@ def hash_matrices(cv: Curve, domain: bytes, a: Matrix, b: Matrix, c: Matrix) -> 
 
 def to_dense(cv: Curve, matrix: Matrix, num_vars: int) -> np.ndarray:
     """Densify a sparse `Matrix<Fr>` (rows of `(coeff, var_index)`) to a
-    `(rows × num_vars)` fr array — the dense form `jcurve.commit_dense` reduces
+    `(rows × num_vars)` fr array — the dense form `curve.commit_dense` reduces
     on-device (`M·z`). Host-side data prep; the DummyCircuit matrices are tiny,
     and jagged commitment is a Phase-2 perf concern."""
     dense = np.zeros((len(matrix), num_vars), dtype=cv.fr)
@@ -65,7 +65,7 @@ def to_dense(cv: Curve, matrix: Matrix, num_vars: int) -> np.ndarray:
 
 def to_coo(cv: Curve, matrix: Matrix) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Flatten a sparse `Matrix<Fr>` (rows of `(coeff, var_index)`) to flat COO
-    arrays `(row_idx, col_idx, vals)` — the layout `jfield.sparse_matvec` reduces
+    arrays `(row_idx, col_idx, vals)` — the layout `field.sparse_matvec` reduces
     on-device (`segment_sum` over the rows). The sparse analog of `to_dense`: it
     never materializes the `rows × vars` grid, so it scales to the recursion
     circuit where densifying would be ~15 GB. `vals` is `fr`; the indices are
@@ -134,7 +134,7 @@ def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: jax
                      bases: jax.Array, num_rows: int) -> NoZkNarkCore:
     """On-device no-zk NARK prove: commit `M·z` for M in {a,b,c} with one
     `lax.msm` each, the `M·z` reduced **in-trace** from the sparse COO
-    (`jfield.sparse_matvec`) rather than host-side. Plain (un-decorated) so it
+    (`field.sparse_matvec`) rather than host-side. Plain (un-decorated) so it
     inlines into the export's top-level `@jax.jit`. `coo_*` are
     `(row_idx, col_idx, vals)` device arrays; `z = input ‖ witness` the `(vars,)`
     Fr vector; `bases` the `(num_rows,)` generators (an affine jit argument — the
@@ -142,7 +142,7 @@ def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: jax
     doesn't lower). No blinders (no-zk), so a commitment is just `Σ (M·z)ᵢ·basesᵢ`."""
     def commit(coo: tuple) -> jax.Array:
         row_idx, col_idx, vals = coo
-        return lax.msm(jfield.sparse_matvec(vals, col_idx, row_idx, z, num_rows), bases)
+        return lax.msm(field.sparse_matvec(vals, col_idx, row_idx, z, num_rows), bases)
     return NoZkNarkCore(commit(coo_a), commit(coo_b), commit(coo_c))
 
 
@@ -156,7 +156,7 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     StableHLO module). Mirrors `r1cs_nark_as._build_zk_core` for the no-zk NARK."""
     rows = len(a)
     z = jnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
-    bases = jcurve.stack_affine(cv, list(generators))
+    bases = curve.stack_affine(cv, list(generators))
     coo_a, coo_b, coo_c = (_coo_dev(to_coo(cv, m)) for m in (a, b, c))
 
     @jax.jit
@@ -242,7 +242,7 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
                          c_blinder: int, r_a_blinder: int, r_b_blinder: int, r_c_blinder: int,
                          blinder_1: int, blinder_2: int, rt: NarkZkRuntime | None = None) -> tuple:
     """Field operand prep for the zk NARK prove (no group ops): the sparse COO of
-    each matrix (`row_idx, col_idx, vals`, the layout `jfield.sparse_matvec`
+    each matrix (`row_idx, col_idx, vals`, the layout `field.sparse_matvec`
     reduces), `z` / `z_r` (`z_r = (0…0 ‖ r)`, the witness blinders with a zeroed
     instance part), and the blinder / witness / r fr arrays. Sparse — not dense —
     so the prove exports at recursion scale: densifying the recursion R1CS
@@ -288,7 +288,7 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     inlines both into `prove_zk`'s own `@jax.jit` and into the AS top-level trace.
 
     The six `M·z` / `M·z_r` reduces run **in-trace** from the sparse COO
-    (`jfield.sparse_matvec`, a `segment_sum`) rather than densifying — the
+    (`field.sparse_matvec`, a `segment_sum`) rather than densifying — the
     recursion R1CS densified is infeasible, so this is what lets the zk prove
     export at recursion scale. The DuplexSponge / Poseidon params aren't jax
     pytrees, so the gamma sponge can't cross a `@jit` boundary as an argument — the
@@ -309,9 +309,9 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
 
     def reduce(coo: tuple, dense_m: jax.Array | None, vec: jax.Array) -> jax.Array:
         if dense_m is not None:
-            return jfield.matvec(dense_m, vec)
+            return field.matvec(dense_m, vec)
         row_idx, col_idx, vals = coo
-        return jfield.sparse_matvec(vals, col_idx, row_idx, vec, num_rows)
+        return field.sparse_matvec(vals, col_idx, row_idx, vec, num_rows)
 
     z_a, z_b, z_c = reduce(coo_a, dm_a, z), reduce(coo_b, dm_b, z), reduce(coo_c, dm_c, z)
     r_a, r_b, r_c = reduce(coo_a, dm_a, zr), reduce(coo_b, dm_b, zr), reduce(coo_c, dm_c, zr)
@@ -369,7 +369,7 @@ def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
     of `build_no_zk_core`; `fork=False` selects the standalone half-step's unforked
     gamma sponge."""
     rows = len(a)
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
 
     @jax.jit
     def core_fn(bases_h: jax.Array) -> NarkZkCore:
@@ -469,7 +469,7 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
     if randomness is not None:
         parts.append(absorbable.point_to_field_array_jax(cv, randomness))
     sp = pre_sponge.absorb(jnp.concatenate(parts))
-    _, ch = jsponge.squeeze_challenges(sp, 1, _CHALLENGE_BITS, cv)
+    _, ch = sponge.squeeze_challenges_jax(sp, 1, _CHALLENGE_BITS, cv)
     return ch
 
 
@@ -481,7 +481,7 @@ def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list
     `inputs` are fr values as ints; `comms` is the three first-round commitment
     points. `randomness`, when present (zk path), is the five first-round
     randomness commitments `[comm_r_a, comm_r_b, comm_r_c, comm_1, comm_2]`."""
-    rstack = jcurve.stack_affine(cv, randomness) if randomness is not None else None
+    rstack = curve.stack_affine(cv, randomness) if randomness is not None else None
     ch = _gamma_finish(cv, _gamma_pre_sponge(cv, params, matrices_hash, inputs),
-                       jcurve.stack_affine(cv, comms), rstack)
+                       curve.stack_affine(cv, comms), rstack)
     return np.asarray(ch, dtype=cv.fr).reshape(-1)[0]

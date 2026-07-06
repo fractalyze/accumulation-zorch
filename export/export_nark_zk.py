@@ -11,7 +11,7 @@ byte-match runs against ``recursion_step_proves_on_vesta`` (make_zk=true).
 
 The gamma sponge is **unforked** (``fork=False``): the standalone half-step's
 subject passes a plain ``Sponge::new()``, not the AS ``nark_sponge`` fork. The
-``M·z`` is reduced on-device from the **sparse** COO (``jfield.sparse_matvec`` →
+``M·z`` is reduced on-device from the **sparse** COO (``field.sparse_matvec`` →
 ``stablehlo.scatter``): densifying the recursion R1CS is infeasible. The fixture
 is the off-tree Slice-3 zk recursion dump.
 

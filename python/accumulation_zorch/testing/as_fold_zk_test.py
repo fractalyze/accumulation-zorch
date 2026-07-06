@@ -29,7 +29,7 @@ import numpy as np
 from absl.testing import absltest
 from jax import lax
 
-from accumulation_zorch import absorbable, curve, jcurve, jfield, nark, r1cs_nark_as, sponge
+from accumulation_zorch import absorbable, curve, field, nark, r1cs_nark_as, sponge
 
 cv = curve.PALLAS
 
@@ -96,8 +96,8 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
     acc_bytes = _fr_bytes(acc_r1cs_input)
     r1cs_r_input_bytes = _fr_bytes(r1cs_r_input)
 
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
-    acc_comms = jcurve.stack_affine(cv, [
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    acc_comms = curve.stack_affine(cv, [
         _point(acc["comm_a"]), _point(acc["comm_b"]), _point(acc["comm_c"]),
         _point(acc["hp_comm_1"]), _point(acc["hp_comm_2"]), _point(acc["hp_comm_3"])])
 
@@ -110,11 +110,11 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
 
         # The fold's AS proof-randomness commitments comm_r_M = commit(M·z_r, as_r_M).
         def _mz(matrix: nark.Matrix, zv: jax.Array) -> jax.Array:
-            return jfield.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
+            return field.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
         zr = jnp.asarray(np.array(r1cs_r_input + [as_r1cs_r_witness] * witness_len, dtype=cv.fr))
-        comm_r_a = jcurve.commit_hiding(cv, _mz(a, zr), as_rand[0], bases_h)
-        comm_r_b = jcurve.commit_hiding(cv, _mz(b, zr), as_rand[1], bases_h)
-        comm_r_c = jcurve.commit_hiding(cv, _mz(c, zr), as_rand[2], bases_h)
+        comm_r_a = curve.commit_hiding(cv, _mz(a, zr), as_rand[0], bases_h)
+        comm_r_b = curve.commit_hiding(cv, _mz(b, zr), as_rand[1], bases_h)
+        comm_r_c = curve.commit_hiding(cv, _mz(c, zr), as_rand[2], bases_h)
 
         # input₂'s gamma-blinded NARK commitments (the addend the input contributes).
         one_gamma = jnp.concatenate([fr_one, gamma])
@@ -141,7 +141,7 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
             cv, params, as_matrices_hash, inst_fe, pr_fe, acc_inst_fe=acc_inst_fe, num_challenges=2)
 
         # Fold under beta, in the order [acc, input, proof_randomness].
-        combined_input = jfield.combine_vectors(
+        combined_input = field.combine_vectors(
             jnp.asarray(np.array([acc_r1cs_input, input2, r1cs_r_input], dtype=cv.fr)), beta)
         combined_comm_a = lax.msm(beta, jnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
         combined_comm_b = lax.msm(beta, jnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
@@ -151,7 +151,7 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
         # over the same [acc, input, proof_randomness] order. The fold's proof
         # randomness contributes the AS sigmas (as_rand_1/2/3); the input contributes
         # the NARK sigma_{a,b,c}; sigma_o is NARK-only and does not enter the AS fold.
-        combined_blinded_witness = jfield.combine_vectors(
+        combined_blinded_witness = field.combine_vectors(
             jnp.stack([acc_blinded_witness, nk.blinded_witness, r1cs_r_witness_arr]), beta)
         combined_sigmas = acc_sigma_abc * beta[0] + nk.sigma_abc * beta[1] + as_rand_arr * beta[2]
         return (combined_input, combined_comm_a, combined_comm_b, combined_comm_c,

@@ -28,7 +28,7 @@ import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
-from accumulation_zorch import absorbable, curve, jcurve, nark, sponge
+from accumulation_zorch import absorbable, curve, nark, sponge
 
 cv = curve.PALLAS
 
@@ -100,7 +100,7 @@ class AbsorbTest(absltest.TestCase):
         points = [_point_from_fixture(c) for c in g["comms"]] + [cv.g1((0, 0))]
         host = np.concatenate([absorbable.point_to_field_array(cv, p) for p in points])
         pack = jax.jit(lambda pts: absorbable.point_to_field_array_jax(cv, pts))
-        got = np.asarray(pack(jcurve.stack_affine(cv, points)))
+        got = np.asarray(pack(curve.stack_affine(cv, points)))
         self.assertEqual(host.tobytes(), got.tobytes(), "in-jit point packing != host packing")
         print("  point_to_field_array_jax byte-matches host (incl identity) OK")
 

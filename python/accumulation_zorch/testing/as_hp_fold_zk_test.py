@@ -35,7 +35,7 @@ import numpy as np
 from absl.testing import absltest
 from jax import lax
 
-from accumulation_zorch import absorbable, curve, hp_as, jcurve, jfield, nark, sponge
+from accumulation_zorch import absorbable, curve, field, hp_as, nark, sponge
 
 cv = curve.PALLAS
 
@@ -91,9 +91,9 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
     old_rand = jnp.asarray(np.array(
         [_fr(accw["hp_rand_1"]), _fr(accw["hp_rand_2"]), _fr(accw["hp_rand_3"])], dtype=cv.fr))
 
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
-    id_pt = jcurve.stack_affine(cv, [cv.g1((0, 0))])
-    old_hp_comms = jcurve.stack_affine(
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])
+    old_hp_comms = curve.stack_affine(
         cv, [_point(acc["hp_comm_1"]), _point(acc["hp_comm_2"]), _point(acc["hp_comm_3"])])
 
     @jax.jit
@@ -115,7 +115,7 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
         # input₂'s HP opening: M·z over z = r1cs_input ‖ blinded_witness; the HP
         # input randomness is the NARK (sigma_a, sigma_b, sigma_o).
         def _mz(matrix: nark.Matrix, zv: jax.Array) -> jax.Array:
-            return jfield.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
+            return field.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
         zw = jnp.concatenate([jnp.asarray(np.array(input2, dtype=cv.fr)), nk.blinded_witness])
         new_rand = jnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o])
 

@@ -41,8 +41,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import zk_dtypes as zk
+from jax import lax
+
+from . import field
 
 # SW flag byte values (ark-serialize 0.2 `SWFlags`).
 _FLAG_INFINITY = 0x40
@@ -146,7 +150,8 @@ def pedersen_commit(
 ) -> np.ndarray:
     """``Σ generatorsᵢ·elemsᵢ (+ randomizer·hiding)`` as a CPU group reduction —
     the byte-match oracle (NOT the jit/``lax.msm`` prove path, which is
-    :mod:`jcurve`). Byte-identical to arkworks ``PedersenCommitment::commit`` (the
+    :func:`commit_dense` / :func:`commit_hiding` below). Byte-identical to arkworks
+    ``PedersenCommitment::commit`` (the
     sum is associative, so the hiding term folds in as one extra ``(base, scalar)``
     pair). ``generators``/``hiding`` are affine point arrays.
 
@@ -170,3 +175,62 @@ def pedersen_commit(
     for t in terms[1:]:
         acc = acc + t
     return np.asarray(acc, dtype=cv.g1)
+
+
+# --- jit / device commitments -------------------------------------------------
+# The `lax.msm` (GPU-lowerable) counterparts to `pedersen_commit`'s CPU zk_dtypes
+# group ops — what the fused prove cores use. `pedersen_commit` sums `g * cv.fr(s)`
+# over the affine dtype (CPU-only, the byte-match oracle); here the commitment is
+# `lax.msm` and any field reduction feeding it (`M·z`) is vectorized jax over the
+# `fr` dtype. Scalar-mul / point-add route through `lax.msm`, never bare `*`/`+`:
+# jit `point × scalar` is byte-wrong and jit `affine + affine` is an invalid EC
+# type combination, so `s·P` is `lax.msm([s], [P])` and `A + B` is
+# `lax.msm([1, 1], [A, B])`. A curve appears only where a host array is built from
+# its dtypes (`stack_affine` over `cv.g1`); the commitment kernels are
+# dtype-agnostic (the dtype rides on the input arrays).
+
+
+def stack_affine(cv: Curve, points: list[np.ndarray]) -> jax.Array:
+    """Stack a list of affine points into one `(n,)` G1 array — the `bases` layout
+    `commit_dense`/`lax.msm` consume. `dtype=cv.g1` normalizes each point (a
+    `cv.g1((x, y))` scalar, or a jacobian from a CPU group op) to the affine form
+    before the byte concat."""
+    raw = b"".join(np.asarray(p, dtype=cv.g1).tobytes() for p in points)
+    return jnp.asarray(np.frombuffer(raw, dtype=cv.g1).copy())
+
+
+def commit_dense(coeffs: jax.Array, z: jax.Array, bases: jax.Array) -> jax.Array:
+    """`commit(M·z) = Σ_i (Σ_j coeffs[i,j]·z[j]) · bases[i]` — the first-round
+    NARK commitment, computed entirely in jax.
+
+    `coeffs` is a dense `(rows × vars)` `fr` matrix (a sparse `Matrix<Fr>`
+    densified host-side), `z` the `(vars,)` `fr` vector (`r1cs_input ‖ witness`),
+    and `bases` the `(rows,)` G1 affine generators. The `M·z` reduction is a
+    broadcast multiply-and-sum over `fr` (`@`/`einsum`/`dot` also lower over the
+    field dtype — a body-once `scf.for` — so the explicit reduction is an idiom
+    choice matching zorch's i256 inner products, not a lowering workaround); the
+    commitment is one `lax.msm` → a single affine point, byte-identical to
+    `PedersenCommitment::commit`.
+    """
+    return lax.msm(field.matvec(coeffs, z), bases)
+
+
+def commit_hiding(cv: Curve, scalars: jax.Array, randomizer: int | jax.Array,
+                  bases_h: jax.Array) -> jax.Array:
+    """`Σ scalars[i]·bases_h[i] + randomizer·bases_h[-1]` — a Pedersen commitment
+    with a hiding term, as one `lax.msm`. `bases_h` is the pre-stacked generators
+    with the hiding base appended last (so the randomizer rides as the extra MSM
+    term); `scalars` an `(n,)` `fr` array threaded straight from the `M·z` /
+    cross-term compute. Returns the on-device point — `bases_h` is a jit argument
+    (an affine-typed constant doesn't lower), the export-correct shape since the
+    committer key is a runtime input.
+
+    `randomizer` is a host int (the baked half-step / fold path) or a runtime `fr`
+    device scalar (the general prover, where the randomness is a runtime
+    input); either rides as the trailing MSM term, byte-identically."""
+    if isinstance(randomizer, (int, np.integer)):
+        rand = jnp.asarray(np.array([randomizer], dtype=cv.fr))
+    else:
+        rand = jnp.asarray(randomizer).reshape(1)
+    full = jnp.concatenate([scalars, rand])
+    return lax.msm(full, bases_h)

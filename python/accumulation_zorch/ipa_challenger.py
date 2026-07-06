@@ -4,7 +4,7 @@ zorch's IPA fold (`zorch.pcs.ipa.challenger.IpaChallenger`) derives its round
 challenges through a challenger it carries as a `lax.scan` carry. This is the
 accumulation-consumer's challenger: a byte-exact re-derivation of
 `ipa_pc.succinct_check_challenges` (ark-poly-commit `ipa_pc::succinct_check`, no-zk)
-built entirely on the jit-able `jsponge` / `absorbable` primitives, so the same
+built entirely on the jit-able `sponge` / `absorbable` primitives, so the same
 challenger drives the CPU port and the fused GPU core and yields byte-identical
 challenges.
 
@@ -45,7 +45,7 @@ Encodings are byte-identical to the NumPy oracle:
   eager CPU port is unchanged.
 
 The squeeze is the in-trace truncated-128 nonnative squeeze
-(``jsponge.challenges_from_fq`` via ``jsponge.squeeze_challenges``): one ``fq``
+(``sponge.challenges_from_fq`` via ``sponge.squeeze_challenges_jax``): one ``fq``
 element, low 128 bits packed LE into an ``fr`` element (128 ≤ both Pasta scalar
 capacities, so no reduction).
 
@@ -69,7 +69,7 @@ import numpy as np
 from jax import Array, lax
 from jax.tree_util import register_dataclass
 
-from . import absorbable, jsponge, sponge
+from . import absorbable, sponge
 from .curve import Curve
 
 # ark `ipa_pc` domain (`IpaPCDomain`): every fresh succinct-check sponge is a
@@ -146,7 +146,7 @@ class ArkIpaChallenger:
     def _squeeze(self, sp) -> Array:  # type: ignore[no-untyped-def]
         """One truncated-128 challenge as an `cv.fr` scalar (in-trace nonnative
         squeeze), matching `ipa_pc._squeeze_challenge`."""
-        _, ch = jsponge.squeeze_challenges(
+        _, ch = sponge.squeeze_challenges_jax(
             sp, 1, min(_CHALLENGE_SIZE, self.cv.fr_capacity), self.cv
         )
         return ch[0]

@@ -10,7 +10,7 @@ against ``recursion_step_proves_on_vesta``.
 
 Unlike the toy AS export (``export_prove.py``, which densifies), the recursion
 circuit's ``M·z`` is reduced on-device from the **sparse** COO
-(``jfield.sparse_matvec`` → ``stablehlo.scatter``): densifying it (``rows × vars``
+(``field.sparse_matvec`` → ``stablehlo.scatter``): densifying it (``rows × vars``
 ≈ 471M ≈ 15 GB) is infeasible. The fixture is the off-tree Slice-2 recursion dump.
 
 Run under Bazel (CPU is enough — lowering needs no GPU):

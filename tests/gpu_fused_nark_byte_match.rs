@@ -4,7 +4,7 @@
 //! byte-for-byte to the golden `Proof` arkworks produces — the same proof the
 //! per-MSM `GpuBackend` byte-match (`recursion_step::vesta::on_gpu::
 //! recursion_step_proves_on_vesta`) hits, but with a single fused dispatch whose
-//! `M·z` is reduced on-device from the sparse COO (`jfield.sparse_matvec` →
+//! `M·z` is reduced on-device from the sparse COO (`field.sparse_matvec` →
 //! `stablehlo.scatter`) instead of three per-MSM commit dispatches.
 //!
 //! This is the GPU half of the half-step no-zk gate: the CPU side

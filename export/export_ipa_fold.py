@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from accumulation_zorch import curve, ipa_open, ipa_pc_as, jcurve, sponge
+from accumulation_zorch import curve, ipa_open, ipa_pc_as, sponge
 from accumulation_zorch.curve import Curve
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
@@ -136,7 +136,7 @@ def export_fold(cv: Curve) -> Path:
     generators = [_point(cv, g) for g in d["generators"]]
 
     core = ipa_open.build_open_no_zk_core(cv, params, svk_h, commitment, point, coeffs)
-    basis = jcurve.stack_affine(cv, generators[: len(coeffs)])
+    basis = curve.stack_affine(cv, generators[: len(coeffs)])
 
     t0 = time.perf_counter()
     lowered = core.lower(basis)
@@ -190,7 +190,7 @@ def export_fold_zk(cv: Curve) -> Path:
     core = ipa_open.build_open_zk_core(
         cv, params, svk_h, s, commitment, point, coeffs, hiding_poly, hiding_rand,
         commitment_randomness)
-    basis = jcurve.stack_affine(cv, generators[: len(coeffs)])
+    basis = curve.stack_affine(cv, generators[: len(coeffs)])
 
     t0 = time.perf_counter()
     lowered = core.lower(basis)

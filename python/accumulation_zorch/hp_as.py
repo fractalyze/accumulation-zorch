@@ -16,7 +16,7 @@ import numpy as np
 from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import absorbable, curve, jcurve, jfield, jsponge, sponge
+from . import absorbable, curve, field, sponge
 from .curve import Curve, FrScalar
 
 CHALLENGE_SIZE = 128  # bits, matching ark hp_as::CHALLENGE_SIZE
@@ -105,7 +105,7 @@ def squeeze_mu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[Duplex
     the `(n+1,)` fr array."""
     mu = jnp.asarray(np.array([1], dtype=cv.fr))
     if num_inputs > 1:
-        sp, rest = jsponge.squeeze_challenges(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
+        sp, rest = sponge.squeeze_challenges_jax(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
         mu = jnp.concatenate([mu, rest])
     mu_n = mu[1] * mu[num_inputs - 1]
     return sp, jnp.concatenate([mu, mu_n.reshape(1)])
@@ -114,8 +114,8 @@ def squeeze_mu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[Duplex
 def squeeze_nu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, jax.Array]:
     """`squeeze_nu_challenges` as jax: one truncated-128 `nu` expanded to its
     `2n-1` powers `[nu^0, …, nu^{2n-2}]`."""
-    sp, nu = jsponge.squeeze_challenges(sp, 1, _CHALLENGE_BITS, cv)
-    return sp, jfield.powers(nu, 2 * num_inputs - 1)
+    sp, nu = sponge.squeeze_challenges_jax(sp, 1, _CHALLENGE_BITS, cv)
+    return sp, field.powers(nu, 2 * num_inputs - 1)
 
 
 def _product_poly_comm_jax(bases: jax.Array, t_vecs: jax.Array,
@@ -204,10 +204,10 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
         hr = jnp.asarray(np.array([hr1, hr2, hr3], dtype=cv.fr))
 
     # Hiding commitments (the cross term mixes input₀'s b-row with the row-1 a-row).
-    comm_h1 = jcurve.commit_hiding(cv, hiding_a_vec, hr1, bases_h)
-    comm_h2 = jcurve.commit_hiding(cv, hiding_b_vec, hr2, bases_h)
+    comm_h1 = curve.commit_hiding(cv, hiding_a_vec, hr1, bases_h)
+    comm_h2 = curve.commit_hiding(cv, hiding_b_vec, hr2, bases_h)
     rand_prods_sum = hiding_a_vec * b[0] + a[num_inputs - 1] * hiding_b_vec
-    comm_h3 = jcurve.commit_hiding(cv, rand_prods_sum, hr3, bases_h)
+    comm_h3 = curve.commit_hiding(cv, rand_prods_sum, hr3, bases_h)
     hiding_comms = jnp.stack([comm_h1, comm_h2, comm_h3])  # (3,)
 
     # Transcript: supported size, the input commitments (+ the row-1 commitments),
@@ -217,7 +217,7 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     sp = absorbable.absorb_option_points_jax(cv, sp, hiding_comms)
 
     sp, mu = squeeze_mu_jax(cv, sp, num_inputs)  # (3,) = [1, c, mu_n]
-    t_vecs = jfield.t_vecs_zk(a, b, mu[:num_inputs], hiding_a_vec, hiding_b_vec,
+    t_vecs = field.t_vecs_zk(a, b, mu[:num_inputs], hiding_a_vec, hiding_b_vec,
                               mu[num_inputs].reshape(1), mu[1].reshape(1))
     low, high = _product_poly_comm_jax(bases, t_vecs, num_inputs)
 
@@ -245,8 +245,8 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     instance = jnp.stack([cc1, cc2, cc3])
 
     # Combined openings + randomness over both rows (placeholder row → inert).
-    a_open = jfield.combine_vectors(a, combined) + mu[num_inputs] * hiding_a_vec
-    b_open = jfield.combine_vectors(jnp.flip(b, 0), nu[:num_inputs]) + mu[1] * hiding_b_vec
+    a_open = field.combine_vectors(a, combined) + mu[num_inputs] * hiding_a_vec
+    b_open = field.combine_vectors(jnp.flip(b, 0), nu[:num_inputs]) + mu[1] * hiding_b_vec
     a_rand = (input_rand[0] * combined[0] + row1_rand[0] * combined[1]
               + hr[0] * mu[num_inputs])
     b_rand = row1_rand[1] * nu[0] + input_rand[1] * nu[1] + hr[1] * mu[1]
@@ -298,9 +298,9 @@ def prove_zk(cv: Curve, generators: list[np.ndarray], hiding: np.ndarray, instan
     (rand_1, rand_2, rand_3)), low, high, hiding_comms)` at the serialize seam."""
     assert len(instances) == 1, "this prover folds a single real input"
     L = len(a_vecs[0])
-    bases_h = jcurve.stack_affine(cv, list(generators[:L]) + [hiding])
-    real_inst = jcurve.stack_affine(cv, list(instances[0]))
-    id_pt = jcurve.stack_affine(cv, [cv.g1((0, 0))])  # (1,) identity affine
+    bases_h = curve.stack_affine(cv, list(generators[:L]) + [hiding])
+    real_inst = curve.stack_affine(cv, list(instances[0]))
+    id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])  # (1,) identity affine
     a_real = jnp.asarray(np.array(a_vecs[0], dtype=cv.fr))
     b_real = jnp.asarray(np.array(b_vecs[0], dtype=cv.fr))
     ir = input_rands[0]
