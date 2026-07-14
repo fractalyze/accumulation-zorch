@@ -8,7 +8,7 @@ The IPA-AS decider's only GPU-value work is the size-`d` MSM
 polynomial; the decider accepts iff ``final_key == accumulator.final_comm_key``
 (``ipa_pc_as.decide_final_key`` / ``IpaPC::check``'s final equality). Per the
 issue's profile note the heavy MSM lives here (not in the field-heavy prover), so
-this lowers exactly that one MSM (``curve.msm`` / ``lax.msm``) to a single PJRT
+this lowers exactly that one MSM (``lax.msm``) to a single PJRT
 call: the committer-key ``generators`` AND the check-poly ``coeffs`` are runtime
 inputs, so one general core decides any accumulator (the fixture supplies only the
 runtime shapes — degree-`d` for both Pasta curves here).
@@ -35,6 +35,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import lax
 
 from accumulation_zorch import curve
 from accumulation_zorch.curve import Curve
@@ -82,7 +83,7 @@ def write_bytecode(lowered: Any, path: Path) -> int:
 def build_decider_core(cv: Curve) -> tuple:
     """Build the general decider-MSM core for curve ``cv`` from its ``ipa_as``
     fixture: return ``(core_fn, scalars, bases)`` where ``core_fn`` is
-    ``curve.msm`` and ``scalars`` / ``bases`` are the example
+    ``lax.msm`` and ``scalars`` / ``bases`` are the example
     ``decider_coeffs`` / ``generators`` arrays carrying the runtime shapes. Both
     are runtime inputs, so the lowered core decides any accumulator of this
     degree."""
@@ -91,7 +92,7 @@ def build_decider_core(cv: Curve) -> tuple:
     coeffs = [_fr(h) for h in d["decider_coeffs"]]
     bases = curve.stack_affine(cv, generators)
     scalars = jnp.asarray(np.array(coeffs, dtype=cv.fr))
-    return curve.msm, scalars, bases
+    return lax.msm, scalars, bases
 
 
 def export_decider(cv: Curve) -> Path:
@@ -101,7 +102,7 @@ def export_decider(cv: Curve) -> Path:
     core decides any accumulator at this degree."""
     core_fn, scalars, bases = build_decider_core(cv)
     t0 = time.perf_counter()
-    # `curve.msm` is a plain function (the per-leaf `@jit` was dropped); jit it
+    # `lax.msm` is a plain function (the per-leaf `@jit` was dropped); jit it
     # here so the lowered core is the single fused MSM call the plugin consumes.
     lowered = jax.jit(core_fn).lower(scalars, bases)
     t_lower = time.perf_counter() - t0
@@ -124,7 +125,7 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     bases = curve.stack_affine(cv, [_point(cv, d["generators"][0])] * n)
     scalars = jnp.asarray(np.zeros(n, dtype=cv.fr))
     t0 = time.perf_counter()
-    lowered = jax.jit(curve.msm).lower(scalars, bases)
+    lowered = jax.jit(lax.msm).lower(scalars, bases)
     t_lower = time.perf_counter() - t0
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / "ipa_decider_msm_bench.mlirbc"
