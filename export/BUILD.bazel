@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
 
 # Each export lowers a jax prove/decide core to a StableHLO .mlirbc that the Rust
@@ -43,3 +43,22 @@ py_binary(
         "export_as_decide",
     ]
 ]
+
+# CPU lowering smoke test: lower every committed-fixture exporter's core so a
+# dangling reference (a runtime attribute access invisible to the build) fails
+# CI, not just the hardware-gated GPU byte-match. Carries the exporter srcs it
+# imports; fixtures come from //python/testdata.
+py_test(
+    name = "export_lowering_smoke_test",
+    size = "small",
+    srcs = [
+        "export_lowering_smoke_test.py",
+        "export_prove.py",
+        "export_ipa.py",
+        "export_ipa_fold.py",
+        "export_as_decide.py",
+    ],
+    imports = ["."],
+    data = ["//python/testdata:fixtures"],
+    deps = _EXPORT_DEPS + [requirement("absl_py")],
+)
