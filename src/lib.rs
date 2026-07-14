@@ -10,7 +10,7 @@
 //! fixture generators in `examples/` and `tests/recursion_step.rs`.
 
 // The default build carries no unsafe code. The GPU path (feature `gpu`) needs
-// unsafe FFI into the zkx-pjrt plugin, so under that feature the crate-wide ban
+// unsafe FFI into the xla-pjrt plugin, so under that feature the crate-wide ban
 // is downgraded to `deny` and the `gpu` / `fused` modules get a scoped exception.
 #![cfg_attr(not(feature = "gpu"), forbid(unsafe_code))]
 #![cfg_attr(feature = "gpu", deny(unsafe_code))]

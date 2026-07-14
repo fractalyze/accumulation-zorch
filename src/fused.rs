@@ -113,7 +113,7 @@ where
 /// the client must outlive all threads (dropping it `dlclose`s the plugin mid
 /// CUDA/absl teardown → SIGSEGV; see `gpu.rs`). Split from [`run_fused`] so a
 /// benchmark can compile once and run the core many times.
-pub fn load_fused(mlirbc: &[u8]) -> &'static zkx_pjrt::Executable {
+pub fn load_fused(mlirbc: &[u8]) -> &'static xla_pjrt::Executable {
     // Safety: compiled on the one process client, which `crate::gpu::session()`
     // owns and never drops.
     Box::leak(Box::new(unsafe { crate::gpu::session().compile(mlirbc) }))
@@ -175,7 +175,7 @@ where
 /// two `u8_batch` sponge inputs are pre-encoded here ([`wire::u8_batch_field_array`])
 /// as `C::BF` (base-field) buffers.
 pub fn run_fused<C: PastaCurve>(
-    exe: &zkx_pjrt::Executable,
+    exe: &xla_pjrt::Executable,
     bases_h: &[Affine<C>],
     id_pt: &Affine<C>,
     inputs: &ZkProveInputs<C>,
@@ -322,7 +322,7 @@ where
 /// benchmark can compile the fold core once and time many warm runs (the [`run`,
 /// not the compile, is the steady-state cost).
 pub fn run_fold_fused<C: PastaCurve>(
-    exe: &zkx_pjrt::Executable,
+    exe: &xla_pjrt::Executable,
     bases_h: &[Affine<C>],
     id_pt: &Affine<C>,
     acc_comms: &[Affine<C>],
@@ -570,7 +570,7 @@ where
 /// the core once and time many warm runs (the run, not the compile, is the
 /// steady-state cost).
 pub fn run_decide_ipa_msm<C: PastaCurve>(
-    exe: &zkx_pjrt::Executable,
+    exe: &xla_pjrt::Executable,
     coeffs: &[Fr<C>],
     generators: &[Affine<C>],
 ) -> Affine<C>
@@ -636,7 +636,7 @@ where
 /// the core once and time many warm runs (the run, not the compile, is the
 /// steady-state cost).
 pub fn run_ipa_fold_fused<C: PastaCurve>(
-    exe: &zkx_pjrt::Executable,
+    exe: &xla_pjrt::Executable,
     generators: &[Affine<C>],
 ) -> FusedIpaProof<C>
 where
@@ -708,7 +708,7 @@ where
 /// return the folded hiding `IpaProof`. Split from [`load_fused`] so a bench can
 /// compile once and time many warm runs.
 pub fn run_ipa_fold_zk_fused<C: PastaCurve>(
-    exe: &zkx_pjrt::Executable,
+    exe: &xla_pjrt::Executable,
     generators: &[Affine<C>],
 ) -> FusedIpaZkProof<C>
 where
@@ -778,7 +778,7 @@ pub const DECIDE_R1CS_OUTPUTS: usize = 6;
 /// runs. Byte-identical to the host `r1cs_nark_as.decide` and (the byte-match
 /// gate) to the accumulator's arkworks-stored commitments.
 pub fn run_decide_r1cs<C: PastaCurve>(
-    exe: &zkx_pjrt::Executable,
+    exe: &xla_pjrt::Executable,
     bases_h: &[Affine<C>],
     vec0: &[Fr<C>],
     vec1: &[Fr<C>],

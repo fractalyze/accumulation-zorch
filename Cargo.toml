@@ -30,11 +30,12 @@ blake2 = { version = "0.9.1", default-features = false }
 digest = { version = "0.9.0", default-features = false }
 derivative = { version = "2.1.1", default-features = false, features = ["use_core"] }
 tracing = { version = "0.1", default-features = false, features = ["attributes"] }
-# GPU FFI, vendored from bellman-zorch and extended with the Pasta (Pallas G1)
-# buffer types. Optional + behind the `gpu` feature: the byte bridge (`wire`)
-# builds without it; only the `gpu` + `fused` consumer (plus a runtime zkx_gpu
-# plugin) needs it.
-zkx-pjrt = { path = "crates/zkx-pjrt", optional = true }
+# GPU FFI shim — the shared fractalyze/xla-pjrt crate (git dep, pinned rev to
+# avoid `cargo update` drift). The Pasta G1/scalar buffer-type tags it does not
+# carry are named locally in `src/gpu.rs`. Optional + behind the `gpu` feature:
+# the byte bridge (`wire`) builds without it; only the `gpu` + `fused` consumer
+# (plus a runtime zkx_gpu plugin) needs it.
+xla-pjrt = { git = "https://github.com/fractalyze/xla-pjrt", rev = "e955dc1", optional = true }
 # In-circuit verifier gadget stack for the recursion step, behind the `recursion`
 # feature. Same arkworks 0.2 line / nonnative rev as the arkworks oracle so the
 # reused gadget's types stay unified.
@@ -69,7 +70,7 @@ parallel = [
 # Enables `GpuBackend` (the Pasta GPU MSM prover). At runtime it additionally
 # needs a zkx_gpu plugin carrying the Pasta MSM (`XLA_PJRT_PLUGIN`) and an
 # exported `lax.msm` core; compiling the backend needs neither.
-gpu = ["dep:zkx-pjrt"]
+gpu = ["dep:xla-pjrt"]
 # Enables the Pasta-cycle recursion step: the reused arkworks
 # in-circuit verifier gadget + its r1cs-std/nonnative/sponge stack. Kept off the
 # default and `gpu` builds so the CPU prover and GPU backend stay lean.
@@ -87,4 +88,3 @@ version = "1"
 optional = true
 
 [workspace]
-members = ["crates/zkx-pjrt"]
