@@ -14,22 +14,14 @@ _EXPORT_DEPS = [
     requirement("numpy"),
 ]
 
-# Standalone lowerers.
-[
-    py_binary(
-        name = n,
-        srcs = [n + ".py"],
-        imports = ["."],
-        visibility = ["//visibility:public"],
-        deps = _EXPORT_DEPS,
-    )
-    for n in [
-        "export_prove",
-        "export_ipa",
-        "export_ipa_fold",
-        "export_as_decide",
-    ]
-]
+# export_prove owns write_bytecode; the others import it from here.
+py_binary(
+    name = "export_prove",
+    srcs = ["export_prove.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+    deps = _EXPORT_DEPS,
+)
 
 # These reuse export_prove.write_bytecode, so carry export_prove.py as a helper
 # module (its __main__ stays dormant when imported).
@@ -46,5 +38,8 @@ _EXPORT_DEPS = [
         "export_fold_zk",
         "export_nark",
         "export_nark_zk",
+        "export_ipa",
+        "export_ipa_fold",
+        "export_as_decide",
     ]
 ]
