@@ -3,9 +3,9 @@
 //! Drives the crate's real `R1CSNark::prove` with `make_zk = true` over a fixed
 //! `DummyCircuit` and dumps the golden serialized zk `Proof`, the replay inputs
 //! (matrices, instance/witness assignments, committer-key generators + hiding
-//! generator), the `nark_matrices_hash` (recomputed here via blake2, since the
-//! crate's `hash_matrices` is `pub(crate)`), and — the new piece for the zk path
-//! — the prover's sampled randomness, recovered by replaying the exact
+//! generator), the `nark_matrices_hash` (via `fixture_json::hash_matrices`; the
+//! crate's own `hash_matrices` is `pub(crate)`, so it cannot be called here),
+//! and the prover's sampled randomness, recovered by replaying the exact
 //! `Fr::rand` draw schedule on a fresh same-seed `StdRng`.
 //!
 //! Draw order in `R1CSNark::prove` (make_zk): `r` (one per witness var, a loop —
@@ -15,22 +15,23 @@
 //!
 //! Run: `cargo run --example dump_nark_zk > python/testdata/nark_zk_fixtures.json`
 
-use ark_ff::{BigInteger, PrimeField, UniformRand};
+use ark_ff::UniformRand;
 use ark_pallas::{Affine, Fr};
 use ark_poly_commit::trivial_pc::PedersenCommitment;
-use ark_relations::lc;
 use ark_relations::r1cs::{
-    ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, Matrix, OptimizationGoal,
-    SynthesisError, SynthesisMode,
+    ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, SynthesisMode,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_sponge::CryptographicSponge;
 use ark_std::rand::{rngs::StdRng, SeedableRng};
-use blake2::VarBlake2b;
-use digest::{Update, VariableOutput};
+use serde::Serialize;
 
 use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark;
 use ark_accumulation::r1cs_nark_as::ASForR1CSNark;
+use fixture_json::{
+    fe_hex, fe_list, hash_matrices, hex, matrix_json, point_list, ser_hex, DummyCircuit, MatrixJson,
+    PointJson,
+};
 
 type Sponge = ark_sponge::poseidon::PoseidonSponge<ark_pallas::Fq>;
 
@@ -39,97 +40,34 @@ const NUM_CONSTRAINTS: usize = 10;
 const SEED: u64 = 7;
 const NARK_PROTOCOL_NAME: &[u8] = b"R1CS-NARK-2020";
 
-#[derive(Clone)]
-struct DummyCircuit {
-    a: Option<Fr>,
-    b: Option<Fr>,
+/// The fixture schema. Field order is the emitted key order.
+#[derive(Serialize)]
+struct NarkZkFixture {
+    note: String,
     num_inputs: usize,
     num_constraints: usize,
-}
-
-impl ConstraintSynthesizer<Fr> for DummyCircuit {
-    fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
-        let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
-            Ok(a * b)
-        })?;
-        for _ in 0..(self.num_inputs - 1) {
-            cs.new_input_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        }
-        for _ in 0..(self.num_constraints - 1) {
-            cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
-        }
-        cs.enforce_constraint(lc!(), lc!(), lc!())?;
-        Ok(())
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
-
-fn fr_hex(f: &Fr) -> String {
-    hex(&f.into_repr().to_bytes_le())
-}
-
-fn ser_hex<T: CanonicalSerialize>(v: &T) -> String {
-    let mut b = Vec::new();
-    v.serialize(&mut b).unwrap();
-    hex(&b)
-}
-
-fn fr_list_json(xs: &[Fr]) -> String {
-    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fr_hex(f))).collect();
-    format!("[{}]", v.join(","))
-}
-
-fn matrix_json(m: &Matrix<Fr>) -> String {
-    let rows: Vec<String> = m
-        .iter()
-        .map(|row| {
-            let entries: Vec<String> = row
-                .iter()
-                .map(|(coeff, idx)| format!("[\"{}\",{}]", fr_hex(coeff), idx))
-                .collect();
-            format!("[{}]", entries.join(","))
-        })
-        .collect();
-    format!("[{}]", rows.join(","))
-}
-
-fn point_json(p: &Affine) -> String {
-    use ark_ff::Zero;
-    let (x, y) = if p.is_zero() {
-        (hex(&[0u8; 32]), hex(&[0u8; 32]))
-    } else {
-        (hex(&p.x.into_repr().to_bytes_le()), hex(&p.y.into_repr().to_bytes_le()))
-    };
-    format!("{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}", x, y)
-}
-
-/// Reimplementation of `r1cs_nark::hash_matrices` (the crate's is `pub(crate)`),
-/// used to dump the golden `nark_matrices_hash` the Python port must reproduce.
-fn hash_matrices(domain: &[u8], a: &Matrix<Fr>, b: &Matrix<Fr>, c: &Matrix<Fr>) -> [u8; 32] {
-    let mut serialized = domain.to_vec();
-    a.serialize(&mut serialized).unwrap();
-    b.serialize(&mut serialized).unwrap();
-    c.serialize(&mut serialized).unwrap();
-    let mut hasher = VarBlake2b::new(32).unwrap();
-    hasher.update(&serialized);
-    let mut out = [0u8; 32];
-    hasher.finalize_variable(|res| out.copy_from_slice(res));
-    out
+    nark_matrices_hash_hex: String,
+    a: MatrixJson,
+    b: MatrixJson,
+    c: MatrixJson,
+    input: Vec<String>,
+    witness: Vec<String>,
+    generators: Vec<PointJson>,
+    hiding: PointJson,
+    r: Vec<String>,
+    a_blinder: String,
+    b_blinder: String,
+    c_blinder: String,
+    r_a_blinder: String,
+    r_b_blinder: String,
+    r_c_blinder: String,
+    blinder_1: String,
+    blinder_2: String,
+    proof_hex: String,
 }
 
 fn main() {
-    let circuit = DummyCircuit {
+    let circuit = DummyCircuit::<Fr> {
         a: Some(Fr::from(3u64)),
         b: Some(Fr::from(5u64)),
         num_inputs: NUM_INPUTS,
@@ -181,8 +119,6 @@ fn main() {
         let h = Affine::deserialize_uncompressed(&mut r).unwrap();
         (g, h)
     };
-    let gens_json: Vec<String> = generators.iter().map(point_json).collect();
-
     // Replay the make_zk draw schedule on a fresh same-seed rng to recover the
     // sampled randomness (the proof above was produced from the same seed).
     let mut rep = StdRng::seed_from_u64(SEED);
@@ -196,27 +132,28 @@ fn main() {
     let blinder_1 = Fr::rand(&mut rep);
     let blinder_2 = Fr::rand(&mut rep);
 
-    println!("{{");
-    println!("  \"note\": \"NARK zk prove fixtures\",");
-    println!("  \"num_inputs\": {},", input.len());
-    println!("  \"num_constraints\": {},", num_constraints);
-    println!("  \"nark_matrices_hash_hex\": \"{}\",", hex(&nark_matrices_hash));
-    println!("  \"a\": {},", matrix_json(&matrices.a));
-    println!("  \"b\": {},", matrix_json(&matrices.b));
-    println!("  \"c\": {},", matrix_json(&matrices.c));
-    println!("  \"input\": {},", fr_list_json(&input));
-    println!("  \"witness\": {},", fr_list_json(&witness));
-    println!("  \"generators\": [{}],", gens_json.join(","));
-    println!("  \"hiding\": {},", point_json(&hiding));
-    println!("  \"r\": {},", fr_list_json(&r));
-    println!("  \"a_blinder\": \"{}\",", fr_hex(&a_blinder));
-    println!("  \"b_blinder\": \"{}\",", fr_hex(&b_blinder));
-    println!("  \"c_blinder\": \"{}\",", fr_hex(&c_blinder));
-    println!("  \"r_a_blinder\": \"{}\",", fr_hex(&r_a_blinder));
-    println!("  \"r_b_blinder\": \"{}\",", fr_hex(&r_b_blinder));
-    println!("  \"r_c_blinder\": \"{}\",", fr_hex(&r_c_blinder));
-    println!("  \"blinder_1\": \"{}\",", fr_hex(&blinder_1));
-    println!("  \"blinder_2\": \"{}\",", fr_hex(&blinder_2));
-    println!("  \"proof_hex\": \"{}\"", proof_hex);
-    println!("}}");
+    let fixture = NarkZkFixture {
+        note: "NARK zk prove fixtures".to_string(),
+        num_inputs: input.len(),
+        num_constraints,
+        nark_matrices_hash_hex: hex(&nark_matrices_hash),
+        a: matrix_json(&matrices.a),
+        b: matrix_json(&matrices.b),
+        c: matrix_json(&matrices.c),
+        input: fe_list(&input),
+        witness: fe_list(&witness),
+        generators: point_list(&generators),
+        hiding: PointJson::from_affine(&hiding),
+        r: fe_list(&r),
+        a_blinder: fe_hex(&a_blinder),
+        b_blinder: fe_hex(&b_blinder),
+        c_blinder: fe_hex(&c_blinder),
+        r_a_blinder: fe_hex(&r_a_blinder),
+        r_b_blinder: fe_hex(&r_b_blinder),
+        r_c_blinder: fe_hex(&r_c_blinder),
+        blinder_1: fe_hex(&blinder_1),
+        blinder_2: fe_hex(&blinder_2),
+        proof_hex,
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }

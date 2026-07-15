@@ -30,43 +30,17 @@
 //!       cargo test --features gpu --test gpu_fused_nark_zk_byte_match -- --ignored --test-threads=1
 #![cfg(feature = "gpu")]
 
+mod common;
+
 use accumulation_zorch::fused;
 use accumulation_zorch::gpu::Vesta;
-use ark_ff::PrimeField;
-use ark_vesta::{Affine, Fq};
-use std::path::PathBuf;
-
-fn from_hex(s: &str) -> Vec<u8> {
-    assert!(s.len() % 2 == 0, "odd-length hex");
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("valid hex"))
-        .collect()
-}
-
-fn to_hex(b: &[u8]) -> String {
-    let mut s = String::with_capacity(b.len() * 2);
-    for x in b {
-        s.push_str(&format!("{:02x}", x));
-    }
-    s
-}
-
-/// An affine committer-key point from a fixture `{x_le_hex, y_le_hex}` object
-/// (canonical-LE base-field coordinates; finite — generators/hiding are never
-/// identity).
-fn point_from_json(v: &serde_json::Value) -> Affine {
-    let x = Fq::from_le_bytes_mod_order(&from_hex(v["x_le_hex"].as_str().unwrap()));
-    let y = Fq::from_le_bytes_mod_order(&from_hex(v["y_le_hex"].as_str().unwrap()));
-    Affine::new(x, y, false)
-}
+use ark_vesta::Affine;
+use common::{point_from_json, to_hex};
 
 #[test]
 #[ignore = "needs XLA_PJRT_PLUGIN + off-tree zk recursion fixture + nark_zk_vesta.mlirbc + a GPU"]
 fn gpu_fused_nark_zk_byte_match() {
-    let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("artifacts"));
+    let artifacts = fixture_json::artifacts_dir(env!("CARGO_MANIFEST_DIR"));
     let fixture_path = artifacts.join("recursion_nark_zk_fixtures.json");
     let mlirbc_path = artifacts.join("nark_zk_vesta.mlirbc");
     if !fixture_path.exists() || !mlirbc_path.exists() {
@@ -87,8 +61,8 @@ fn gpu_fused_nark_zk_byte_match() {
     // is every generator (one per constraint row) followed by the hiding term —
     // the `bases_h` stack `nark.build_zk_core` lowered the core for.
     let mut bases_h: Vec<Affine> =
-        d["generators"].as_array().unwrap().iter().map(point_from_json).collect();
-    bases_h.push(point_from_json(&d["hiding"]));
+        d["generators"].as_array().unwrap().iter().map(point_from_json::<Vesta>).collect();
+    bases_h.push(point_from_json::<Vesta>(&d["hiding"]));
     let golden = d["proof_hex"].as_str().unwrap().to_string();
     let mlirbc = std::fs::read(&mlirbc_path).expect("read nark_zk_vesta.mlirbc");
 

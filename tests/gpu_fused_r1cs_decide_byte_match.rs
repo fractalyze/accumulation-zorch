@@ -74,13 +74,6 @@ fn take_opt_triple<C: PastaCurve>(buf: &[u8], off: &mut usize) -> Option<[Fr<C>;
     Some(t)
 }
 
-fn artifacts() -> PathBuf {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| root.join("artifacts"))
-}
-
 /// Decide every seed of one fixture on the GPU and assert the six recomputed
 /// commitments byte-match the accumulator's stored ones.
 fn check_curve<C: PastaCurve>(fixture: &str, artifact: &str, zk: bool)
@@ -99,7 +92,7 @@ where
     let mut bases_h = generators;
     bases_h.push(hiding);
 
-    let mlirbc = std::fs::read(artifacts().join(artifact))
+    let mlirbc = std::fs::read(fixture_json::artifacts_dir(env!("CARGO_MANIFEST_DIR")).join(artifact))
         .unwrap_or_else(|e| panic!("read {}: {}", artifact, e));
     let exe = fused::load_fused(&mlirbc);
     let labels = ["comm_a", "comm_b", "comm_c", "hp_comm_1", "hp_comm_2", "hp_comm_3"];

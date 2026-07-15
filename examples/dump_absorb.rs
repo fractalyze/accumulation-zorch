@@ -24,50 +24,73 @@
 use ark_ec::{AffineCurve, ProjectiveCurve};
 use ark_ff::{BigInteger, PrimeField, ToConstraintField, Zero};
 use ark_pallas::{Affine, Fq, Fr};
-use ark_serialize::CanonicalSerialize;
 use ark_sponge::poseidon::PoseidonSponge;
 use ark_sponge::{CryptographicSponge, FieldElementSize};
+use serde::Serialize;
+
+use fixture_json::{fe_hex, fe_list, hex, PointJson};
 
 const PROTOCOL_NAMES: [&str; 3] = ["R1CS-NARK-2020", "AS-FOR-R1CS-NARK-2020", "AS-FOR-HP-2020"];
 
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
-
-/// Canonical 32-byte LE serialization of a field element.
-fn fe_hex<F: CanonicalSerialize>(f: &F) -> String {
-    let mut b = Vec::new();
-    f.serialize(&mut b).unwrap();
-    hex(&b)
-}
-
 /// Squeeze `n` Fq elements from `sponge` and render them as canonical-LE hex.
 fn squeeze_hex(sponge: &mut PoseidonSponge<Fq>, n: usize) -> Vec<String> {
-    sponge
-        .squeeze_field_elements(n)
-        .iter()
-        .map(|f| format!("\"{}\"", fe_hex(f)))
-        .collect()
+    fe_list(&sponge.squeeze_field_elements(n))
 }
 
 /// `{infinity, x_le_hex, y_le_hex}` of a point — the coords the Python side
 /// rebuilds the point from (and the input the point→field packing consumes).
-fn point_json(p: &Affine) -> String {
-    let (x, y) = if p.is_zero() {
-        (hex(&[0u8; 32]), hex(&[0u8; 32]))
-    } else {
-        (fe_hex(&p.x), fe_hex(&p.y))
-    };
-    format!(
-        "{{\"infinity\":{},\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}",
-        p.is_zero(),
-        x,
-        y
-    )
+#[derive(Serialize)]
+struct AbsorbPoint {
+    infinity: bool,
+    #[serde(flatten)]
+    coords: PointJson,
+}
+
+fn point_json(p: &Affine) -> AbsorbPoint {
+    AbsorbPoint {
+        infinity: p.is_zero(),
+        coords: PointJson::from_affine(p),
+    }
+}
+
+#[derive(Serialize)]
+struct ForkEntry {
+    domain_utf8: String,
+    domain_hex: String,
+    squeeze: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct BytesEntry {
+    len: usize,
+    data_hex: String,
+    squeeze: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct PointAbsorbEntry {
+    label: String,
+    points: Vec<AbsorbPoint>,
+    squeeze: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct Gamma {
+    matrices_hash_hex: String,
+    inputs_le_hex: Vec<String>,
+    comms: Vec<AbsorbPoint>,
+    randomness: Option<String>,
+    gamma_hex: String,
+}
+
+#[derive(Serialize)]
+struct AbsorbFixture {
+    note: String,
+    identity_to_field_elements_le_hex: Vec<String>,
+    fork: Vec<ForkEntry>,
+    bytes_absorb: Vec<BytesEntry>,
+    point_absorb: Vec<PointAbsorbEntry>,
+    gamma: Gamma,
 }
 
 fn main() {
@@ -76,42 +99,35 @@ fn main() {
 
     // --- anchor: arkworks `Affine::zero().to_field_elements()` = [0, 1, 1],
     //     as canonical-LE Fq hex (each 32B). ---
-    let id_fes: Vec<String> = Affine::zero()
-        .to_field_elements()
-        .unwrap()
-        .iter()
-        .map(|f: &Fq| format!("\"{}\"", fe_hex(f)))
-        .collect();
+    let id_fes: Vec<String> = fe_list::<Fq>(&Affine::zero().to_field_elements().unwrap());
 
     // --- fork: Sponge::new().fork(domain) then squeeze 2. ---
-    let fork_json: Vec<String> = PROTOCOL_NAMES
+    let fork_json: Vec<ForkEntry> = PROTOCOL_NAMES
         .iter()
         .map(|name| {
             let mut sp = PoseidonSponge::<Fq>::new().fork(name.as_bytes());
-            format!(
-                "{{\"domain_utf8\":\"{}\",\"domain_hex\":\"{}\",\"squeeze\":[{}]}}",
-                name,
-                hex(name.as_bytes()),
-                squeeze_hex(&mut sp, 2).join(",")
-            )
+            ForkEntry {
+                domain_utf8: name.to_string(),
+                domain_hex: hex(name.as_bytes()),
+                squeeze: squeeze_hex(&mut sp, 2),
+            }
         })
         .collect();
 
     // --- bytes_absorb: absorb a raw &[u8] (u8 batch) then squeeze 2. Lengths
     //     straddle the 31-byte (CAPACITY/8) chunk boundary. ---
     let byte_lens: [usize; 6] = [0, 5, 31, 32, 40, 63];
-    let bytes_json: Vec<String> = byte_lens
+    let bytes_json: Vec<BytesEntry> = byte_lens
         .iter()
         .map(|&len| {
             let data: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(7).wrapping_add(1)).collect();
             let mut sp = PoseidonSponge::<Fq>::new();
             sp.absorb(&data.as_slice());
-            format!(
-                "{{\"len\":{},\"data_hex\":\"{}\",\"squeeze\":[{}]}}",
+            BytesEntry {
                 len,
-                hex(&data),
-                squeeze_hex(&mut sp, 2).join(",")
-            )
+                data_hex: hex(&data),
+                squeeze: squeeze_hex(&mut sp, 2),
+            }
         })
         .collect();
 
@@ -121,20 +137,18 @@ fn main() {
         ("identity", vec![Affine::zero()]),
         ("two_then_id", vec![mul(2), Affine::zero(), mul(12345)]),
     ];
-    let point_json_entries: Vec<String> = point_cases
+    let point_json_entries: Vec<PointAbsorbEntry> = point_cases
         .iter()
         .map(|(label, pts)| {
             let mut sp = PoseidonSponge::<Fq>::new();
             for p in pts {
                 sp.absorb(p);
             }
-            let pts_json: Vec<String> = pts.iter().map(point_json).collect();
-            format!(
-                "{{\"label\":\"{}\",\"points\":[{}],\"squeeze\":[{}]}}",
-                label,
-                pts_json.join(","),
-                squeeze_hex(&mut sp, 2).join(",")
-            )
+            PointAbsorbEntry {
+                label: label.to_string(),
+                points: pts.iter().map(point_json).collect(),
+                squeeze: squeeze_hex(&mut sp, 2),
+            }
         })
         .collect();
 
@@ -173,34 +187,23 @@ fn main() {
         .pop()
         .unwrap();
 
-    // Each scalar as canonical-LE Fq^Fr 32B hex — exactly the bytes the prover
-    // concatenates via `into_repr().to_bytes_le()` into `input_bytes`.
-    let inputs_le_hex: Vec<String> = input_scalars
-        .iter()
-        .map(|s| format!("\"{}\"", fe_hex(s)))
-        .collect();
-    let comms_json = [comm_a, comm_b, comm_c]
-        .iter()
-        .map(point_json)
-        .collect::<Vec<_>>()
-        .join(",");
-    let gamma_json = format!(
-        "{{\"matrices_hash_hex\":\"{}\",\"inputs_le_hex\":[{}],\"comms\":[{}],\
-         \"randomness\":null,\"gamma_hex\":\"{}\"}}",
-        hex(&matrices_hash),
-        inputs_le_hex.join(","),
-        comms_json,
-        fe_hex(&gamma),
-    );
+    let gamma_json = Gamma {
+        matrices_hash_hex: hex(&matrices_hash),
+        // Each scalar as canonical-LE Fq^Fr 32B hex — exactly the bytes the prover
+        // concatenates via `into_repr().to_bytes_le()` into `input_bytes`.
+        inputs_le_hex: fe_list(&input_scalars),
+        comms: [comm_a, comm_b, comm_c].iter().map(point_json).collect(),
+        randomness: None,
+        gamma_hex: fe_hex(&gamma),
+    };
 
-    println!("{{");
-    println!(
-        "  \"note\": \"ark-sponge Absorbable + fork + NARK gamma fixtures\","
-    );
-    println!("  \"identity_to_field_elements_le_hex\": [{}],", id_fes.join(","));
-    println!("  \"fork\": [{}],", fork_json.join(","));
-    println!("  \"bytes_absorb\": [{}],", bytes_json.join(","));
-    println!("  \"point_absorb\": [{}],", point_json_entries.join(","));
-    println!("  \"gamma\": {}", gamma_json);
-    println!("}}");
+    let fixture = AbsorbFixture {
+        note: "ark-sponge Absorbable + fork + NARK gamma fixtures".to_string(),
+        identity_to_field_elements_le_hex: id_fes,
+        fork: fork_json,
+        bytes_absorb: bytes_json,
+        point_absorb: point_json_entries,
+        gamma: gamma_json,
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }

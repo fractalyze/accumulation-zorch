@@ -22,42 +22,13 @@
 //!       cargo test --features gpu --test gpu_fused_no_zk_prove_byte_match -- --ignored --test-threads=1
 #![cfg(feature = "gpu")]
 
+mod common;
+
 use accumulation_zorch::fused;
 use accumulation_zorch::gpu::Pallas;
-use ark_ff::PrimeField;
-use ark_pallas::{Affine, Fq, Fr};
+use ark_pallas::{Affine, Fr};
+use common::{fr_vec, point_from_json, to_hex};
 use std::path::PathBuf;
-
-/// Decode an even-length lowercase hex string to bytes.
-fn from_hex(s: &str) -> Vec<u8> {
-    assert!(s.len() % 2 == 0, "odd-length hex");
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("valid hex"))
-        .collect()
-}
-
-/// Encode bytes to a lowercase hex string (matches the fixture's `*_hex`).
-fn to_hex(b: &[u8]) -> String {
-    let mut s = String::with_capacity(b.len() * 2);
-    for x in b {
-        s.push_str(&format!("{:02x}", x));
-    }
-    s
-}
-
-/// A canonical-LE field element from its fixture hex.
-fn fr_from_hex(s: &str) -> Fr {
-    Fr::from_le_bytes_mod_order(&from_hex(s))
-}
-
-/// An affine point from a fixture `{x_le_hex, y_le_hex}` object (finite — the
-/// committer-key points are never the identity).
-fn point_from_json(v: &serde_json::Value) -> Affine {
-    let x = Fq::from_le_bytes_mod_order(&from_hex(v["x_le_hex"].as_str().unwrap()));
-    let y = Fq::from_le_bytes_mod_order(&from_hex(v["y_le_hex"].as_str().unwrap()));
-    Affine::new(x, y, false)
-}
 
 #[test]
 #[ignore = "needs XLA_PJRT_PLUGIN + artifacts/prove_no_zk_general.mlirbc + a GPU"]
@@ -67,9 +38,7 @@ fn gpu_fused_no_zk_prove_byte_match() {
     let d: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&fixture).expect("read fixture"))
             .expect("parse fixture json");
-    let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| root.join("artifacts"));
+    let artifacts = fixture_json::artifacts_dir(env!("CARGO_MANIFEST_DIR"));
 
     // --- Phase A: the general no-zk core takes the committer key
     // `bases = generators[:rows]` (no hiding base) plus the assignment
@@ -77,7 +46,7 @@ fn gpu_fused_no_zk_prove_byte_match() {
     // fed each seed's assignment below; the assignment also serializes host-side.
     let rows = d["num_constraints"].as_u64().unwrap() as usize;
     let generators: Vec<Affine> =
-        d["generators"].as_array().unwrap().iter().map(point_from_json).collect();
+        d["generators"].as_array().unwrap().iter().map(point_from_json::<Pallas>).collect();
     let bases = generators[..rows].to_vec();
     let mlirbc = std::fs::read(artifacts.join("prove_no_zk_general.mlirbc"))
         .unwrap_or_else(|e| panic!("read prove_no_zk_general.mlirbc: {}", e));
@@ -90,17 +59,14 @@ fn gpu_fused_no_zk_prove_byte_match() {
         acc_witness_hex: String,
         proof_hex: String,
     }
-    let fr_vec = |v: &serde_json::Value| -> Vec<Fr> {
-        v.as_array().unwrap().iter().map(|h| fr_from_hex(h.as_str().unwrap())).collect()
-    };
     let cases: Vec<Case> = d["seeds"]
         .as_array()
         .unwrap()
         .iter()
         .map(|s| Case {
             seed: s["seed"].as_u64().unwrap(),
-            r1cs_input: fr_vec(&s["r1cs_input"]),
-            blinded_witness: fr_vec(&s["blinded_witness"]),
+            r1cs_input: fr_vec::<Pallas>(&s["r1cs_input"]),
+            blinded_witness: fr_vec::<Pallas>(&s["blinded_witness"]),
             acc_instance_hex: s["acc_instance_hex"].as_str().unwrap().to_string(),
             acc_witness_hex: s["acc_witness_hex"].as_str().unwrap().to_string(),
             proof_hex: s["proof_hex"].as_str().unwrap().to_string(),

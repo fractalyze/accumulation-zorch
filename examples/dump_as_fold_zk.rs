@@ -24,19 +24,21 @@
 //!
 //! Run: `cargo run --example dump_as_fold_zk > python/testdata/as_fold_zk_fixtures.json`
 
-use ark_ff::{BigInteger, PrimeField, UniformRand};
-use ark_pallas::{Affine, Fr};
+use ark_ff::UniformRand;
+use ark_pallas::{Affine, Fr, PallasParameters};
 use ark_poly_commit::trivial_pc::PedersenCommitment;
-use ark_relations::lc;
 use ark_relations::r1cs::{
-    ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, Matrix, OptimizationGoal,
-    SynthesisError, SynthesisMode,
+    ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, SynthesisMode,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_sponge::CryptographicSponge;
 use ark_std::rand::{rngs::StdRng, SeedableRng};
-use blake2::VarBlake2b;
-use digest::{Update, VariableOutput};
+use serde::Serialize;
+
+use fixture_json::{
+    fe_hex, fe_list, hash_matrices, hex, matrix_json, point_list, ser_hex, DummyCircuit, MatrixJson,
+    PointJson,
+};
 
 use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark;
 use ark_accumulation::r1cs_nark_as::{ASForR1CSNark, InputInstance};
@@ -53,87 +55,90 @@ const SEEDS: [u64; 2] = [0, 42];
 const NARK_PROTOCOL_NAME: &[u8] = b"R1CS-NARK-2020";
 const AS_PROTOCOL_NAME: &[u8] = b"AS-FOR-R1CS-NARK-2020";
 
-#[derive(Clone)]
-struct DummyCircuit {
-    a: Option<Fr>,
-    b: Option<Fr>,
+/// A parsed `AccumulatorInstance`. Field order is the fixture's key order.
+#[derive(Serialize)]
+struct AccInstanceJson {
+    r1cs_input: Vec<String>,
+    comm_a: PointJson,
+    comm_b: PointJson,
+    comm_c: PointJson,
+    hp_comm_1: PointJson,
+    hp_comm_2: PointJson,
+    hp_comm_3: PointJson,
+}
+
+/// A parsed `AccumulatorWitness`. Field order is the fixture's key order.
+#[derive(Serialize)]
+struct AccWitnessJson {
+    r1cs_blinded_witness: Vec<String>,
+    hp_a_vec: Vec<String>,
+    hp_b_vec: Vec<String>,
+    hp_rand_1: String,
+    hp_rand_2: String,
+    hp_rand_3: String,
+    sigma_a: String,
+    sigma_b: String,
+    sigma_c: String,
+}
+
+/// One seed's replay inputs, replayed randomness, and golden fold. Field order is
+/// the fixture's key order.
+#[derive(Serialize)]
+struct SeedJson {
+    seed: u64,
+    input2_r1cs_input: Vec<String>,
+    input2_witness: Vec<String>,
+    r: Vec<String>,
+    a_blinder: String,
+    b_blinder: String,
+    c_blinder: String,
+    r_a_blinder: String,
+    r_b_blinder: String,
+    r_c_blinder: String,
+    blinder_1: String,
+    blinder_2: String,
+    as_r1cs_r_input: String,
+    as_r1cs_r_witness: String,
+    as_rand_1: String,
+    as_rand_2: String,
+    as_rand_3: String,
+    hp_hiding_a: String,
+    hp_hiding_b: String,
+    hp_rand_1: String,
+    hp_rand_2: String,
+    hp_rand_3: String,
+    acc_prev_instance: AccInstanceJson,
+    acc_prev_witness: AccWitnessJson,
+    golden_instance: AccInstanceJson,
+    golden_witness: AccWitnessJson,
+    golden_instance_hex: String,
+    golden_witness_hex: String,
+    golden_proof_hex: String,
+}
+
+/// The whole fixture. Field order is the fixture's key order.
+#[derive(Serialize)]
+struct FoldFixture {
+    note: String,
     num_inputs: usize,
     num_constraints: usize,
+    supported_num_elems: usize,
+    nark_matrices_hash_hex: String,
+    as_matrices_hash_hex: String,
+    a: MatrixJson,
+    b: MatrixJson,
+    c: MatrixJson,
+    generators: Vec<PointJson>,
+    hiding: PointJson,
+    seeds: Vec<SeedJson>,
 }
 
-impl ConstraintSynthesizer<Fr> for DummyCircuit {
-    fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
-        let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
-            Ok(a * b)
-        })?;
-        for _ in 0..(self.num_inputs - 1) {
-            cs.new_input_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        }
-        for _ in 0..(self.num_constraints - 1) {
-            cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
-        }
-        cs.enforce_constraint(lc!(), lc!(), lc!())?;
-        Ok(())
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
-
-fn fr_hex(f: &Fr) -> String {
-    hex(&f.into_repr().to_bytes_le())
-}
-
-fn ser_hex<T: CanonicalSerialize>(v: &T) -> String {
-    let mut b = Vec::new();
-    v.serialize(&mut b).unwrap();
-    hex(&b)
-}
-
-fn fr_list_json(xs: &[Fr]) -> String {
-    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fr_hex(f))).collect();
-    format!("[{}]", v.join(","))
-}
-
-fn matrix_json(m: &Matrix<Fr>) -> String {
-    let rows: Vec<String> = m
-        .iter()
-        .map(|row| {
-            let entries: Vec<String> = row
-                .iter()
-                .map(|(coeff, idx)| format!("[\"{}\",{}]", fr_hex(coeff), idx))
-                .collect();
-            format!("[{}]", entries.join(","))
-        })
-        .collect();
-    format!("[{}]", rows.join(","))
-}
-
-fn point_json(p: &Affine) -> String {
-    use ark_ff::Zero;
-    let (x, y) = if p.is_zero() {
-        (hex(&[0u8; 32]), hex(&[0u8; 32]))
-    } else {
-        (hex(&p.x.into_repr().to_bytes_le()), hex(&p.y.into_repr().to_bytes_le()))
-    };
-    format!("{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}", x, y)
-}
-
-/// Parse a serialized `AccumulatorInstance` into its components and render them
-/// as structured JSON (points uncompressed as `{x_le_hex,y_le_hex}`, so the frx
-/// side needs no point decompression). The serialization is the derived
-/// field-order one: `r1cs_input: Vec<Fr>`, `comm_a/comm_b/comm_c: G`, then
+/// Parse a serialized `AccumulatorInstance` into its components (points
+/// uncompressed as `{x_le_hex,y_le_hex}`, so the frx side needs no point
+/// decompression). The serialization is the derived field-order one:
+/// `r1cs_input: Vec<Fr>`, `comm_a/comm_b/comm_c: G`, then
 /// `hp_instance: HPInputInstance` = `comm_1/comm_2/comm_3: G`.
-fn acc_instance_json(bytes: &[u8]) -> String {
+fn acc_instance_json(bytes: &[u8]) -> AccInstanceJson {
     let mut cur = bytes;
     let r1cs_input = Vec::<Fr>::deserialize(&mut cur).unwrap();
     let comm_a = Affine::deserialize(&mut cur).unwrap();
@@ -142,17 +147,15 @@ fn acc_instance_json(bytes: &[u8]) -> String {
     let hp_comm_1 = Affine::deserialize(&mut cur).unwrap();
     let hp_comm_2 = Affine::deserialize(&mut cur).unwrap();
     let hp_comm_3 = Affine::deserialize(&mut cur).unwrap();
-    format!(
-        "{{\"r1cs_input\":{},\"comm_a\":{},\"comm_b\":{},\"comm_c\":{},\
-         \"hp_comm_1\":{},\"hp_comm_2\":{},\"hp_comm_3\":{}}}",
-        fr_list_json(&r1cs_input),
-        point_json(&comm_a),
-        point_json(&comm_b),
-        point_json(&comm_c),
-        point_json(&hp_comm_1),
-        point_json(&hp_comm_2),
-        point_json(&hp_comm_3),
-    )
+    AccInstanceJson {
+        r1cs_input: fe_list(&r1cs_input),
+        comm_a: PointJson::from_affine(&comm_a),
+        comm_b: PointJson::from_affine(&comm_b),
+        comm_c: PointJson::from_affine(&comm_c),
+        hp_comm_1: PointJson::from_affine(&hp_comm_1),
+        hp_comm_2: PointJson::from_affine(&hp_comm_2),
+        hp_comm_3: PointJson::from_affine(&hp_comm_3),
+    }
 }
 
 /// Parse a serialized `AccumulatorWitness` into its components. Derived
@@ -162,7 +165,7 @@ fn acc_instance_json(bytes: &[u8]) -> String {
 /// sigma_c}>`. An `Option` is a `u8` flag (1=Some) then the value; zk forces both
 /// `Some`. The HP fields (`a_vec`/`b_vec`/`hp_rand`) feed the HP-level fold; the
 /// `r1cs_blinded_witness` + sigmas feed the AS-level witness combine.
-fn acc_witness_json(bytes: &[u8]) -> String {
+fn acc_witness_json(bytes: &[u8]) -> AccWitnessJson {
     let mut cur = bytes;
     let r1cs_blinded_witness = Vec::<Fr>::deserialize(&mut cur).unwrap();
     let hp_a_vec = Vec::<Fr>::deserialize(&mut cur).unwrap();
@@ -181,37 +184,22 @@ fn acc_witness_json(bytes: &[u8]) -> String {
     };
     let (hp_rand_1, hp_rand_2, hp_rand_3) = read_opt3(&mut cur);
     let (sigma_a, sigma_b, sigma_c) = read_opt3(&mut cur);
-    format!(
-        "{{\"r1cs_blinded_witness\":{},\"hp_a_vec\":{},\"hp_b_vec\":{},\
-         \"hp_rand_1\":\"{}\",\"hp_rand_2\":\"{}\",\"hp_rand_3\":\"{}\",\
-         \"sigma_a\":\"{}\",\"sigma_b\":\"{}\",\"sigma_c\":\"{}\"}}",
-        fr_list_json(&r1cs_blinded_witness),
-        fr_list_json(&hp_a_vec),
-        fr_list_json(&hp_b_vec),
-        fr_hex(&hp_rand_1),
-        fr_hex(&hp_rand_2),
-        fr_hex(&hp_rand_3),
-        fr_hex(&sigma_a),
-        fr_hex(&sigma_b),
-        fr_hex(&sigma_c),
-    )
-}
-
-fn hash_matrices(domain: &[u8], a: &Matrix<Fr>, b: &Matrix<Fr>, c: &Matrix<Fr>) -> [u8; 32] {
-    let mut serialized = domain.to_vec();
-    a.serialize(&mut serialized).unwrap();
-    b.serialize(&mut serialized).unwrap();
-    c.serialize(&mut serialized).unwrap();
-    let mut hasher = VarBlake2b::new(32).unwrap();
-    hasher.update(&serialized);
-    let mut out = [0u8; 32];
-    hasher.finalize_variable(|res| out.copy_from_slice(res));
-    out
+    AccWitnessJson {
+        r1cs_blinded_witness: fe_list(&r1cs_blinded_witness),
+        hp_a_vec: fe_list(&hp_a_vec),
+        hp_b_vec: fe_list(&hp_b_vec),
+        hp_rand_1: fe_hex(&hp_rand_1),
+        hp_rand_2: fe_hex(&hp_rand_2),
+        hp_rand_3: fe_hex(&hp_rand_3),
+        sigma_a: fe_hex(&sigma_a),
+        sigma_b: fe_hex(&sigma_b),
+        sigma_c: fe_hex(&sigma_c),
+    }
 }
 
 /// The instance + witness assignment of one fixed `DummyCircuit`.
 fn assignment(a: u64, b: u64) -> (Vec<Fr>, Vec<Fr>) {
-    let circuit = DummyCircuit {
+    let circuit = DummyCircuit::<Fr> {
         a: Some(Fr::from(a)),
         b: Some(Fr::from(b)),
         num_inputs: NUM_INPUTS,
@@ -228,9 +216,9 @@ fn assignment(a: u64, b: u64) -> (Vec<Fr>, Vec<Fr>) {
 
 /// One seeded zk fold step: build `acc_prev` (init-accumulate input₁), then fold
 /// input₂ into it (`num_addends = 3`). Returns the JSON object for the seed.
-fn run_fold_seed(seed: u64) -> String {
+fn run_fold_seed(seed: u64) -> SeedJson {
     let nark_pp = R1CSNark::<G, Sponge>::setup();
-    let index_circuit = DummyCircuit {
+    let index_circuit = DummyCircuit::<Fr> {
         a: Some(Fr::from(2u64)),
         b: Some(Fr::from(2u64)),
         num_inputs: NUM_INPUTS,
@@ -243,7 +231,7 @@ fn run_fold_seed(seed: u64) -> String {
 
     // --- acc_prev: init-accumulate input₁ (a=3,b=5), no old accumulators.
     let mut rng1 = StdRng::seed_from_u64(seed ^ 0xacc0);
-    let circuit1 = DummyCircuit {
+    let circuit1 = DummyCircuit::<Fr> {
         a: Some(Fr::from(3u64)),
         b: Some(Fr::from(5u64)),
         num_inputs: NUM_INPUTS,
@@ -274,7 +262,7 @@ fn run_fold_seed(seed: u64) -> String {
 
     // --- input₂ (a=7,b=11): the input folded into acc_prev.
     let mut rng2 = StdRng::seed_from_u64(seed ^ 0x5ec2);
-    let circuit2 = DummyCircuit {
+    let circuit2 = DummyCircuit::<Fr> {
         a: Some(Fr::from(7u64)),
         b: Some(Fr::from(11u64)),
         num_inputs: NUM_INPUTS,
@@ -364,40 +352,42 @@ fn run_fold_seed(seed: u64) -> String {
     let hp_hiding_b = Fr::rand(&mut rep_fold);
     let hp_rand: Vec<Fr> = (0..3).map(|_| Fr::rand(&mut rep_fold)).collect();
 
-    format!(
-        "{{\"seed\":{},\
-         \"input2_r1cs_input\":{},\"input2_witness\":{},\
-         \"r\":{},\"a_blinder\":\"{}\",\"b_blinder\":\"{}\",\"c_blinder\":\"{}\",\
-         \"r_a_blinder\":\"{}\",\"r_b_blinder\":\"{}\",\"r_c_blinder\":\"{}\",\
-         \"blinder_1\":\"{}\",\"blinder_2\":\"{}\",\
-         \"as_r1cs_r_input\":\"{}\",\"as_r1cs_r_witness\":\"{}\",\
-         \"as_rand_1\":\"{}\",\"as_rand_2\":\"{}\",\"as_rand_3\":\"{}\",\
-         \"hp_hiding_a\":\"{}\",\"hp_hiding_b\":\"{}\",\
-         \"hp_rand_1\":\"{}\",\"hp_rand_2\":\"{}\",\"hp_rand_3\":\"{}\",\
-         \"acc_prev_instance\":{},\"acc_prev_witness\":{},\
-         \"golden_instance\":{},\"golden_witness\":{},\
-         \"golden_instance_hex\":\"{}\",\"golden_witness_hex\":\"{}\",\
-         \"golden_proof_hex\":\"{}\"}}",
+    SeedJson {
         seed,
-        fr_list_json(&r1cs_input2),
-        fr_list_json(&witness2),
-        fr_list_json(&r2),
-        fr_hex(&nark_blinders[0]), fr_hex(&nark_blinders[1]), fr_hex(&nark_blinders[2]),
-        fr_hex(&nark_blinders[3]), fr_hex(&nark_blinders[4]), fr_hex(&nark_blinders[5]),
-        fr_hex(&nark_blinders[6]), fr_hex(&nark_blinders[7]),
-        fr_hex(&as_r1cs_r_input), fr_hex(&as_r1cs_r_witness),
-        fr_hex(&as_rand[0]), fr_hex(&as_rand[1]), fr_hex(&as_rand[2]),
-        fr_hex(&hp_hiding_a), fr_hex(&hp_hiding_b),
-        fr_hex(&hp_rand[0]), fr_hex(&hp_rand[1]), fr_hex(&hp_rand[2]),
-        acc_prev_instance_json, acc_prev_witness_json,
-        golden_instance_json, golden_witness_json,
-        hex(&golden_instance_bytes), hex(&golden_witness_bytes), ser_hex(&golden_proof),
-    )
+        input2_r1cs_input: fe_list(&r1cs_input2),
+        input2_witness: fe_list(&witness2),
+        r: fe_list(&r2),
+        a_blinder: fe_hex(&nark_blinders[0]),
+        b_blinder: fe_hex(&nark_blinders[1]),
+        c_blinder: fe_hex(&nark_blinders[2]),
+        r_a_blinder: fe_hex(&nark_blinders[3]),
+        r_b_blinder: fe_hex(&nark_blinders[4]),
+        r_c_blinder: fe_hex(&nark_blinders[5]),
+        blinder_1: fe_hex(&nark_blinders[6]),
+        blinder_2: fe_hex(&nark_blinders[7]),
+        as_r1cs_r_input: fe_hex(&as_r1cs_r_input),
+        as_r1cs_r_witness: fe_hex(&as_r1cs_r_witness),
+        as_rand_1: fe_hex(&as_rand[0]),
+        as_rand_2: fe_hex(&as_rand[1]),
+        as_rand_3: fe_hex(&as_rand[2]),
+        hp_hiding_a: fe_hex(&hp_hiding_a),
+        hp_hiding_b: fe_hex(&hp_hiding_b),
+        hp_rand_1: fe_hex(&hp_rand[0]),
+        hp_rand_2: fe_hex(&hp_rand[1]),
+        hp_rand_3: fe_hex(&hp_rand[2]),
+        acc_prev_instance: acc_prev_instance_json,
+        acc_prev_witness: acc_prev_witness_json,
+        golden_instance: golden_instance_json,
+        golden_witness: golden_witness_json,
+        golden_instance_hex: hex(&golden_instance_bytes),
+        golden_witness_hex: hex(&golden_witness_bytes),
+        golden_proof_hex: ser_hex(&golden_proof),
+    }
 }
 
 fn main() {
     // Seed-independent structural inputs (matrices, committer key, matrix hashes).
-    let shape_circuit = DummyCircuit {
+    let shape_circuit = DummyCircuit::<Fr> {
         a: None,
         b: None,
         num_inputs: NUM_INPUTS,
@@ -424,21 +414,19 @@ fn main() {
         let h = Affine::deserialize_uncompressed(&mut r).unwrap();
         (g, h)
     };
-    let gens_json: Vec<String> = generators.iter().map(point_json).collect();
-    let seeds_json: Vec<String> = SEEDS.iter().map(|&s| run_fold_seed(s)).collect();
-
-    println!("{{");
-    println!("  \"note\": \"R1CS-NARK-AS multi-addend fold (num_addends=3) fixtures\",");
-    println!("  \"num_inputs\": {},", NUM_INPUTS);
-    println!("  \"num_constraints\": {},", num_constraints);
-    println!("  \"supported_num_elems\": {},", supported_num_elems);
-    println!("  \"nark_matrices_hash_hex\": \"{}\",", hex(&nark_matrices_hash));
-    println!("  \"as_matrices_hash_hex\": \"{}\",", hex(&as_matrices_hash));
-    println!("  \"a\": {},", matrix_json(&matrices.a));
-    println!("  \"b\": {},", matrix_json(&matrices.b));
-    println!("  \"c\": {},", matrix_json(&matrices.c));
-    println!("  \"generators\": [{}],", gens_json.join(","));
-    println!("  \"hiding\": {},", point_json(&hiding));
-    println!("  \"seeds\": [{}]", seeds_json.join(","));
-    println!("}}");
+    let fixture = FoldFixture {
+        note: "R1CS-NARK-AS multi-addend fold (num_addends=3) fixtures".to_string(),
+        num_inputs: NUM_INPUTS,
+        num_constraints,
+        supported_num_elems,
+        nark_matrices_hash_hex: hex(&nark_matrices_hash),
+        as_matrices_hash_hex: hex(&as_matrices_hash),
+        a: matrix_json(&matrices.a),
+        b: matrix_json(&matrices.b),
+        c: matrix_json(&matrices.c),
+        generators: point_list::<PallasParameters>(&generators),
+        hiding: PointJson::from_affine(&hiding),
+        seeds: SEEDS.iter().map(|&s| run_fold_seed(s)).collect(),
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }

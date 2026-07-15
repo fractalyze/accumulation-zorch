@@ -11,14 +11,16 @@
 //!
 //! Run: `cargo run --example dump_hp_zk > python/testdata/hp_zk_fixtures.json`
 
-use ark_ff::{BigInteger, PrimeField, UniformRand};
+use ark_ff::UniformRand;
 use ark_pallas::{Affine, Fr};
 use ark_poly_commit::trivial_pc::PedersenCommitment;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
+use serde::Serialize;
 
 use ark_accumulation::hp_as::{ASForHadamardProducts, InputInstance, InputWitness, InputWitnessRandomness};
 use ark_accumulation::{AccumulationScheme, Accumulator, Input, MakeZK};
+use fixture_json::{fe_hex, fe_list, point_list, ser_hex, PointJson};
 
 type CF = ark_pallas::Fq;
 type Sponge = ark_sponge::poseidon::PoseidonSponge<CF>;
@@ -27,37 +29,30 @@ type AS = ASForHadamardProducts<Affine, Sponge>;
 const HP_VEC_LEN: usize = 4;
 const SEED: u64 = 11;
 
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
-
-fn fr_hex(f: &Fr) -> String {
-    hex(&f.into_repr().to_bytes_le())
-}
-
-fn ser_hex<T: CanonicalSerialize>(v: &T) -> String {
-    let mut b = Vec::new();
-    v.serialize(&mut b).unwrap();
-    hex(&b)
-}
-
-fn fr_list_json(xs: &[Fr]) -> String {
-    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fr_hex(f))).collect();
-    format!("[{}]", v.join(","))
-}
-
-fn point_json(p: &Affine) -> String {
-    use ark_ff::Zero;
-    let (x, y) = if p.is_zero() {
-        (hex(&[0u8; 32]), hex(&[0u8; 32]))
-    } else {
-        (hex(&p.x.into_repr().to_bytes_le()), hex(&p.y.into_repr().to_bytes_le()))
-    };
-    format!("{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}", x, y)
+/// The fixture schema. Field order is the emitted key order.
+#[derive(Serialize)]
+struct HpZkFixture {
+    note: String,
+    hp_vec_len: usize,
+    supported_num_elems: usize,
+    generators: Vec<PointJson>,
+    hiding: PointJson,
+    a_vec: Vec<String>,
+    b_vec: Vec<String>,
+    in_rand_1: String,
+    in_rand_2: String,
+    in_rand_3: String,
+    comm_1: PointJson,
+    comm_2: PointJson,
+    comm_3: PointJson,
+    hiding_a: String,
+    hiding_b: String,
+    hiding_rand_1: String,
+    hiding_rand_2: String,
+    hiding_rand_3: String,
+    acc_instance_hex: String,
+    acc_witness_hex: String,
+    proof_hex: String,
 }
 
 fn hadamard(a: &[Fr], b: &[Fr]) -> Vec<Fr> {
@@ -104,8 +99,6 @@ fn main() {
         let h = Affine::deserialize_uncompressed(&mut r).unwrap();
         (g, h)
     };
-    let gens_json: Vec<String> = generators.iter().map(point_json).collect();
-
     // Replay the make_zk generate_prover_randomness draw schedule.
     let mut rep = StdRng::seed_from_u64(SEED);
     let hiding_a = Fr::rand(&mut rep); // vec![rand; hp_vec_len] — one draw, cloned
@@ -114,27 +107,28 @@ fn main() {
     let hiding_rand_2 = Fr::rand(&mut rep);
     let hiding_rand_3 = Fr::rand(&mut rep);
 
-    println!("{{");
-    println!("  \"note\": \"HP-AS zk prove fixtures\",");
-    println!("  \"hp_vec_len\": {},", HP_VEC_LEN);
-    println!("  \"supported_num_elems\": {},", ck.supported_num_elems());
-    println!("  \"generators\": [{}],", gens_json.join(","));
-    println!("  \"hiding\": {},", point_json(&hiding));
-    println!("  \"a_vec\": {},", fr_list_json(&a_vec));
-    println!("  \"b_vec\": {},", fr_list_json(&b_vec));
-    println!("  \"in_rand_1\": \"{}\",", fr_hex(&in_rand_1));
-    println!("  \"in_rand_2\": \"{}\",", fr_hex(&in_rand_2));
-    println!("  \"in_rand_3\": \"{}\",", fr_hex(&in_rand_3));
-    println!("  \"comm_1\": {},", point_json(&comm_1));
-    println!("  \"comm_2\": {},", point_json(&comm_2));
-    println!("  \"comm_3\": {},", point_json(&comm_3));
-    println!("  \"hiding_a\": \"{}\",", fr_hex(&hiding_a));
-    println!("  \"hiding_b\": \"{}\",", fr_hex(&hiding_b));
-    println!("  \"hiding_rand_1\": \"{}\",", fr_hex(&hiding_rand_1));
-    println!("  \"hiding_rand_2\": \"{}\",", fr_hex(&hiding_rand_2));
-    println!("  \"hiding_rand_3\": \"{}\",", fr_hex(&hiding_rand_3));
-    println!("  \"acc_instance_hex\": \"{}\",", ser_hex(&accumulator.instance));
-    println!("  \"acc_witness_hex\": \"{}\",", ser_hex(&accumulator.witness));
-    println!("  \"proof_hex\": \"{}\"", ser_hex(&proof));
-    println!("}}");
+    let fixture = HpZkFixture {
+        note: "HP-AS zk prove fixtures".to_string(),
+        hp_vec_len: HP_VEC_LEN,
+        supported_num_elems: ck.supported_num_elems(),
+        generators: point_list(&generators),
+        hiding: PointJson::from_affine(&hiding),
+        a_vec: fe_list(&a_vec),
+        b_vec: fe_list(&b_vec),
+        in_rand_1: fe_hex(&in_rand_1),
+        in_rand_2: fe_hex(&in_rand_2),
+        in_rand_3: fe_hex(&in_rand_3),
+        comm_1: PointJson::from_affine(&comm_1),
+        comm_2: PointJson::from_affine(&comm_2),
+        comm_3: PointJson::from_affine(&comm_3),
+        hiding_a: fe_hex(&hiding_a),
+        hiding_b: fe_hex(&hiding_b),
+        hiding_rand_1: fe_hex(&hiding_rand_1),
+        hiding_rand_2: fe_hex(&hiding_rand_2),
+        hiding_rand_3: fe_hex(&hiding_rand_3),
+        acc_instance_hex: ser_hex(&accumulator.instance),
+        acc_witness_hex: ser_hex(&accumulator.witness),
+        proof_hex: ser_hex(&proof),
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }

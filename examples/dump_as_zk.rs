@@ -1,7 +1,7 @@
 //! R1CS-NARK-AS prove (zk) end-to-end fixtures for the frx port, over either
-//! Pasta cycle curve (Pallas or Vesta) — the zk acceptance criterion. Mirrors
-//! `oracle.rs`'s `prove_byte_identical_to_arkworks_zk` flow (seeds {0, 42},
-//! num_inputs=5, num_constraints=10) so the golden bytes are the oracle's.
+//! Pasta cycle curve (Pallas or Vesta) — the zk acceptance criterion. Drives
+//! the unmodified arkworks zk prove (seeds {0, 42}, num_inputs=5,
+//! num_constraints=10), so the golden bytes are the oracle's.
 //!
 //! Per seed it dumps the replay inputs (the single input's `r1cs_input` + raw
 //! witness) and the golden zk `(acc.instance ‖ acc.witness ‖ proof)`, plus the
@@ -27,18 +27,20 @@
 use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
 use ark_ec::SWModelParameters;
-use ark_ff::{BigInteger, Field, PrimeField, UniformRand, Zero};
+use ark_ff::{Field, PrimeField, UniformRand};
 use ark_poly_commit::trivial_pc::PedersenCommitment;
-use ark_relations::lc;
 use ark_relations::r1cs::{
-    ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, Matrix, OptimizationGoal,
-    SynthesisError, SynthesisMode,
+    ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, SynthesisMode,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_sponge::{Absorbable, CryptographicSponge};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
-use blake2::VarBlake2b;
-use digest::{Update, VariableOutput};
+use serde::Serialize;
+
+use fixture_json::{
+    curve_main, fe_hex, fe_list, hash_matrices, hex, matrix_json, point_list, ser_hex, DummyCircuit,
+    MatrixJson, PointJson,
+};
 
 use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark;
 use ark_accumulation::r1cs_nark_as::{ASForR1CSNark, InputInstance};
@@ -61,99 +63,60 @@ const SEEDS: [u64; 2] = [0, 42];
 const NARK_PROTOCOL_NAME: &[u8] = b"R1CS-NARK-2020";
 const AS_PROTOCOL_NAME: &[u8] = b"AS-FOR-R1CS-NARK-2020";
 
-#[derive(Clone)]
-struct DummyCircuit<F: Field> {
-    a: Option<F>,
-    b: Option<F>,
+/// One seed's replay inputs, replayed randomness, and golden output. Field order
+/// is the fixture's key order.
+#[derive(Serialize)]
+struct SeedJson {
+    seed: u64,
+    r1cs_input: Vec<String>,
+    witness: Vec<String>,
+    r: Vec<String>,
+    a_blinder: String,
+    b_blinder: String,
+    c_blinder: String,
+    r_a_blinder: String,
+    r_b_blinder: String,
+    r_c_blinder: String,
+    blinder_1: String,
+    blinder_2: String,
+    as_r1cs_r_input: String,
+    as_r1cs_r_witness: String,
+    as_rand_1: String,
+    as_rand_2: String,
+    as_rand_3: String,
+    hp_hiding_a: String,
+    hp_hiding_b: String,
+    hp_rand_1: String,
+    hp_rand_2: String,
+    hp_rand_3: String,
+    acc_instance_hex: String,
+    acc_witness_hex: String,
+    proof_hex: String,
+    decide: bool,
+}
+
+/// The whole fixture. Field order is the fixture's key order.
+#[derive(Serialize)]
+struct AsZkFixture {
+    note: String,
+    curve: String,
     num_inputs: usize,
     num_constraints: usize,
+    supported_num_elems: usize,
+    nark_matrices_hash_hex: String,
+    as_matrices_hash_hex: String,
+    a: MatrixJson,
+    b: MatrixJson,
+    c: MatrixJson,
+    generators: Vec<PointJson>,
+    hiding: PointJson,
+    seeds: Vec<SeedJson>,
 }
 
-impl<F: Field> ConstraintSynthesizer<F> for DummyCircuit<F> {
-    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
-        let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
-            Ok(a * b)
-        })?;
-        for _ in 0..(self.num_inputs - 1) {
-            cs.new_input_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        }
-        for _ in 0..(self.num_constraints - 1) {
-            cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
-        }
-        cs.enforce_constraint(lc!(), lc!(), lc!())?;
-        Ok(())
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
-
-fn fe_hex<F: PrimeField>(f: &F) -> String {
-    hex(&f.into_repr().to_bytes_le())
-}
-
-fn ser_hex<T: CanonicalSerialize>(v: &T) -> String {
-    let mut b = Vec::new();
-    v.serialize(&mut b).unwrap();
-    hex(&b)
-}
-
-fn fr_list_json<F: PrimeField>(xs: &[F]) -> String {
-    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fe_hex(f))).collect();
-    format!("[{}]", v.join(","))
-}
-
-fn matrix_json<F: PrimeField>(m: &Matrix<F>) -> String {
-    let rows: Vec<String> = m
-        .iter()
-        .map(|row| {
-            let entries: Vec<String> = row
-                .iter()
-                .map(|(coeff, idx)| format!("[\"{}\",{}]", fe_hex(coeff), idx))
-                .collect();
-            format!("[{}]", entries.join(","))
-        })
-        .collect();
-    format!("[{}]", rows.join(","))
-}
-
-fn point_json<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    let (x, y) = if p.is_zero() {
-        (hex(&[0u8; 32]), hex(&[0u8; 32]))
-    } else {
-        (hex(&p.x.into_repr().to_bytes_le()), hex(&p.y.into_repr().to_bytes_le()))
-    };
-    format!("{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}", x, y)
-}
-
-fn hash_matrices<F: PrimeField>(domain: &[u8], a: &Matrix<F>, b: &Matrix<F>, c: &Matrix<F>) -> [u8; 32] {
-    let mut serialized = domain.to_vec();
-    a.serialize(&mut serialized).unwrap();
-    b.serialize(&mut serialized).unwrap();
-    c.serialize(&mut serialized).unwrap();
-    let mut hasher = VarBlake2b::new(32).unwrap();
-    hasher.update(&serialized);
-    let mut out = [0u8; 32];
-    hasher.finalize_variable(|res| out.copy_from_slice(res));
-    out
-}
-
-/// One seeded zk accumulation step (mirrors `oracle.rs`'s `prove_bytes!`), the
+/// One seeded zk accumulation step on the unmodified arkworks prover, the
 /// replayed randomness, and the arkworks decider verdict on the produced
-/// accumulator (asserted `true`). Returns a JSON object for the seed.
-fn run_seed<P>(seed: u64) -> String
+/// accumulator (asserted `true`).
+fn run_seed<P>(seed: u64) -> SeedJson
 where
     P: SWModelParameters,
     P::BaseField: PrimeField,
@@ -248,31 +211,34 @@ where
     let hp_hiding_b = P::ScalarField::rand(&mut rep);
     let hp_rand: Vec<P::ScalarField> = (0..3).map(|_| P::ScalarField::rand(&mut rep)).collect();
 
-    format!(
-        "{{\"seed\":{},\"r1cs_input\":{},\"witness\":{},\
-         \"r\":{},\"a_blinder\":\"{}\",\"b_blinder\":\"{}\",\"c_blinder\":\"{}\",\
-         \"r_a_blinder\":\"{}\",\"r_b_blinder\":\"{}\",\"r_c_blinder\":\"{}\",\
-         \"blinder_1\":\"{}\",\"blinder_2\":\"{}\",\
-         \"as_r1cs_r_input\":\"{}\",\"as_r1cs_r_witness\":\"{}\",\
-         \"as_rand_1\":\"{}\",\"as_rand_2\":\"{}\",\"as_rand_3\":\"{}\",\
-         \"hp_hiding_a\":\"{}\",\"hp_hiding_b\":\"{}\",\
-         \"hp_rand_1\":\"{}\",\"hp_rand_2\":\"{}\",\"hp_rand_3\":\"{}\",\
-         \"acc_instance_hex\":\"{}\",\"acc_witness_hex\":\"{}\",\"proof_hex\":\"{}\",\
-         \"decide\":{}}}",
+    SeedJson {
         seed,
-        fr_list_json(&r1cs_input),
-        fr_list_json(&witness),
-        fr_list_json(&r),
-        fe_hex(&nark_blinders[0]), fe_hex(&nark_blinders[1]), fe_hex(&nark_blinders[2]),
-        fe_hex(&nark_blinders[3]), fe_hex(&nark_blinders[4]), fe_hex(&nark_blinders[5]),
-        fe_hex(&nark_blinders[6]), fe_hex(&nark_blinders[7]),
-        fe_hex(&as_r1cs_r_input), fe_hex(&as_r1cs_r_witness),
-        fe_hex(&as_rand[0]), fe_hex(&as_rand[1]), fe_hex(&as_rand[2]),
-        fe_hex(&hp_hiding_a), fe_hex(&hp_hiding_b),
-        fe_hex(&hp_rand[0]), fe_hex(&hp_rand[1]), fe_hex(&hp_rand[2]),
-        ser_hex(&accumulator.instance), ser_hex(&accumulator.witness), ser_hex(&proof),
-        decided,
-    )
+        r1cs_input: fe_list(&r1cs_input),
+        witness: fe_list(&witness),
+        r: fe_list(&r),
+        a_blinder: fe_hex(&nark_blinders[0]),
+        b_blinder: fe_hex(&nark_blinders[1]),
+        c_blinder: fe_hex(&nark_blinders[2]),
+        r_a_blinder: fe_hex(&nark_blinders[3]),
+        r_b_blinder: fe_hex(&nark_blinders[4]),
+        r_c_blinder: fe_hex(&nark_blinders[5]),
+        blinder_1: fe_hex(&nark_blinders[6]),
+        blinder_2: fe_hex(&nark_blinders[7]),
+        as_r1cs_r_input: fe_hex(&as_r1cs_r_input),
+        as_r1cs_r_witness: fe_hex(&as_r1cs_r_witness),
+        as_rand_1: fe_hex(&as_rand[0]),
+        as_rand_2: fe_hex(&as_rand[1]),
+        as_rand_3: fe_hex(&as_rand[2]),
+        hp_hiding_a: fe_hex(&hp_hiding_a),
+        hp_hiding_b: fe_hex(&hp_hiding_b),
+        hp_rand_1: fe_hex(&hp_rand[0]),
+        hp_rand_2: fe_hex(&hp_rand[1]),
+        hp_rand_3: fe_hex(&hp_rand[2]),
+        acc_instance_hex: ser_hex(&accumulator.instance),
+        acc_witness_hex: ser_hex(&accumulator.witness),
+        proof_hex: ser_hex(&proof),
+        decide: decided,
+    }
 }
 
 fn dump<P>(curve: &str)
@@ -310,30 +276,22 @@ where
         let h = GroupAffine::<P>::deserialize_uncompressed(&mut r).unwrap();
         (g, h)
     };
-    let gens_json: Vec<String> = generators.iter().map(point_json::<P>).collect();
-    let seeds_json: Vec<String> = SEEDS.iter().map(|&s| run_seed::<P>(s)).collect();
-
-    println!("{{");
-    println!("  \"note\": \"R1CS-NARK-AS zk prove + decide fixtures ({} curve)\",", curve);
-    println!("  \"curve\": \"{}\",", curve);
-    println!("  \"num_inputs\": {},", NUM_INPUTS);
-    println!("  \"num_constraints\": {},", num_constraints);
-    println!("  \"supported_num_elems\": {},", supported_num_elems);
-    println!("  \"nark_matrices_hash_hex\": \"{}\",", hex(&nark_matrices_hash));
-    println!("  \"as_matrices_hash_hex\": \"{}\",", hex(&as_matrices_hash));
-    println!("  \"a\": {},", matrix_json(&matrices.a));
-    println!("  \"b\": {},", matrix_json(&matrices.b));
-    println!("  \"c\": {},", matrix_json(&matrices.c));
-    println!("  \"generators\": [{}],", gens_json.join(","));
-    println!("  \"hiding\": {},", point_json::<P>(&hiding));
-    println!("  \"seeds\": [{}]", seeds_json.join(","));
-    println!("}}");
+    let fixture = AsZkFixture {
+        note: format!("R1CS-NARK-AS zk prove + decide fixtures ({} curve)", curve),
+        curve: curve.to_string(),
+        num_inputs: NUM_INPUTS,
+        num_constraints,
+        supported_num_elems,
+        nark_matrices_hash_hex: hex(&nark_matrices_hash),
+        as_matrices_hash_hex: hex(&as_matrices_hash),
+        a: matrix_json(&matrices.a),
+        b: matrix_json(&matrices.b),
+        c: matrix_json(&matrices.c),
+        generators: point_list(&generators),
+        hiding: PointJson::from_affine(&hiding),
+        seeds: SEEDS.iter().map(|&s| run_seed::<P>(s)).collect(),
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }
 
-fn main() {
-    match std::env::args().nth(1).as_deref().unwrap_or("pallas") {
-        "pallas" => dump::<ark_pallas::PallasParameters>("pallas"),
-        "vesta" => dump::<ark_vesta::VestaParameters>("vesta"),
-        other => panic!("unknown curve {} (expected pallas|vesta)", other),
-    }
-}
+curve_main!(dump);

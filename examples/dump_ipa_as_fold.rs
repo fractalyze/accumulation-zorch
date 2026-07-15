@@ -31,7 +31,7 @@
 use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
 use ark_ec::SWModelParameters;
-use ark_ff::{BigInteger, Field, One, PrimeField, UniformRand, Zero};
+use ark_ff::{Field, One, PrimeField, UniformRand};
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::UVPolynomial;
 use ark_poly_commit::ipa_pc::InnerProductArgPC;
@@ -40,6 +40,9 @@ use ark_sponge::domain_separated::DomainSeparatedSponge;
 use ark_sponge::poseidon::PoseidonSponge;
 use ark_sponge::Absorbable;
 use ark_std::test_rng;
+use serde::Serialize;
+
+use fixture_json::{curve_main, fe_hex, fe_list, point_list, PointJson};
 
 use ark_accumulation::ipa_pc_as::{
     AtomicASForInnerProductArgPC, InputInstance, IpaPCDomain, PredicateIndex,
@@ -68,84 +71,52 @@ type IpaPC<P> = InnerProductArgPC<
 const DEGREE: usize = 7;
 const NUM_PREV_INPUTS: usize = 2;
 
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
-
-/// Canonical-LE 32-byte hex of a field element.
-fn fe_hex<F: PrimeField>(f: &F) -> String {
-    hex(&f.into_repr().to_bytes_le())
-}
-
-/// A JSON array of canonical-LE 32B hex scalars (the decider check-poly coeffs).
-fn fr_list_json<F: PrimeField>(xs: &[F]) -> String {
-    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fe_hex(f))).collect();
-    format!("[{}]", v.join(","))
-}
-
-/// x-coordinate of an affine point as canonical-LE 32B hex (identity → zeros).
-fn coord_x_hex<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    if p.is_zero() {
-        hex(&[0u8; 32])
-    } else {
-        hex(&p.x.into_repr().to_bytes_le())
-    }
-}
-
-fn coord_y_hex<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    if p.is_zero() {
-        hex(&[0u8; 32])
-    } else {
-        hex(&p.y.into_repr().to_bytes_le())
-    }
-}
-
-fn point_json<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    format!(
-        "{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}",
-        coord_x_hex(p),
-        coord_y_hex(p)
-    )
-}
-
-fn points_json<P: SWModelParameters>(ps: &[GroupAffine<P>]) -> String
-where
-    P::BaseField: PrimeField,
-{
-    let v: Vec<String> = ps.iter().map(point_json).collect();
-    format!("[{}]", v.join(","))
-}
-
-/// An `InputInstance` (an input or the prior/new accumulator) as JSON: the IPA
+/// An `InputInstance` (an input or the prior/new accumulator): the IPA
 /// commitment, opening point + evaluation, and the proof's fold commitments,
 /// `final_comm_key`, and final coefficient `c`. No-zk, so the proof is non-hiding.
-fn instance_json<P: SWModelParameters>(inst: &InputInstance<GroupAffine<P>>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    format!(
-        "{{\"commitment\":{},\"point\":\"{}\",\"evaluation\":\"{}\",\"l_vec\":{},\"r_vec\":{},\"final_comm_key\":{},\"c\":\"{}\"}}",
-        point_json(&inst.ipa_commitment.commitment().comm),
-        fe_hex(&inst.point),
-        fe_hex(&inst.evaluation),
-        points_json(&inst.ipa_proof.l_vec),
-        points_json(&inst.ipa_proof.r_vec),
-        point_json(&inst.ipa_proof.final_comm_key),
-        fe_hex(&inst.ipa_proof.c),
-    )
+/// Field order is the fixture's key order.
+#[derive(Serialize)]
+struct InstanceJson {
+    commitment: PointJson,
+    point: String,
+    evaluation: String,
+    l_vec: Vec<PointJson>,
+    r_vec: Vec<PointJson>,
+    final_comm_key: PointJson,
+    c: String,
+}
+
+impl InstanceJson {
+    fn from_instance<P: SWModelParameters>(inst: &InputInstance<GroupAffine<P>>) -> Self
+    where
+        P::BaseField: PrimeField,
+    {
+        InstanceJson {
+            commitment: PointJson::from_affine(&inst.ipa_commitment.commitment().comm),
+            point: fe_hex(&inst.point),
+            evaluation: fe_hex(&inst.evaluation),
+            l_vec: point_list(&inst.ipa_proof.l_vec),
+            r_vec: point_list(&inst.ipa_proof.r_vec),
+            final_comm_key: PointJson::from_affine(&inst.ipa_proof.final_comm_key),
+            c: fe_hex(&inst.ipa_proof.c),
+        }
+    }
+}
+
+/// The whole fixture. Field order is the fixture's key order.
+#[derive(Serialize)]
+struct FoldFixture {
+    note: String,
+    curve: String,
+    supported_degree: usize,
+    num_prev_inputs: usize,
+    h: PointJson,
+    s: PointJson,
+    generators: Vec<PointJson>,
+    input: InstanceJson,
+    acc_prev: InstanceJson,
+    accumulator: InstanceJson,
+    decider_coeffs: Vec<String>,
 }
 
 /// Commit a fresh random degree-`DEGREE` polynomial and open it at a random point
@@ -258,27 +229,23 @@ where
     .expect("folded accumulator opening must verify");
     let decider_coeffs = acc_check_poly.compute_coeffs();
 
-    let gens_json = points_json(&ck.comm_key);
-
-    println!("{{");
-    println!("  \"note\": \"IPA-PC accumulation fold (no-zk) fixtures ({} curve): one input folded into a prior accumulator\",", curve);
-    println!("  \"curve\": \"{}\",", curve);
-    println!("  \"supported_degree\": {},", svk.supported_degree);
-    println!("  \"num_prev_inputs\": {},", NUM_PREV_INPUTS);
-    println!("  \"h\": {},", point_json(&svk.h));
-    println!("  \"s\": {},", point_json(&svk.s));
-    println!("  \"generators\": {},", gens_json);
-    println!("  \"input\": {},", instance_json(&new_input.instance));
-    println!("  \"acc_prev\": {},", instance_json(&accs_prev[0].instance));
-    println!("  \"accumulator\": {},", instance_json(&accumulator.instance));
-    println!("  \"decider_coeffs\": {}", fr_list_json(&decider_coeffs));
-    println!("}}");
+    let fixture = FoldFixture {
+        note: format!(
+            "IPA-PC accumulation fold (no-zk) fixtures ({} curve): one input folded into a prior accumulator",
+            curve
+        ),
+        curve: curve.to_string(),
+        supported_degree: svk.supported_degree,
+        num_prev_inputs: NUM_PREV_INPUTS,
+        h: PointJson::from_affine(&svk.h),
+        s: PointJson::from_affine(&svk.s),
+        generators: point_list(&ck.comm_key),
+        input: InstanceJson::from_instance(&new_input.instance),
+        acc_prev: InstanceJson::from_instance(&accs_prev[0].instance),
+        accumulator: InstanceJson::from_instance(&accumulator.instance),
+        decider_coeffs: fe_list(&decider_coeffs),
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }
 
-fn main() {
-    match std::env::args().nth(1).as_deref().unwrap_or("pallas") {
-        "pallas" => dump::<ark_pallas::PallasParameters>("pallas"),
-        "vesta" => dump::<ark_vesta::VestaParameters>("vesta"),
-        other => panic!("unknown curve {} (expected pallas|vesta)", other),
-    }
-}
+curve_main!(dump);

@@ -38,9 +38,7 @@ fn gpu_fused_prove_byte_match() {
     let d: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&fixture).expect("read fixture"))
             .expect("parse fixture json");
-    let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| root.join("artifacts"));
+    let artifacts = fixture_json::artifacts_dir(env!("CARGO_MANIFEST_DIR"));
 
     // --- Phase A: build the runtime inputs + golden, touching no PJRT client.
     // The committer key is the fused core's affine input: `bases_h =
