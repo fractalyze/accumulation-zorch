@@ -93,9 +93,11 @@ bazel test //python/...   # the full CPU byte-match suite (JAX_PLATFORMS=cpu, se
 
 > The pinned xla Pasta frx build registers the Pasta curve dtypes and `zk-dtypes`
 > carries them; both are pinned in `requirements.in` (locked in
-> `requirements_lock_3_11.txt`). `bazel test //python/...` is 22/22 byte-match vs
-> arkworks (Pallas + Vesta, no-zk + zk); it excludes the `manual`-tagged
-> `recursion_fold_zk_test` (minutes-slow). To bump the
+> `requirements_lock_3_11.txt`). `bazel test //python/...` is 20/20 byte-match vs
+> arkworks (Pallas + Vesta, no-zk + zk); it excludes the three `manual`-tagged
+> recursion gates, which byte-match at recursion-circuit scale against large
+> off-tree fixtures no clean checkout has (see
+> `python/accumulation_zorch/testing/BUILD.bazel`). To bump the
 > zorch pin, edit the `git_override` commit in `MODULE.bazel` and keep
 > `requirements.in`'s frx / zk-dtypes in lockstep (both this repo's pip hub and
 > zorch's must resolve frx to the same wheel), then `bazel run //:requirements.update`.
@@ -150,7 +152,7 @@ on CPU (the same trace the GPU export lowers) — run one test, or the whole sui
 
 ```bash
 bazel test //python/accumulation_zorch/testing:as_zk_test   # one test
-bazel test //python/...                                      # the full 22-test suite
+bazel test //python/...                                      # the full 20-test suite
 # seed 0 / 42: (acc.instance 398B ‖ acc.witness 922B ‖ proof 482B) byte-matches arkworks
 ```
 

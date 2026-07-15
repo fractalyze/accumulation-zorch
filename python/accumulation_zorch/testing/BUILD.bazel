@@ -34,8 +34,6 @@ _TESTS = [
     "ipa_zk_test",
     "nark_test",
     "nark_zk_test",
-    "recursion_nark_test",
-    "recursion_nark_zk_test",
     "sponge_frx_test",
     "sponge_test",
     "substrate_test",
@@ -52,17 +50,37 @@ _TESTS = [
     for t in _TESTS
 ]
 
-# The full recursion-circuit IVC fold is minutes-slow on CPU and needs the large
-# off-tree recursion fixtures (artifacts/recursion_*_fixtures.json, regenerated
-# via the `--features recursion` Rust dump tests). Its fold math is covered by
-# as_fold_zk*, its recursion circuit by recursion_nark*. Tagged manual so
-# `bazel test //...` skips it (matching the CI omission), but it stays buildable
-# and runnable on demand (`bazel test //python/accumulation_zorch/testing:recursion_fold_zk_test`).
-py_test(
-    name = "recursion_fold_zk_test",
-    size = "large",
-    srcs = ["recursion_fold_zk_test.py"],
-    data = ["//python/testdata:fixtures"],
-    tags = ["manual"],
-    deps = _TEST_DEPS,
-)
+# The on-demand recursion gates. Each byte-matches at the real ~22.5K/~77.5K-constraint
+# recursion-circuit scale, against a large off-tree fixture
+# (artifacts/recursion_*_fixtures.json, 17-147 MB) that the `--features recursion` Rust
+# dump tests emit. Those fixtures are gitignored, so no clean checkout has them, and CI
+# cannot produce them even in principle (its `cargo test` runs with default features).
+#
+# `manual` keeps them out of `bazel test //python/...`. Without it they would run, find no
+# fixture, skip — and report green, because a test that exits 0 is a pass to bazel whether
+# it checked anything or not. Their math is still covered in the standing suite at toy
+# scale: the NARK core by nark_test / nark_zk_test, the fold by as_fold_zk*.
+#
+# Runnable on demand:
+#
+#     bazel test //python/accumulation_zorch/testing:recursion_nark_test
+#
+# recursion_fold_zk_test is "large" for a second reason of its own: the full IVC fold is
+# minutes-slow on CPU.
+_MANUAL_TESTS = {
+    "recursion_nark_test": "medium",
+    "recursion_nark_zk_test": "medium",
+    "recursion_fold_zk_test": "large",
+}
+
+[
+    py_test(
+        name = t,
+        size = size,
+        srcs = [t + ".py"],
+        data = ["//python/testdata:fixtures"],
+        tags = ["manual"],
+        deps = _TEST_DEPS,
+    )
+    for t, size in _MANUAL_TESTS.items()
+]
