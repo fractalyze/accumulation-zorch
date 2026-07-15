@@ -91,10 +91,11 @@ version), then:
 bazel test //python/...   # the full CPU byte-match suite (JAX_PLATFORMS=cpu, set in .bazelrc)
 ```
 
-> The pinned xla Pasta frx build (`0.10.0.dev…`, in `requirements_lock_3_11.txt`)
-> registers the Pasta curve dtypes and `zk-dtypes==0.0.10` carries them. `bazel test
-> //python/...` is 24/24 byte-match vs arkworks (Pallas + Vesta, no-zk + zk); it
-> excludes the `manual`-tagged `recursion_fold_zk_test` (minutes-slow). To bump the
+> The pinned xla Pasta frx build registers the Pasta curve dtypes and `zk-dtypes`
+> carries them; both are pinned in `requirements.in` (locked in
+> `requirements_lock_3_11.txt`). `bazel test //python/...` is 22/22 byte-match vs
+> arkworks (Pallas + Vesta, no-zk + zk); it excludes the `manual`-tagged
+> `recursion_fold_zk_test` (minutes-slow). To bump the
 > zorch pin, edit the `git_override` commit in `MODULE.bazel` and keep
 > `requirements.in`'s frx / zk-dtypes in lockstep (both this repo's pip hub and
 > zorch's must resolve frx to the same wheel), then `bazel run //:requirements.update`.
@@ -110,13 +111,19 @@ PJRT plugin `.so`. Install the plugin from the public Fractalyze index into a ve
 and point `XLA_PJRT_PLUGIN` at it:
 
 ```bash
+# Take frx / zk-dtypes from requirements.in so the plugin stack can't drift from
+# what the Bazel tier lowers the .mlirbc with. The frx-cuda12 wheels ship in
+# lockstep with frx, so they carry the same version.
+FRX_VER=$(grep '^frx==' requirements.in | cut -d= -f3)
+ZK_VER=$(grep '^zk-dtypes==' requirements.in | cut -d= -f3)
+
 uv venv --python 3.11 .venv
 uv pip install --python .venv --index-strategy unsafe-best-match \
   --index-url https://fractalyze.github.io/pypi/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  frx==0.10.0.dev20260715051143 frxlib==0.10.0.dev20260715051143 \
-  frx-cuda12-pjrt==0.10.0.dev20260715051143 frx-cuda12-plugin==0.10.0.dev20260715051143 \
-  zk-dtypes==0.0.10 numpy absl-py
+  "frx==$FRX_VER" "frxlib==$FRX_VER" \
+  "frx-cuda12-pjrt==$FRX_VER" "frx-cuda12-plugin==$FRX_VER" \
+  "zk-dtypes==$ZK_VER" numpy absl-py
 export XLA_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/frx_plugins/xla_cuda12/xla_cuda_plugin.so
 ```
 
@@ -143,7 +150,7 @@ on CPU (the same trace the GPU export lowers) — run one test, or the whole sui
 
 ```bash
 bazel test //python/accumulation_zorch/testing:as_zk_test   # one test
-bazel test //python/...                                      # the full 24-test suite
+bazel test //python/...                                      # the full 22-test suite
 # seed 0 / 42: (acc.instance 398B ‖ acc.witness 922B ‖ proof 482B) byte-matches arkworks
 ```
 
