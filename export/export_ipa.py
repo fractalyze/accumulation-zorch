@@ -24,7 +24,6 @@ Run under Bazel — CPU is enough, lowering needs no GPU:
 
     bazel run //export:export_ipa [-- pallas|vesta]
 """
-import io
 import json
 import os
 import sys
@@ -39,6 +38,8 @@ from jax import lax
 
 from accumulation_zorch import curve
 from accumulation_zorch.curve import Curve
+
+from export_prove import write_bytecode
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
 _FIXTURE = {
@@ -62,22 +63,6 @@ def _fr(hex_le: str) -> int:
 
 def _point(cv: Curve, p: Any) -> Any:
     return cv.g1((_fr(p["x_le_hex"]), _fr(p["y_le_hex"])))
-
-
-def write_bytecode(lowered: Any, path: Path) -> int:
-    """Serialize a lowered module to StableHLO bytecode (the format the plugin's
-    ``PJRT_Client_Compile`` consumes). Mirrors ``export_prove.write_bytecode``."""
-    m = lowered.compiler_ir(dialect="stablehlo")
-    try:
-        from jax._src.interpreters import mlir as _jmlir
-
-        data = _jmlir.module_to_bytecode(m)
-    except Exception:
-        buf = io.BytesIO()
-        m.operation.write_bytecode(buf)
-        data = buf.getvalue()
-    path.write_bytes(data)
-    return len(data)
 
 
 def build_decider_core(cv: Curve) -> tuple:

@@ -28,7 +28,6 @@ Run under Bazel — CPU is enough, lowering needs no GPU:
     # bench core (a size-`n` pure 6-MSM decider load, for the scale benchmark):
     AS_DECIDE_SIZE=65536 PROVE_CURVE=pallas bazel run //export:export_as_decide
 """
-import io
 import os
 import sys
 import time
@@ -41,6 +40,8 @@ import numpy as np
 
 from accumulation_zorch import curve, field, nark
 from accumulation_zorch.curve import Curve
+
+from export_prove import write_bytecode
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
 _FIXTURE = {
@@ -68,22 +69,6 @@ def _point(cv: Curve, p: Any) -> Any:
 
 def _matrix(rows: Any) -> nark.Matrix:
     return [[(_fr(coeff), idx) for coeff, idx in row] for row in rows]
-
-
-def write_bytecode(lowered: Any, path: Path) -> int:
-    """Serialize a lowered module to StableHLO bytecode (mirrors
-    ``export_ipa.write_bytecode``)."""
-    m = lowered.compiler_ir(dialect="stablehlo")
-    try:
-        from jax._src.interpreters import mlir as _jmlir
-
-        data = _jmlir.module_to_bytecode(m)
-    except Exception:
-        buf = io.BytesIO()
-        m.operation.write_bytecode(buf)
-        data = buf.getvalue()
-    path.write_bytes(data)
-    return len(data)
 
 
 def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,

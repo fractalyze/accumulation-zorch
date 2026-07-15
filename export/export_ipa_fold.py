@@ -22,7 +22,6 @@ Run under Bazel — CPU is enough, lowering needs no GPU:
 
     bazel run //export:export_ipa_fold [-- pallas|vesta]
 """
-import io
 import json
 import os
 import sys
@@ -32,6 +31,8 @@ from typing import Any, NamedTuple
 
 from accumulation_zorch import curve, ipa_open, ipa_pc_as, sponge
 from accumulation_zorch.curve import Curve
+
+from export_prove import write_bytecode
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
 _FIXTURE = {
@@ -89,22 +90,6 @@ def _parse_input(cv: Curve, d: Any) -> _Input:
 def _params(cv: Curve, sponge_fixture: Path) -> Any:
     ark_le = b"".join(bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"])
     return sponge.poseidon_params(cv, ark_le)
-
-
-def write_bytecode(lowered: Any, path: Path) -> int:
-    """Serialize a lowered module to StableHLO bytecode (mirrors
-    ``export_ipa.write_bytecode`` / ``export_prove.write_bytecode``)."""
-    m = lowered.compiler_ir(dialect="stablehlo")
-    try:
-        from jax._src.interpreters import mlir as _jmlir
-
-        data = _jmlir.module_to_bytecode(m)
-    except Exception:
-        buf = io.BytesIO()
-        m.operation.write_bytecode(buf)
-        data = buf.getvalue()
-    path.write_bytes(data)
-    return len(data)
 
 
 def _combine(cv: Curve, params: Any, d: Any) -> tuple:
