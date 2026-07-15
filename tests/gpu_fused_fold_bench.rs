@@ -14,37 +14,21 @@
 //!       cargo test --release --features gpu --test gpu_fused_fold_bench -- --ignored --nocapture
 #![cfg(feature = "gpu")]
 
+mod common;
+
 use accumulation_zorch::fused;
 use accumulation_zorch::gpu::{PastaCurve, Vesta};
-use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
-use ark_ff::{PrimeField, Zero};
-use std::path::PathBuf;
+use ark_ff::Zero;
+use common::{fr_from_hex, point_from_json};
 use std::time::Instant;
 
 type Affine<C> = GroupAffine<<C as PastaCurve>::Params>;
-type Fr<C> = <<C as PastaCurve>::Params as ModelParameters>::ScalarField;
-type Base<C> = <<C as PastaCurve>::Params as ModelParameters>::BaseField;
-
-fn from_hex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("hex")).collect()
-}
-
-fn point_from_json<C: PastaCurve>(v: &serde_json::Value) -> Affine<C>
-where
-    Base<C>: PrimeField,
-{
-    let x = Base::<C>::from_le_bytes_mod_order(&from_hex(v["x_le_hex"].as_str().unwrap()));
-    let y = Base::<C>::from_le_bytes_mod_order(&from_hex(v["y_le_hex"].as_str().unwrap()));
-    GroupAffine::new(x, y, false)
-}
 
 #[test]
 #[ignore = "needs XLA_PJRT_PLUGIN + off-tree Vesta fold fixture + fold_zk_vesta.mlirbc + a GPU; run --release"]
 fn gpu_fused_fold_bench() {
-    let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("artifacts"));
+    let artifacts = fixture_json::artifacts_dir(env!("CARGO_MANIFEST_DIR"));
     let fixture = artifacts.join("recursion_fold_zk_fixtures.json");
     let mlirbc_path = artifacts.join("fold_zk_vesta.mlirbc");
     if !fixture.exists() || !mlirbc_path.exists() {
@@ -67,7 +51,7 @@ fn gpu_fused_fold_bench() {
             .map(|k| point_from_json::<Vesta>(&acc[*k]))
             .collect();
     let input_len = d["input2_r1cs_input"].as_array().unwrap().len();
-    let as_r = Fr::<Vesta>::from_le_bytes_mod_order(&from_hex(d["as_r1cs_r_input"].as_str().unwrap()));
+    let as_r = fr_from_hex::<Vesta>(d["as_r1cs_r_input"].as_str().unwrap());
     let r1cs_r_input = vec![as_r; input_len];
     let mlirbc = std::fs::read(&mlirbc_path).unwrap();
 

@@ -38,51 +38,18 @@
 //!       cargo test --features gpu --test gpu_fused_fold_zk_byte_match -- --ignored --test-threads=1
 #![cfg(feature = "gpu")]
 
+mod common;
+
 use accumulation_zorch::fused;
 use accumulation_zorch::gpu::{Pallas, PastaCurve, Vesta};
 use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
 use ark_ff::{PrimeField, Zero};
-use std::path::{Path, PathBuf};
+use common::{fr_from_hex, point_from_json, to_hex};
+use std::path::Path;
 
 type Affine<C> = GroupAffine<<C as PastaCurve>::Params>;
-type Fr<C> = <<C as PastaCurve>::Params as ModelParameters>::ScalarField;
 type Base<C> = <<C as PastaCurve>::Params as ModelParameters>::BaseField;
-
-/// Decode an even-length lowercase hex string to bytes.
-fn from_hex(s: &str) -> Vec<u8> {
-    assert!(s.len() % 2 == 0, "odd-length hex");
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("valid hex"))
-        .collect()
-}
-
-/// Encode bytes to a lowercase hex string (matches the fixture's `*_hex`).
-fn to_hex(b: &[u8]) -> String {
-    let mut s = String::with_capacity(b.len() * 2);
-    for x in b {
-        s.push_str(&format!("{:02x}", x));
-    }
-    s
-}
-
-/// A canonical-LE scalar from its fixture hex.
-fn fr_from_hex<C: PastaCurve>(s: &str) -> Fr<C> {
-    Fr::<C>::from_le_bytes_mod_order(&from_hex(s))
-}
-
-/// An affine point from a fixture `{x_le_hex, y_le_hex}` object (canonical-LE
-/// base-field coordinates; finite — the committer-key / accumulator points are
-/// never the identity).
-fn point_from_json<C: PastaCurve>(v: &serde_json::Value) -> Affine<C>
-where
-    Base<C>: PrimeField,
-{
-    let x = Base::<C>::from_le_bytes_mod_order(&from_hex(v["x_le_hex"].as_str().unwrap()));
-    let y = Base::<C>::from_le_bytes_mod_order(&from_hex(v["y_le_hex"].as_str().unwrap()));
-    GroupAffine::new(x, y, false)
-}
 
 /// Run + byte-match one fold direction. Returns `false` (and prints SKIP) when its
 /// off-tree fixture or `.mlirbc` is absent — the on-demand contract the recursion
@@ -168,9 +135,7 @@ where
 #[test]
 #[ignore = "needs XLA_PJRT_PLUGIN + off-tree recursion fold fixtures + fold_zk_<curve>.mlirbc + a GPU"]
 fn gpu_fused_fold_zk_byte_match() {
-    let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("artifacts"));
+    let artifacts = fixture_json::artifacts_dir(env!("CARGO_MANIFEST_DIR"));
 
     println!("fused zk IVC fold GPU byte-match (full IVC step, num_addends=3):");
     // Forward folds on Vesta (constraint field ark_vesta::Fq), reverse on Pallas.

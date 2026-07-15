@@ -32,9 +32,7 @@ type Affine<C> = GroupAffine<<C as PastaCurve>::Params>;
 #[ignore = "needs XLA_PJRT_PLUGIN + ipa_fold_pallas.mlirbc + a GPU; run --release"]
 fn gpu_fused_ipa_fold_bench() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| root.join("artifacts"));
+    let artifacts = fixture_json::artifacts_dir(env!("CARGO_MANIFEST_DIR"));
     let mlirbc_path = artifacts.join("ipa_fold_pallas.mlirbc");
     if !mlirbc_path.exists() {
         println!("SKIP — missing {}", mlirbc_path.display());

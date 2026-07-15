@@ -44,9 +44,7 @@ where
         &std::fs::read_to_string(root.join("python/testdata").join(fixture)).expect("read fixture"),
     )
     .expect("parse fixture json");
-    let artifacts = std::env::var("ACCUMULATION_ZORCH_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| root.join("artifacts"));
+    let artifacts = fixture_json::artifacts_dir(env!("CARGO_MANIFEST_DIR"));
 
     let generators: Vec<Affine<C>> =
         d["generators"].as_array().unwrap().iter().map(point_from_json::<C>).collect();
