@@ -16,7 +16,7 @@ runtime shapes — degree-`d` for both Pasta curves here).
 The challenge-derivation + ``compute_coeffs`` that produce ``coeffs`` stay
 host-side (cheap field/sponge work, already byte-matched on CPU in slices 1-3);
 the Rust consumer feeds the arkworks-golden ``decider_coeffs`` from the fixture
-(tied to the jax port by ``testing/ipa_as_test.py``). The MSM op dispatches on the
+(tied to the frx port by ``testing/ipa_as_test.py``). The MSM op dispatches on the
 bases' element type, so each curve lowers a distinct module — both are written by
 default.
 
@@ -31,10 +31,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
-from jax import lax
+from frx import lax
 
 from accumulation_zorch import curve
 from accumulation_zorch.curve import Curve
@@ -87,7 +87,7 @@ def export_decider(cv: Curve) -> Path:
     t0 = time.perf_counter()
     # `lax.msm` is a plain function (the per-leaf `@jit` was dropped); jit it
     # here so the lowered core is the single fused MSM call the plugin consumes.
-    lowered = jax.jit(lax.msm).lower(scalars, bases)
+    lowered = frx.jit(lax.msm).lower(scalars, bases)
     t_lower = time.perf_counter() - t0
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / f"ipa_decider_msm_{cv.name}.mlirbc"
@@ -108,7 +108,7 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     bases = curve.stack_affine(cv, [_point(cv, d["generators"][0])] * n)
     scalars = jnp.asarray(np.zeros(n, dtype=cv.fr))
     t0 = time.perf_counter()
-    lowered = jax.jit(lax.msm).lower(scalars, bases)
+    lowered = frx.jit(lax.msm).lower(scalars, bases)
     t_lower = time.perf_counter() - t0
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / "ipa_decider_msm_bench.mlirbc"

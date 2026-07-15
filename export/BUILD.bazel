@@ -1,7 +1,7 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
 
-# Each export lowers a jax prove/decide core to a StableHLO .mlirbc that the Rust
+# Each export lowers a frx prove/decide core to a StableHLO .mlirbc that the Rust
 # GPU byte-match / bench (Cargo, hardware-gated) runs. Lowering is CPU-only.
 # `imports = ["."]` puts export/ on the path so the shared
 # `from export_prove import write_bytecode` resolves.
@@ -10,7 +10,7 @@ load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
 #
 _EXPORT_DEPS = [
     "//python:accumulation_zorch",
-    requirement("jax"),
+    requirement("frx"),
     requirement("numpy"),
 ]
 

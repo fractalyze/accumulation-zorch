@@ -150,7 +150,7 @@ class IpaAsTest(absltest.TestCase):
 
     def test_decider_coeffs_fixture_matches_port(self) -> None:
         """The fixture's arkworks-golden `decider_coeffs` — the scalar input fed to the
-        Slice-4 fused GPU decider MSM — are exactly the jax port's
+        Slice-4 fused GPU decider MSM — are exactly the frx port's
         `compute_coeffs(succinct_check(accumulator))`. This ties the GPU core's runtime
         scalar input to the byte-matched CPU port, so the GPU byte-match
         (`MSM(generators, decider_coeffs) == final_comm_key`) exercises the port's

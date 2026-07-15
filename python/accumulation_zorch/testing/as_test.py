@@ -1,6 +1,6 @@
 """Slice-5 byte-match: the no-zk R1CS-NARK-AS prove vs arkworks — end-to-end.
 
-The acceptance criterion for the no-zk jax prover port. Replays the inputs dumped from the
+The acceptance criterion for the no-zk frx prover port. Replays the inputs dumped from the
 crate's real `ASForR1CSNark::prove` (no-zk) — `examples/dump_as.rs`, itself
 seeded identically to `src/oracle.rs`'s `prove_byte_identical_to_arkworks_no_zk`
 target — and asserts the ported prover reproduces the serialized

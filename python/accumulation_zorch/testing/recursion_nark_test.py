@@ -5,7 +5,7 @@ The recursion half-step proves the Pasta-cycle AS verifier gadget — a real
 ~22.5K-constraint × ~21K-var R1CS (but sparse, ~6 non-zeros/row) — as a Vesta
 NARK. This replays that R1CS through the curve-generic
 `nark.prove_no_zk(VESTA, …)` and byte-matches the golden proof the crate's
-real `R1CSNark::prove` emits, confirming the jax NARK core scales from the toy
+real `R1CSNark::prove` emits, confirming the frx NARK core scales from the toy
 circuit to the recursion circuit.
 
 The dense `M·z` is infeasible here (`rows × vars` ≈ 471M entries ≈ 15 GB), so

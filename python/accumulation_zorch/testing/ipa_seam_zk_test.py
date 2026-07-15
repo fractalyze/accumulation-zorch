@@ -20,7 +20,7 @@ zorch ships only the running-transcript default challenger (`TranscriptChallenge
 not arkworks-byte-exact); the byte-exact Fiat-Shamir is the consumer's job (see
 `zorch/pcs/ipa/challenger.py`). Both gates inject `ark_challenger`
 (`accumulation_zorch.ipa_challenger`), the arkworks-faithful `IPA-PC-2020`
-challenger — a jax-traceable `register_dataclass` pytree that rides the fold's
+challenger — a frx-traceable `register_dataclass` pytree that rides the fold's
 `lax.scan` carry, so the prover's on-device fold derives byte-exact challenges.
 
 Basis from `ipa_as_zk_*fixtures.json` `generators` (same deterministic
@@ -28,7 +28,7 @@ Basis from `ipa_as_zk_*fixtures.json` `generators` (same deterministic
 
 Both gates run on either backend. The prover gate folds EC points affine<->jacobian
 (`lax.convert_element_type`); the CPU XLA backend lowers that convert as of
-fractalyze/xla#195 (jaxlib >= 0.10.0.dev20260705083732), so it no longer needs the
+fractalyze/xla#195 (frxlib >= 0.10.0.dev20260705083732), so it no longer needs the
 Pasta GPU plugin. On CPU:
 
     JAX_PLATFORMS=cpu PYTHONPATH=python \
@@ -36,7 +36,7 @@ Pasta GPU plugin. On CPU:
 
 On GPU (Pasta plugin):
 
-    SO=$HOME/Workspace/envs/pasta-zorch/zkx/bazel-bin/zkx/pjrt/c/pjrt_c_api_gpu_plugin.so
+    SO=$HOME/Workspace/envs/pasta-zorch/xla/bazel-bin/xla/pjrt/c/pjrt_c_api_gpu_plugin.so
     XLA_PYTHON_CLIENT_PREALLOCATE=false JAX_PLATFORMS=cuda \
       PJRT_NAMES_AND_LIBRARY_PATHS="cuda:$SO" PYTHONPATH=python \
       python python/accumulation_zorch/testing/ipa_seam_zk_test.py
@@ -48,11 +48,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
 from absl.testing import absltest
-from jax import lax
+from frx import lax
 
 from accumulation_zorch import curve, sponge
 from accumulation_zorch.curve import Curve
@@ -83,7 +83,7 @@ def _np_point(cv: Curve, p: dict) -> np.ndarray:
     return cv.g1((_fr(p["x_le_hex"]), _fr(p["y_le_hex"])))
 
 
-def _jax_point(cv: Curve, p: dict) -> jax.Array:
+def _frx_point(cv: Curve, p: dict) -> frx.Array:
     return jnp.asarray(_np_point(cv, p))
 
 
@@ -95,16 +95,16 @@ def _params(cv: Curve, sponge_fixture: str) -> Any:
     return sponge.poseidon_params(cv, ark_le)
 
 
-def _host_point(p: jax.Array) -> np.ndarray:
+def _host_point(p: frx.Array) -> np.ndarray:
     """zorch g1-affine Array (0-d) -> host np point (standard affine)."""
     return np.asarray(p)
 
 
-def _hexs(cv: Curve, arr: jax.Array) -> str:
+def _hexs(cv: Curve, arr: frx.Array) -> str:
     return cv.fr(int(np.asarray(arr))).tobytes().hex()
 
 
-def _point_hex(p: jax.Array) -> tuple[str, str]:
+def _point_hex(p: frx.Array) -> tuple[str, str]:
     raw = _host_point(p).tobytes()
     return raw[:32].hex(), raw[32:64].hex()
 
@@ -120,17 +120,17 @@ class IpaSeamZkTest(absltest.TestCase):
             z = json.loads((_TESTDATA / ipa_zk_f).read_text())
             a = json.loads((_TESTDATA / ipa_as_zk_f).read_text())
             params = _params(cv, sponge_f)
-            basis = jnp.stack([_jax_point(cv, g) for g in a["generators"]])
-            key = setup(basis, _jax_point(cv, z["h"]), _jax_point(cv, z["s"]))
+            basis = jnp.stack([_frx_point(cv, g) for g in a["generators"]])
+            key = setup(basis, _frx_point(cv, z["h"]), _frx_point(cv, z["s"]))
 
             proof = IpaZkProof(
-                jnp.stack([_jax_point(cv, p) for p in z["l_vec"]]),
-                jnp.stack([_jax_point(cv, p) for p in z["r_vec"]]),
+                jnp.stack([_frx_point(cv, p) for p in z["l_vec"]]),
+                jnp.stack([_frx_point(cv, p) for p in z["r_vec"]]),
                 jnp.asarray(np.array(_fr(z["c"]), dtype=cv.fr)),
-                _jax_point(cv, z["hiding_comm"]),
+                _frx_point(cv, z["hiding_comm"]),
                 jnp.asarray(np.array(_fr(z["rand"]), dtype=cv.fr)),
             )
-            commitment = _jax_point(cv, z["commitment"])
+            commitment = _frx_point(cv, z["commitment"])
             point = jnp.asarray(np.array(_fr(z["point"]), dtype=cv.fr))
             value = jnp.asarray(np.array(_fr(z["evaluation"]), dtype=cv.fr))
 
@@ -165,8 +165,8 @@ class IpaSeamZkTest(absltest.TestCase):
             params = _params(cv, sponge_f)
             # IPA-PC committer generators are hash-derived (deterministic), so the
             # ipa-as fixture's `generators` are the same set this zk proof used.
-            basis = jnp.stack([_jax_point(cv, g) for g in a["generators"]])
-            key = setup(basis, _jax_point(cv, z["h"]), _jax_point(cv, z["s"]))
+            basis = jnp.stack([_frx_point(cv, g) for g in a["generators"]])
+            key = setup(basis, _frx_point(cv, z["h"]), _frx_point(cv, z["s"]))
 
             coeffs = jnp.asarray(np.array([_fr(c) for c in z["polynomial"]], dtype=cv.fr))
             crand_j = jnp.asarray(np.array(_fr(z["commitment_randomness"]), dtype=cv.fr))

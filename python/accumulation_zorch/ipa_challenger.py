@@ -31,7 +31,7 @@ The reproduced Fiat-Shamir (faithful to ark-poly-commit `ipa_pc::succinct_check`
 Encodings are byte-identical to the NumPy oracle:
 
 * **points** (commitment / L / R) ride in through the in-trace
-  ``absorbable.absorb_points_jax`` — the ``[x, y, infinity]`` SW-affine packing —
+  ``absorbable.absorb_points_frx`` — the ``[x, y, infinity]`` SW-affine packing —
   so a device-resident commitment threads straight into the sponge with no host
   hop (the fold's L/R are on-device under the scan).
 * the **previous challenge** absorb is reproduced with field arithmetic rather
@@ -43,15 +43,15 @@ Encodings are byte-identical to the NumPy oracle:
   reinterpreted to ``fq`` by its canonical LE bytes (``fr → u8 → fq`` bitcast),
   and ``prev·2**64 < 2**192 < fq_modulus`` stays canonical.
 * the **seed** scalars ``point`` / ``value`` are absorbed in-trace too
-  (``_seed_pv_fq`` → ``absorbable.u8_batch_field_array_jax``): each is bitcast to
+  (``_seed_pv_fq`` → ``absorbable.u8_batch_field_array_frx``): each is bitcast to
   its 32-byte canonical LE repr (as the previous-challenge absorb does), then the
-  ``u8`` batch packing (``to_bytes![point, value]``) is reproduced with jax ops so
+  ``u8`` batch packing (``to_bytes![point, value]``) is reproduced with frx ops so
   ``seed`` traces cleanly (the fused open core seeds from the on-device combined
   ``value``). Byte-identical to the oracle's ``to_bytes![point, value]``, so the
   eager CPU port is unchanged.
 
 The squeeze is the in-trace truncated-128 nonnative squeeze
-(``sponge.challenges_from_fq`` via ``sponge.squeeze_challenges_jax``): one ``fq``
+(``sponge.challenges_from_fq`` via ``sponge.squeeze_challenges_frx``): one ``fq``
 element, low 128 bits packed LE into an ``fr`` element (128 ≤ both Pasta scalar
 capacities, so no reduction).
 
@@ -70,10 +70,10 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
-import jax.numpy as jnp
+import frx.numpy as jnp
 import numpy as np
-from jax import Array, lax
-from jax.tree_util import register_dataclass
+from frx import Array, lax
+from frx.tree_util import register_dataclass
 from zorch.pcs.ipa.math import challenge_vector, eval_challenge_poly
 
 from . import absorbable, curve, sponge
@@ -97,7 +97,7 @@ _U64_SHIFT = 1 << 64
 
 
 def _as_fr(cv: Curve, x: Array | int) -> Array:
-    """A host int or `fr`-ish array as a 0-d ``cv.fr`` jax array (traced-safe). The
+    """A host int or `fr`-ish array as a 0-d ``cv.fr`` frx array (traced-safe). The
     `squeeze` enforces the 0-d contract for a `(1,)`-shaped array input (bitcasting a
     rank-1 scalar would give a `(1, 32)` byte array and skew the u8-batch packing)."""
     if isinstance(x, (int, np.integer)):
@@ -114,7 +114,7 @@ def _seed_pv_fq(cv: Curve, point: Array | int, value: Array | int) -> Array:
     core's ``@jit`` boundary. Byte-identical eagerly, so the CPU port is unchanged."""
     pb = lax.bitcast_convert_type(_as_fr(cv, point), jnp.uint8)  # (32,) LE
     vb = lax.bitcast_convert_type(_as_fr(cv, value), jnp.uint8)  # (32,) LE
-    return absorbable.u8_batch_field_array_jax(cv, jnp.concatenate([pb, vb]))
+    return absorbable.u8_batch_field_array_frx(cv, jnp.concatenate([pb, vb]))
 
 
 @partial(
@@ -125,7 +125,7 @@ def _seed_pv_fq(cv: Curve, point: Array | int, value: Array | int) -> Array:
 @dataclass(frozen=True)
 class ArkIpaChallenger:
     """The arkworks-faithful `IpaChallenger` — and, via :meth:`hiding_challenge`,
-    the `ZkIpaChallenger` for the hiding open. A JAX pytree: `state` (the fresh
+    the `ZkIpaChallenger` for the hiding open. A FRX pytree: `state` (the fresh
     `"IPA-PC-2020"`-forked Poseidon sponge's field state) and `prev` (the previous
     round challenge, an ``fr`` scalar) are the data leaves the fold's `lax.scan`
     carries; `cv` / `params` / the forked sponge's absorb `mode`+`pos` are the
@@ -153,7 +153,7 @@ class ArkIpaChallenger:
     def _squeeze(self, sp) -> Array:  # type: ignore[no-untyped-def]
         """One truncated-128 challenge as an `cv.fr` scalar (in-trace nonnative
         squeeze) — the `Truncated(CHALLENGE_SIZE=128)` succinct-check squeeze."""
-        _, ch = sponge.squeeze_challenges_jax(
+        _, ch = sponge.squeeze_challenges_frx(
             sp, 1, min(_CHALLENGE_SIZE, self.cv.fr_capacity), self.cv
         )
         return ch[0]
@@ -182,7 +182,7 @@ class ArkIpaChallenger:
         the rounds)."""
         cv = self.cv
         sp = self._sponge()
-        sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(commitment).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(commitment).reshape(1))
         sp = sp.absorb(_seed_pv_fq(cv, point, value))
         xi0 = self._squeeze(sp)
         return ArkIpaChallenger(self.state, xi0, cv, self.params, self.mode, self.pos), xi0
@@ -195,8 +195,8 @@ class ArkIpaChallenger:
         cv = self.cv
         sp = self._sponge()
         sp = self._absorb_prev(sp)
-        sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(l).reshape(1))
-        sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(r).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(l).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(r).reshape(1))
         u = self._squeeze(sp)
         return ArkIpaChallenger(self.state, u, cv, self.params, self.mode, self.pos), u
 
@@ -214,8 +214,8 @@ class ArkIpaChallenger:
         `state` is unchanged (the fold's subsequent `seed` starts fresh)."""
         cv = self.cv
         sp = self._sponge()
-        sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(commitment).reshape(1))
-        sp = absorbable.absorb_points_jax(cv, sp, jnp.asarray(hiding_comm).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(commitment).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(hiding_comm).reshape(1))
         sp = sp.absorb(_seed_pv_fq(cv, point, value))
         hc = self._squeeze(sp)
         return ArkIpaChallenger(self.state, hc, cv, self.params, self.mode, self.pos), hc

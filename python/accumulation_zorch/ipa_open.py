@@ -33,10 +33,10 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
-from jax import Array, lax
+from frx import Array, lax
 
 from zorch.pcs.ipa.prover import _open_one, _open_one_zk
 from zorch.pcs.ipa.setup import IpaKey
@@ -72,19 +72,19 @@ def _basis(cv: Curve, generators: list[np.ndarray], n: int) -> Array:
 
 
 def _fr_scalar(cv: Curve, value: Any) -> Array:
-    """A host scalar (int or `fr` value) as a 0-d `cv.fr` jax array."""
+    """A host scalar (int or `fr` value) as a 0-d `cv.fr` frx array."""
     return jnp.asarray(np.array([int(value)], dtype=cv.fr))[0]
 
 
 def _fr_vec(cv: Curve, values: FrVec) -> Array:
-    """`fr` scalars as a 1-d `cv.fr` jax array — an `fr` array (the combined check
+    """`fr` scalars as a 1-d `cv.fr` frx array — an `fr` array (the combined check
     polynomial) or an int list; `np.asarray(_, dtype=cv.fr)` normalizes both, so no
     `fr` value round-trips through a python int."""
     return jnp.asarray(np.asarray(values, dtype=cv.fr))
 
 
 def _c_int(cv: Curve, a: Array) -> int:
-    """A 0-d `fr` jax scalar as a canonical `fr` int (the `IpaProof.c`/`rand`
+    """A 0-d `fr` frx scalar as a canonical `fr` int (the `IpaProof.c`/`rand`
     form)."""
     return int.from_bytes(np.asarray(a, dtype=cv.fr).tobytes(), "little")
 
@@ -126,7 +126,7 @@ def build_open_no_zk_core(
     cv: Curve, params: Any, svk_h: np.ndarray, combined_commitment: np.ndarray,
     point: int, coeffs: np.ndarray,
 ):  # type: ignore[no-untyped-def]
-    """The fused GPU **fold** core: a `@jax.jit` device twin of :func:`open_no_zk`.
+    """The fused GPU **fold** core: a `@frx.jit` device twin of :func:`open_no_zk`.
 
     Bakes the combined check polynomial (`coeffs`), the Fiat-Shamir seed
     `combined_commitment`, and the opening `point` as constants; the committer-key
@@ -135,7 +135,7 @@ def build_open_no_zk_core(
     (Poseidon squeezed on-device per round from that round's `L_j`/`R_j` via the
     arkworks-faithful `ark_challenger`), reading the fold's collapsed generator
     `g[0]` as `final_comm_key` (zorch#371) — and returns the opening proof leaves
-    `(l, r, final_comm_key, c)` as `cv.g1`/`cv.fr` jax
+    `(l, r, final_comm_key, c)` as `cv.g1`/`cv.fr` frx
     arrays for the Rust consumer to serialize into the folded accumulator's
     `IpaProof`.
 
@@ -149,7 +149,7 @@ def build_open_no_zk_core(
     x = _fr_scalar(cv, point)
     commitment = jnp.asarray(_affine(cv, combined_commitment))
 
-    @jax.jit
+    @frx.jit
     def _core(basis: Array) -> tuple[Array, Array, Array, Array]:
         key = IpaKey(basis=basis, u=u, s=None)
         fs = ipa_challenger.ark_challenger(cv, params)
@@ -164,7 +164,7 @@ def build_open_zk_core(
     point: int, coeffs: np.ndarray, hiding_poly_raw: list[int], hiding_rand: int,
     commitment_randomness: int,
 ):  # type: ignore[no-untyped-def]
-    """The fused GPU **zk fold** core: a `@jax.jit` device twin of :func:`open_zk`.
+    """The fused GPU **zk fold** core: a `@frx.jit` device twin of :func:`open_zk`.
 
     Bakes the combined check polynomial and the open's replayed hiding blinders
     (`hiding_poly` / `hiding_rand` / `commitment_randomness`); the committer-key
@@ -187,7 +187,7 @@ def build_open_zk_core(
     hiding_rand_s = _fr_scalar(cv, hiding_rand)
     commitment_randomness_s = _fr_scalar(cv, commitment_randomness)
 
-    @jax.jit
+    @frx.jit
     def _core(basis: Array) -> tuple[Array, Array, Array, Array, Array, Array]:
         key = IpaKey(basis=basis, u=u, s=s_pt)
         fs = ipa_challenger.ark_challenger(cv, params)

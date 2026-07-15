@@ -4,7 +4,7 @@ The CPU port's `sponge.squeeze_challenges` decodes each squeezed Fq element to a
 Python bigint and slices bits in a Python loop (`squeeze_bits` /
 `squeeze_nonnative`) — not jit-able. `sponge.challenges_from_fq` does the same
 ark-sponge bit math (low `CAPACITY=254` bits per element, concatenate, window
-into `size`-bit challenges, repack LE into Fr) entirely in jax, returning the
+into `size`-bit challenges, repack LE into Fr) entirely in frx, returning the
 challenges as an Fr field-element array (the on-device form the fused core
 keeps).
 
@@ -18,14 +18,14 @@ Two gates:
 
 Run under Bazel:
 
-    bazel test //python/accumulation_zorch/testing:sponge_jax_test
+    bazel test //python/accumulation_zorch/testing:sponge_frx_test
 """
 
 import json
 from pathlib import Path
 from typing import Any
 
-import jax.numpy as jnp
+import frx.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
@@ -87,7 +87,7 @@ class SpongeJaxTest(absltest.TestCase):
         print("  jit gamma challenge byte-matches R1CSNark::compute_challenge OK")
 
     def test_truncated_squeeze_matches_arkworks(self) -> None:
-        """jax `challenges_from_fq` byte-matches the arkworks-pinned truncated-128
+        """frx `challenges_from_fq` byte-matches the arkworks-pinned truncated-128
         squeeze fixtures (`nonnative_squeeze`) at k=1,2,4 — k≥2 crosses the 254-bit
         Fq element boundary (`four_challenges_cross_element`)."""
         params = _params()

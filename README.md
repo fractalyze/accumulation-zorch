@@ -2,11 +2,11 @@
 
 A GPU accumulation prover over the Pasta curve. The arkworks
 [`ark-accumulation`](https://github.com/arkworks-rs/accumulation) native prove path
-(`r1cs_nark_as` + `hp_as`), with the whole prover authored in **Python/JAX** and
+(`r1cs_nark_as` + `hp_as`), with the whole prover authored in **Python/FRX** and
 compiled to a **single fused GPU kernel** — byte-identical to the reference
 arkworks prover.
 
-The GPU prove path is **fused** (`src/fused.rs`): the jax port of the prove
+The GPU prove path is **fused** (`src/fused.rs`): the frx port of the prove
 (`python/accumulation_zorch/`) — every commitment, the NARK + HP cores, and all
 three Fiat-Shamir Poseidon sponges — is exported to one StableHLO `.mlirbc`
 (`export/export_prove.py`) and run as a **single PJRT call**, à la
@@ -19,7 +19,7 @@ The byte-match oracle is the **pristine, unmodified arkworks prover** itself (th
 `ark-accumulation` dev-dependency at `../accumulation`); the repo never
 re-implements it. The fixture generators (`examples/dump_*.rs` and
 `tests/recursion_step.rs`) drive arkworks to emit the golden
-`(acc.instance ‖ acc.witness ‖ proof)` bytes, and the jax CPU port + the fused GPU
+`(acc.instance ‖ acc.witness ‖ proof)` bytes, and the frx CPU port + the fused GPU
 core are each gated byte-for-byte against those golden bytes.
 
 ## Accumulation schemes
@@ -64,10 +64,10 @@ cd accumulation-zorch
 fetched by Cargo automatically — only `accumulation` is a manual clone.
 
 Reproduction has two layers: a **Rust toolchain** regenerates the golden fixtures
-by driving the pristine arkworks prover directly (no GPU, no Python); the **jax
-byte-match** then checks the port against them. The jax port builds under
-**Bazel** (zorch and the zkx Pasta jax fork are Bazel deps), so the CPU byte-match
-needs only Bazel; the GPU byte-match additionally needs the zkx Pasta GPU plugin.
+by driving the pristine arkworks prover directly (no GPU, no Python); the **frx
+byte-match** then checks the port against them. The frx port builds under
+**Bazel** (zorch and the xla Pasta frx build are Bazel deps), so the CPU byte-match
+needs only Bazel; the GPU byte-match additionally needs the xla Pasta GPU plugin.
 
 ### Regenerate the golden fixtures (Rust only — no GPU, no Python)
 
@@ -80,9 +80,9 @@ need no extra flags.
 
 ### CPU byte-match (Bazel)
 
-The jax port and its byte-match tests build under **Bazel** — no venv, no
+The frx port and its byte-match tests build under **Bazel** — no venv, no
 `PYTHONPATH`, nothing vendored in-tree. zorch (the IPA-PC prover/verifier +
-Poseidon sponge) is a pinned `git_override` dependency and the zkx Pasta jax fork
+Poseidon sponge) is a pinned `git_override` dependency and the xla Pasta frx build
 is pulled from the public Fractalyze index through Bazel's pip hub. Install Bazel
 via [bazelisk](https://github.com/bazelbuild/bazelisk) (`.bazelversion` pins the
 version), then:
@@ -91,21 +91,21 @@ version), then:
 bazel test //python/...   # the full CPU byte-match suite (JAX_PLATFORMS=cpu, set in .bazelrc)
 ```
 
-> The pinned zkx Pasta jax fork (`0.10.0.dev…`, in `requirements_lock_3_11.txt`)
-> registers the Pasta curve dtypes and `zk-dtypes==0.0.7` carries them. `bazel test
+> The pinned xla Pasta frx build (`0.10.0.dev…`, in `requirements_lock_3_11.txt`)
+> registers the Pasta curve dtypes and `zk-dtypes==0.0.10` carries them. `bazel test
 > //python/...` is 24/24 byte-match vs arkworks (Pallas + Vesta, no-zk + zk); it
 > excludes the `manual`-tagged `recursion_fold_zk_test` (minutes-slow). To bump the
 > zorch pin, edit the `git_override` commit in `MODULE.bazel` and keep
-> `requirements.in`'s jax / zk-dtypes in lockstep (both this repo's pip hub and
-> zorch's must resolve jax to the same wheel), then `bazel run //:requirements.update`.
+> `requirements.in`'s frx / zk-dtypes in lockstep (both this repo's pip hub and
+> zorch's must resolve frx to the same wheel), then `bazel run //:requirements.update`.
 > For dev against a local zorch checkout, add
 > `common --override_module=zorch=/abs/path/to/zorch` to `.bazelrc.user`.
 
-### GPU byte-match tier (the zkx Pasta GPU plugin)
+### GPU byte-match tier (the xla Pasta GPU plugin)
 
 The GPU byte-match is the Rust side (`cargo test --features gpu`, hardware-gated).
 It needs an NVIDIA GPU (CUDA), `clang`/`libclang` (the `xla-pjrt` shim
-generates its PJRT bindings with `bindgen` at build time), and the zkx Pasta GPU
+generates its PJRT bindings with `bindgen` at build time), and the xla Pasta GPU
 PJRT plugin `.so`. Install the plugin from the public Fractalyze index into a venv
 and point `XLA_PJRT_PLUGIN` at it:
 
@@ -114,13 +114,13 @@ uv venv --python 3.11 .venv
 uv pip install --python .venv --index-strategy unsafe-best-match \
   --index-url https://fractalyze.github.io/pypi/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  jax==0.10.0.dev20260702143130 jaxlib==0.10.0.dev20260702143130 \
-  jax-cuda12-pjrt==0.10.0.dev20260702143130 jax-cuda12-plugin==0.10.0.dev20260702143130 \
-  zk-dtypes==0.0.7 numpy absl-py
-export XLA_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/jax_plugins/xla_cuda12/xla_cuda_plugin.so
+  frx==0.10.0.dev20260715051143 frxlib==0.10.0.dev20260715051143 \
+  frx-cuda12-pjrt==0.10.0.dev20260715051143 frx-cuda12-plugin==0.10.0.dev20260715051143 \
+  zk-dtypes==0.0.10 numpy absl-py
+export XLA_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/frx_plugins/xla_cuda12/xla_cuda_plugin.so
 ```
 
-> The jax **lowering** to StableHLO `.mlirbc` runs under Bazel (`bazel run
+> The frx **lowering** to StableHLO `.mlirbc` runs under Bazel (`bazel run
 > //export:export_*`), so it needs no venv — only the GPU **run** loads the plugin.
 
 ## Reproduce
@@ -136,9 +136,9 @@ RUSTFLAGS="--cap-lints=warn" cargo run --example dump_as_zk > python/testdata/as
 # regenerates the committed golden; a clean `git diff` confirms it still matches arkworks
 ```
 
-### Python jax prove byte-match (CPU)
+### Python frx prove byte-match (CPU)
 
-The jax port reproduces the arkworks `(acc.instance ‖ acc.witness ‖ proof)` bytes
+The frx port reproduces the arkworks `(acc.instance ‖ acc.witness ‖ proof)` bytes
 on CPU (the same trace the GPU export lowers) — run one test, or the whole suite:
 
 ```bash
@@ -151,7 +151,7 @@ bazel test //python/...                                      # the full 24-test 
 
 ```bash
 # 1. Lower the ONE general fused core (CPU; no GPU needed for lowering). Bazel
-#    supplies zorch + the jax fork; ACCUMULATION_ZORCH_ARTIFACTS picks the out dir.
+#    supplies zorch + the frx fork; ACCUMULATION_ZORCH_ARTIFACTS picks the out dir.
 ACCUMULATION_ZORCH_ARTIFACTS=artifacts JAX_PLATFORMS=cpu \
   bazel run //export:export_prove              # -> artifacts/prove_zk_general.mlirbc
 ACCUMULATION_ZORCH_ARTIFACTS=artifacts JAX_PLATFORMS=cpu \
@@ -195,7 +195,7 @@ grows:
   with size.
 - Reproduce: `PROVE_SIZES="4096 16384 32768" bench/bench.sh prove` (or
   `bench/bench.sh all`). Needs an idle GPU + the `XLA_PJRT_PLUGIN` env from
-  [Setup](#setup); the jax lowering runs via `bazel run //export:...`.
+  [Setup](#setup); the frx lowering runs via `bazel run //export:...`.
 
 **Recursion IVC fold.** The actual PCD step — fold one verifier-circuit NARK proof
 into a prior accumulator (`num_addends = 3`), at recursion scale (`n = 77 556`):
@@ -206,7 +206,7 @@ into a prior accumulator (`num_addends = 3`), at recursion scale (`n = 77 556`):
 
 The fold's GPU win is smaller than the single prove's because per-step accumulation
 is **light by design** (it defers verification) and the fold bakes its `M·z` reduces
-host-side — the zkx GPU emitter cannot lower the i256 `scatter`-add that survives
+host-side — the xla GPU emitter cannot lower the i256 `scatter`-add that survives
 constant-folding at recursion scale, so part of the work stays on CPU
 (Amdahl-capped). Reproduce: `bench/bench.sh fold`.
 
@@ -294,7 +294,7 @@ reproduces `hiding_comm`/`rand`, completing no-zk + zk on GPU:
   zk (both curves).
 - Reproduce: `ipa_as_test.py` (prove) and `ipa_as_fold_test.py` /
   `ipa_as_fold_zk_test.py` (fold), the CPU byte-match (run as in
-  [Python jax prove byte-match](#python-jax-prove-byte-match-cpu)); the GPU fold
+  [Python frx prove byte-match](#python-frx-prove-byte-match-cpu)); the GPU fold
   byte-matches + bench are `gpu_fused_ipa_fold_byte_match` /
   `gpu_fused_ipa_fold_zk_byte_match` / `gpu_fused_ipa_fold_bench` (as in
   [Fused GPU byte-match](#fused-gpu-byte-match-one-core-proves-every-seed)).

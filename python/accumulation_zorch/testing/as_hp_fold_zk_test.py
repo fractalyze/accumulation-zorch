@@ -14,7 +14,7 @@ accumulator**: its HP instance `(hp_comm_1, hp_comm_2, hp_comm_3)`, opening vect
 from `acc_prev` in the fixture. The HP input order is `[new_input, old_acc]`
 (`inputs.chain(old_accumulators)` in `prove_with_backend`).
 
-The new input's HP instance/witness are re-derived in jax from input₂'s NARK
+The new input's HP instance/witness are re-derived in frx from input₂'s NARK
 (the gamma-blinded `comm_a/comm_b/comm_prod` and the `M·z` openings over
 `z = r1cs_input ‖ blinded_witness`), exactly as `r1cs_nark_as._build_zk_core`
 does for the single-input AS prove. The fold's fresh HP hiding randomness
@@ -29,11 +29,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
 from absl.testing import absltest
-from jax import lax
+from frx import lax
 
 from accumulation_zorch import absorbable, curve, field, hp_as, nark, sponge
 
@@ -96,9 +96,9 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
     old_hp_comms = curve.stack_affine(
         cv, [_point(acc["hp_comm_1"]), _point(acc["hp_comm_2"]), _point(acc["hp_comm_3"])])
 
-    @jax.jit
-    def core(bases_h: jax.Array, id_pt: jax.Array, old_hp_comms: jax.Array,
-             old_a: jax.Array, old_b: jax.Array, old_rand: jax.Array) -> tuple:
+    @frx.jit
+    def core(bases_h: frx.Array, id_pt: frx.Array, old_hp_comms: frx.Array,
+             old_a: frx.Array, old_b: frx.Array, old_rand: frx.Array) -> tuple:
         fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
         nk = nark.prove_zk_core(cv, a, b, c, input2, witness2, bases_h, params,
                                 nark_matrices_hash, nark_r, *nark_blinders)
@@ -114,7 +114,7 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
 
         # input₂'s HP opening: M·z over z = r1cs_input ‖ blinded_witness; the HP
         # input randomness is the NARK (sigma_a, sigma_b, sigma_o).
-        def _mz(matrix: nark.Matrix, zv: jax.Array) -> jax.Array:
+        def _mz(matrix: nark.Matrix, zv: frx.Array) -> frx.Array:
             return field.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
         zw = jnp.concatenate([jnp.asarray(np.array(input2, dtype=cv.fr)), nk.blinded_witness])
         new_rand = jnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o])

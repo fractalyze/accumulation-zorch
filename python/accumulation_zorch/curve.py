@@ -40,11 +40,11 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
 import zk_dtypes as zk
-from jax import lax
+from frx import lax
 
 # SW flag byte values (ark-serialize 0.2 `SWFlags`).
 _FLAG_INFINITY = 0x40
@@ -58,7 +58,7 @@ _FLAG_POS_Y = 0x00
 # `fr` array (a jit-core output or host field array) or an int list (e.g.
 # sponge-squeezed challenges), which `np.asarray(_, dtype=cv.fr)` unifies.
 FrScalar = Any
-FrVec = np.ndarray | jax.Array | list[int]
+FrVec = np.ndarray | frx.Array | list[int]
 
 
 @dataclass(frozen=True)
@@ -179,7 +179,7 @@ def pedersen_commit(
 # The `lax.msm` (GPU-lowerable) counterparts to `pedersen_commit`'s CPU zk_dtypes
 # group ops — what the fused prove cores use. `pedersen_commit` sums `g * cv.fr(s)`
 # over the affine dtype (CPU-only, the byte-match oracle); here the commitment is
-# `lax.msm` and any field reduction feeding it (`M·z`) is vectorized jax over the
+# `lax.msm` and any field reduction feeding it (`M·z`) is vectorized frx over the
 # `fr` dtype. Scalar-mul / point-add route through `lax.msm`, never bare `*`/`+`:
 # jit `point × scalar` is byte-wrong and jit `affine + affine` is an invalid EC
 # type combination, so `s·P` is `lax.msm([s], [P])` and `A + B` is
@@ -188,7 +188,7 @@ def pedersen_commit(
 # dtype-agnostic (the dtype rides on the input arrays).
 
 
-def stack_affine(cv: Curve, points: list[np.ndarray]) -> jax.Array:
+def stack_affine(cv: Curve, points: list[np.ndarray]) -> frx.Array:
     """Stack a list of affine points into one `(n,)` G1 array — the `bases` layout
     `lax.msm` consumes. `dtype=cv.g1` normalizes each point (a
     `cv.g1((x, y))` scalar, or a jacobian from a CPU group op) to the affine form
@@ -197,8 +197,8 @@ def stack_affine(cv: Curve, points: list[np.ndarray]) -> jax.Array:
     return jnp.asarray(np.frombuffer(raw, dtype=cv.g1).copy())
 
 
-def commit_hiding(cv: Curve, scalars: jax.Array, randomizer: int | jax.Array,
-                  bases_h: jax.Array) -> jax.Array:
+def commit_hiding(cv: Curve, scalars: frx.Array, randomizer: int | frx.Array,
+                  bases_h: frx.Array) -> frx.Array:
     """`Σ scalars[i]·bases_h[i] + randomizer·bases_h[-1]` — a Pedersen commitment
     with a hiding term, as one `lax.msm`. `bases_h` is the pre-stacked generators
     with the hiding base appended last (so the randomizer rides as the extra MSM

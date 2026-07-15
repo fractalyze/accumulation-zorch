@@ -4,7 +4,7 @@
 The whole multi-addend fold (input's NARK + the fold's AS/HP commitments on the
 on-device sparse ``M·z``, the ``num_addends=3`` AS-level fold over
 ``[acc, input, proof_randomness]``, and the HP-level fold INTO the old
-accumulator's HP input) is one ``@jax.jit`` core
+accumulator's HP input) is one ``@frx.jit`` core
 (``r1cs_nark_as._build_zk_fold_core``) that takes **three** affine arguments —
 the committer key ``bases_h = generators[:rows] ‖ hiding``, the HP placeholder
 identity ``id_pt``, and the old accumulator's ``(6,)`` commitments ``acc_comms``

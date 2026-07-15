@@ -8,10 +8,10 @@ width=3. The 117 round constants are arkworks' (drawn from
 so there is no encoding ambiguity.
 """
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
-from jax import lax
+from frx import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 from zorch.hash.poseidon.params import PoseidonParams
 from zorch.hash.poseidon.poseidon import Poseidon
@@ -99,14 +99,14 @@ def squeeze_challenges(
     The host (eager, Python-loop) squeeze — used by the host Fiat-Shamir combines
     that produce constants baked into the fused cores (`ipa_pc`, `ipa_pc_as`). It
     handles arbitrary bit widths, including the 184-bit AS opening point that
-    :func:`squeeze_challenges_jax` cannot (see below)."""
+    :func:`squeeze_challenges_frx` cannot (see below)."""
     return squeeze_nonnative(sp, [min(size, FR_CAPACITY)] * k)
 
 
 # --- jit-able / device squeeze -------------------------------------------------
-# The same ark-sponge bit math as `squeeze_bits`/`squeeze_nonnative`, but as jax
+# The same ark-sponge bit math as `squeeze_bits`/`squeeze_nonnative`, but as frx
 # array ops returning an `fr` array — so the challenge derivation composes under
-# the fused prove cores' outermost `@jax.jit` and lowers to GPU. NOT a superset of
+# the fused prove cores' outermost `@frx.jit` and lowers to GPU. NOT a superset of
 # the host squeeze: `challenges_from_fq` only handles `size` a multiple of the
 # 32-bit limb width (the prover's 128 is), so the arbitrary-width host squeeze
 # stays for e.g. the 184-bit AS opening point.
@@ -114,12 +114,12 @@ _FE_BYTES = 32  # BigInteger256 field repr
 _LIMB_BITS = 32
 
 
-def challenges_from_fq(fq_elems: jax.Array, k: int, size: int, cv: Curve) -> jax.Array:
+def challenges_from_fq(fq_elems: frx.Array, k: int, size: int, cv: Curve) -> frx.Array:
     """`k` truncated challenges as an `(k,)` ``cv.fr`` array, from the squeezed
     ``cv.fq`` elements `fq_elems`.
 
     Faithful to ark-sponge `squeeze_nonnative_field_elements_with_sizes` for the
-    uniform-`size` case the accumulation prover uses (`squeeze_challenges_jax`): the
+    uniform-`size` case the accumulation prover uses (`squeeze_challenges_frx`): the
     bit stream is the low `FQ_CAPACITY` bits of each Fq element concatenated, and
     each challenge is the next `size` bits packed LE (`size <= fr_capacity`, so no
     reduction). `fq_elems` must hold `ceil(k*size / FQ_CAPACITY)` elements, and
@@ -149,11 +149,11 @@ def challenges_from_fq(fq_elems: jax.Array, k: int, size: int, cv: Curve) -> jax
     return jnp.sum(limb_val.astype(cv.fr) * place[jnp.newaxis, :], axis=1)
 
 
-def squeeze_challenges_jax(sp, k, size, cv):  # type: ignore[no-untyped-def]
-    """ark-sponge `squeeze_challenges` as jax: squeeze the `ceil(k*size / FQ_CAPACITY)`
+def squeeze_challenges_frx(sp, k, size, cv):  # type: ignore[no-untyped-def]
+    """ark-sponge `squeeze_challenges` as frx: squeeze the `ceil(k*size / FQ_CAPACITY)`
     Fq elements the bit stream needs, extract `k` `size`-bit challenges as an
     `(k,)` ``cv.fr`` array. Returns `(sponge, challenges)` (the sponge squeeze is
-    the already-jax `DuplexSponge.squeeze`). The device twin of
+    the already-frx `DuplexSponge.squeeze`). The device twin of
     :func:`squeeze_challenges`, for the in-trace prover challenges (all 128-bit)."""
     n_elems = (k * size + FQ_CAPACITY - 1) // FQ_CAPACITY
     sp, elems = sp.squeeze(n_elems)

@@ -1,7 +1,7 @@
 //! The arkworks ↔ zk_dtypes Pasta on-the-wire byte bridge, generic over the
 //! Pasta curve (Pallas or Vesta).
 //!
-//! The zkx GPU `lax.msm` boundary is the zk_dtypes one: a field element is its
+//! The xla GPU `lax.msm` boundary is the zk_dtypes one: a field element is its
 //! **standard-form** (non-Montgomery) little-endian 32-byte representation, a G1
 //! affine point is `x ‖ y` (64 bytes), and the identity is all-zero. The GPU MSM
 //! kernel dispatches on the bases' element type (`PALLAS_G1_AFFINE` /
@@ -73,7 +73,7 @@ pub fn scalars_to_bytes<P: SWModelParameters>(scalars: &[P::ScalarField]) -> Vec
 ///
 /// The general zk core feeds this consumer-side pre-encoding for the
 /// `r1cs_input` / `r1cs_r_input` sponge absorbs: the in-trace `fr→u8` rechunk the
-/// zkx GPU plugin mis-lowers is done here instead. Each 31-byte chunk is
+/// xla GPU plugin mis-lowers is done here instead. Each 31-byte chunk is
 /// `< 2^248 < the Pasta base-field modulus`, so the zero-padded bytes are already
 /// the canonical LE base-field encoding (no reduction). Mirrors
 /// `python/accumulation_zorch/absorbable.py:u8_batch_field_array`.

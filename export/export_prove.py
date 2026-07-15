@@ -1,7 +1,7 @@
 """Export the fused jit zk prove (the whole R1CS-NARK-AS make_zk prove) to one
 StableHLO ``.mlirbc``, à la ``export_pasta_msm.py`` / bellman-zorch's exporter.
 
-The whole prove is one ``@jax.jit`` core that takes the
+The whole prove is one ``@frx.jit`` core that takes the
 committer key (``bases_h = generators ‖ hiding``) and the HP placeholder identity
 as its affine arguments and closes over the circuit / witness / replayed
 randomness; everything else — the NARK + HP cores, every commitment / fold, and
@@ -13,7 +13,7 @@ The general prover lifted the assignment + all replayed randomness (NARK/AS/HP) 
 inputs, so this lowers ONE seed-independent ``prove_zk_general.mlirbc`` (the fixture
 supplies only the runtime shapes) — no per-seed baking. The two ``u8_batch``
 Fiat-Shamir absorbs (``r1cs_input`` / ``r1cs_r_input``) are fed pre-encoded as fq
-runtime inputs: the in-trace ``fr→u8`` rechunk the zkx GPU plugin mis-lowers is done
+runtime inputs: the in-trace ``fr→u8`` rechunk the xla GPU plugin mis-lowers is done
 consumer-side.
 
 Run under Bazel — CPU is enough, lowering needs no GPU:
@@ -78,7 +78,7 @@ def write_bytecode(lowered: Any, path: Path) -> int:
     / bellman-zorch's exporter."""
     m = lowered.compiler_ir(dialect="stablehlo")
     try:
-        from jax._src.interpreters import mlir as _jmlir
+        from frx._src.interpreters import mlir as _jmlir
 
         data = _jmlir.module_to_bytecode(m)
     except Exception:

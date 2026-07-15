@@ -23,10 +23,10 @@ sets which `fq` dtype the bytes are read as.
 
 import struct
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
-from jax import lax
+from frx import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import curve
@@ -55,7 +55,7 @@ def u8_batch_field_array(cv: Curve, data: bytes) -> np.ndarray:
     return bytes_to_field_array(cv, struct.pack("<Q", len(data)) + data)
 
 
-def u8_batch_field_array_jax(cv: Curve, data_u8: jax.Array) -> jax.Array:
+def u8_batch_field_array_frx(cv: Curve, data_u8: frx.Array) -> frx.Array:
     """In-trace twin of :func:`u8_batch_field_array`: prepend `(len as u64).LE`, then
     pack into 31-byte LE `fq` chunks (each zero-padded to the 32-byte repr). `data_u8`
     is a **static-length** `(N,)` `uint8` array; returns `(ceil((8+N)/31),)` `fq`.
@@ -93,7 +93,7 @@ def point_to_field_array(cv: Curve, point: np.ndarray) -> np.ndarray:
 
 def absorb_point(cv: Curve, sp: DuplexSponge, point: np.ndarray) -> DuplexSponge:
     """Absorb an SW-affine point Absorbable into the sponge (packed in-jit)."""
-    return sp.absorb(point_to_field_array_jax(cv, curve.stack_affine(cv, [point])))
+    return sp.absorb(point_to_field_array_frx(cv, curve.stack_affine(cv, [point])))
 
 
 def fork(cv: Curve, sp: DuplexSponge, domain: bytes) -> DuplexSponge:
@@ -109,10 +109,10 @@ def _fe_array(cv: Curve, values: list[int]) -> np.ndarray:
     return np.frombuffer(b"".join(int(v).to_bytes(32, "little") for v in values), dtype=cv.fq)
 
 
-def point_to_field_array_jax(cv: Curve, points: jax.Array) -> jax.Array:
+def point_to_field_array_frx(cv: Curve, points: frx.Array) -> frx.Array:
     """In-jit `point_to_field_array` for a batch of SW-affine points.
 
-    `points` is an ``(N,)`` ``cv.g1`` jax array (e.g. a stacked set of commitments
+    `points` is an ``(N,)`` ``cv.g1`` frx array (e.g. a stacked set of commitments
     straight off ``lax.msm``); returns the ``(3N,)`` fq packing
     ``[x0, y0, inf0, x1, y1, inf1, …]`` — the same bytes as concatenating the host
     :func:`point_to_field_array` over the points, but without leaving the device,
@@ -123,10 +123,10 @@ def point_to_field_array_jax(cv: Curve, points: jax.Array) -> jax.Array:
     identity is the all-zero zk_dtypes encoding — both coordinates
     equal to ``fq(0)`` — packed as arkworks' ``[0, 1, 1]`` via ``select``, the one
     point→field trap, kept identical to the host path. Plain (un-jitted) so it
-    inlines into the single ``@jax.jit`` prove.
+    inlines into the single ``@frx.jit`` prove.
 
     Identity is detected by fq field equality (``coord == 0``), NOT a second
-    ``fq → uint8`` bitcast: the zkx GPU plugin mis-lowers the field→bytes bitcast on
+    ``fq → uint8`` bitcast: the xla GPU plugin mis-lowers the field→bytes bitcast on
     a rank-2 field tensor (``'tensor.extract' op incorrect number of indices``),
     whereas the field comparison lowers cleanly on both CPU and GPU and is
     byte-identical (``fq(0)`` is the all-zero canonical encoding).
@@ -174,7 +174,7 @@ def absorb_option_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) 
     `Some` case: a single `F::from(true)` flag, then each point's `[x, y,
     infinity]` — all in one absorb (e.g. `Some(ProofHidingCommitments)`)."""
     arr = jnp.concatenate([jnp.asarray(option_flag(cv, True)),
-                           point_to_field_array_jax(cv, curve.stack_affine(cv, points))])
+                           point_to_field_array_frx(cv, curve.stack_affine(cv, points))])
     return sp.absorb(arr)
 
 
@@ -184,19 +184,19 @@ def absorb_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) -> Dupl
     the concatenation of each point's `[x, y, infinity]`."""
     if not points:
         return sp
-    return sp.absorb(point_to_field_array_jax(cv, curve.stack_affine(cv, points)))
+    return sp.absorb(point_to_field_array_frx(cv, curve.stack_affine(cv, points)))
 
 
-def absorb_points_jax(cv: Curve, sp: DuplexSponge, points: jax.Array) -> DuplexSponge:
-    """`absorb_points` for a pre-stacked `(N,)` jax affine array — the commitments
+def absorb_points_frx(cv: Curve, sp: DuplexSponge, points: frx.Array) -> DuplexSponge:
+    """`absorb_points` for a pre-stacked `(N,)` frx affine array — the commitments
     threaded straight off `lax.msm` (no host re-stack), so the absorb traces into
-    the single-`@jax.jit` prove."""
-    return sp.absorb(point_to_field_array_jax(cv, points))
+    the single-`@frx.jit` prove."""
+    return sp.absorb(point_to_field_array_frx(cv, points))
 
 
-def absorb_option_points_jax(cv: Curve, sp: DuplexSponge, points: jax.Array) -> DuplexSponge:
-    """`absorb_option_points` for a pre-stacked `(N,)` jax affine array (the `Some`
+def absorb_option_points_frx(cv: Curve, sp: DuplexSponge, points: frx.Array) -> DuplexSponge:
+    """`absorb_option_points` for a pre-stacked `(N,)` frx affine array (the `Some`
     case): the `F::from(true)` flag then each point's `[x, y, infinity]`, all in one
     absorb — the in-trace twin of `absorb_option_points`."""
     return sp.absorb(jnp.concatenate([jnp.asarray(option_flag(cv, True)),
-                                      point_to_field_array_jax(cv, points)]))
+                                      point_to_field_array_frx(cv, points)]))

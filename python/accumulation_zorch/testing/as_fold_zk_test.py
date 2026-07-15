@@ -23,11 +23,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
 from absl.testing import absltest
-from jax import lax
+from frx import lax
 
 from accumulation_zorch import absorbable, curve, field, nark, r1cs_nark_as, sponge
 
@@ -101,15 +101,15 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
         _point(acc["comm_a"]), _point(acc["comm_b"]), _point(acc["comm_c"]),
         _point(acc["hp_comm_1"]), _point(acc["hp_comm_2"]), _point(acc["hp_comm_3"])])
 
-    @jax.jit
-    def core(bases_h: jax.Array, acc_comms: jax.Array) -> tuple:
+    @frx.jit
+    def core(bases_h: frx.Array, acc_comms: frx.Array) -> tuple:
         fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
         nk = nark.prove_zk_core(cv, a, b, c, input2, witness2, bases_h, params,
                                 nark_matrices_hash, nark_r, *nark_blinders)
         gamma = nk.gamma
 
         # The fold's AS proof-randomness commitments comm_r_M = commit(M·z_r, as_r_M).
-        def _mz(matrix: nark.Matrix, zv: jax.Array) -> jax.Array:
+        def _mz(matrix: nark.Matrix, zv: frx.Array) -> frx.Array:
             return field.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
         zr = jnp.asarray(np.array(r1cs_r_input + [as_r1cs_r_witness] * witness_len, dtype=cv.fr))
         comm_r_a = curve.commit_hiding(cv, _mz(a, zr), as_rand[0], bases_h)
@@ -127,17 +127,17 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
         acc_inst_fe = r1cs_nark_as._acc_instance_fe(cv, acc_bytes, acc_comms)
         inst_fe = jnp.concatenate([
             jnp.asarray(absorbable.u8_batch_field_array(cv, input2_bytes)),
-            absorbable.point_to_field_array_jax(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
+            absorbable.point_to_field_array_frx(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
             jnp.asarray(absorbable.option_flag(cv, True)),
-            absorbable.point_to_field_array_jax(
+            absorbable.point_to_field_array_frx(
                 cv, jnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
         ])
         pr_fe = jnp.concatenate([
             jnp.asarray(absorbable.option_flag(cv, True)),
             jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes)),
-            absorbable.point_to_field_array_jax(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
+            absorbable.point_to_field_array_frx(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
         ])
-        beta = r1cs_nark_as._beta_challenges_jax(  # (3,) = [1, c₁, c₂]
+        beta = r1cs_nark_as._beta_challenges_frx(  # (3,) = [1, c₁, c₂]
             cv, params, as_matrices_hash, inst_fe, pr_fe, acc_inst_fe=acc_inst_fe, num_challenges=2)
 
         # Fold under beta, in the order [acc, input, proof_randomness].
