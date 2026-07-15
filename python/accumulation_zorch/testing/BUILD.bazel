@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
 
 # Every byte-match test is an absltest case that traces + proves on CPU and
@@ -34,8 +34,6 @@ _TESTS = [
     "ipa_zk_test",
     "nark_test",
     "nark_zk_test",
-    "recursion_nark_test",
-    "recursion_nark_zk_test",
     "sponge_frx_test",
     "sponge_test",
     "substrate_test",
@@ -52,17 +50,57 @@ _TESTS = [
     for t in _TESTS
 ]
 
-# The full recursion-circuit IVC fold is minutes-slow on CPU and needs the large
-# off-tree recursion fixtures (artifacts/recursion_*_fixtures.json, regenerated
-# via the `--features recursion` Rust dump tests). Its fold math is covered by
-# as_fold_zk*, its recursion circuit by recursion_nark*. Tagged manual so
-# `bazel test //...` skips it (matching the CI omission), but it stays buildable
-# and runnable on demand (`bazel test //python/accumulation_zorch/testing:recursion_fold_zk_test`).
-py_test(
-    name = "recursion_fold_zk_test",
-    size = "large",
-    srcs = ["recursion_fold_zk_test.py"],
-    data = ["//python/testdata:fixtures"],
-    tags = ["manual"],
-    deps = _TEST_DEPS,
+# Resolves $ACCUMULATION_ZORCH_ARTIFACTS for the on-demand gates below, and owns the
+# rationale for why they must name it rather than default to <repo>/artifacts.
+py_library(
+    name = "recursion_artifacts",
+    srcs = ["recursion_artifacts.py"],
+    imports = ["."],
 )
+
+# The on-demand recursion gates. Each byte-matches at the real ~22.5K/~77.5K-constraint
+# recursion-circuit scale, against a large off-tree fixture
+# (artifacts/recursion_*_fixtures.json, 17-147 MB) that the `--features recursion` Rust
+# dump tests emit. Those fixtures are gitignored, so no clean checkout has them, and CI
+# cannot produce them even in principle (its `cargo test` runs with default features).
+#
+# `manual` keeps them out of `bazel test //python/...`. Without it they would run, find no
+# fixture, and — because a test that exits 0 is a pass to bazel, whether it checked
+# anything or not — report green forever. Their math is still covered in the standing
+# suite at toy scale: the NARK core by nark_test / nark_zk_test, the fold by as_fold_zk*.
+#
+# `external` marks them non-hermetic: their real input is a file bazel has never heard of,
+# so a cached PASSED cannot be trusted to still hold. It forces a re-run instead.
+#
+# `env_inherit` passes $ACCUMULATION_ZORCH_ARTIFACTS (which names the fixture directory —
+# see recursion_artifacts.py) through from the invoking shell, the way .bazelrc does for
+# JAX_PLATFORMS. Without it every caller would have to remember
+# `--test_env=ACCUMULATION_ZORCH_ARTIFACTS`, and forgetting it reports the variable unset
+# while their shell plainly has it set. So, runnable on demand:
+#
+#     ACCUMULATION_ZORCH_ARTIFACTS=$PWD/artifacts \
+#       bazel test //python/accumulation_zorch/testing:recursion_nark_test
+#
+# recursion_fold_zk_test is "large" for a second reason of its own: the full IVC fold is
+# minutes-slow on CPU.
+_MANUAL_TESTS = {
+    "recursion_nark_test": "medium",
+    "recursion_nark_zk_test": "medium",
+    "recursion_fold_zk_test": "large",
+}
+
+[
+    py_test(
+        name = t,
+        size = size,
+        srcs = [t + ".py"],
+        data = ["//python/testdata:fixtures"],
+        env_inherit = ["ACCUMULATION_ZORCH_ARTIFACTS"],
+        tags = [
+            "external",
+            "manual",
+        ],
+        deps = _TEST_DEPS + [":recursion_artifacts"],
+    )
+    for t, size in _MANUAL_TESTS.items()
+]

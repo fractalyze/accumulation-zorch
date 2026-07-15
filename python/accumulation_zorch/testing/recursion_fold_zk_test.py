@@ -10,35 +10,37 @@ sparse `M·z` (densifying the recursion R1CS is ~15 GB). `acc_prev` is fed as it
 materialized instance/witness components; every sampled randomness value (the
 input's NARK, the fold's AS + HP) is replayed from the dump.
 
-The fixtures are large so they are generated **off-tree**, not committed:
+The fixtures are large so they are generated **off-tree**, not committed, and
+`$ACCUMULATION_ZORCH_ARTIFACTS` must name the directory holding them — see
+`recursion_artifacts.py` for why there is no default. Both directions are checked, so
+both dumps have to have been run. On demand:
 
-    ACCUMULATION_ZORCH_ARTIFACTS=<dir> cargo test --features recursion \
+    ACCUMULATION_ZORCH_ARTIFACTS=$PWD/artifacts cargo test --features recursion \
       --test recursion_step vesta::dump::dump_recursion_fold_zk    # forward
-    ACCUMULATION_ZORCH_ARTIFACTS=<dir> cargo test --features recursion \
+    ACCUMULATION_ZORCH_ARTIFACTS=$PWD/artifacts cargo test --features recursion \
       --test recursion_step pallas::dump::dump_recursion_fold_zk   # reverse
+    ACCUMULATION_ZORCH_ARTIFACTS=$PWD/artifacts \
+      bazel test //python/accumulation_zorch/testing:recursion_fold_zk_test
 
-Each direction reads its fixture from `$ACCUMULATION_ZORCH_ARTIFACTS` (default
-`artifacts/`) and **skips** when absent — the same on-demand contract as the
-`#[ignore]` GPU gates.
-
-Run under Bazel:
-
-    bazel test //python/accumulation_zorch/testing:recursion_fold_zk_test
+The target is `manual`, so `bazel test //python/...` does not run it: the full IVC fold is
+minutes-slow on CPU, a clean checkout has no fixtures, and a test that cannot check
+anything must not report a pass.
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from absl.testing import absltest
 
+import recursion_artifacts
 from accumulation_zorch import curve, nark, r1cs_nark_as, sponge
 
-_REPO = Path(__file__).resolve().parents[3]
-_ARTIFACTS = Path(os.environ.get("ACCUMULATION_ZORCH_ARTIFACTS", str(_REPO / "artifacts")))
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
+
+# The dump that emits a direction's fixture; `cv.name` is "vesta" / "pallas".
+_DUMP = "cargo test --features recursion --test recursion_step {}::dump::dump_recursion_fold_zk"
 
 # (label, curve, fixture filename, Poseidon sponge fixture over the constraint field).
 # Forward folds on Vesta (constraint field ark_vesta::Fq); reverse on Pallas
@@ -104,12 +106,8 @@ def _fold(cv: Any, d: Any, params: Any) -> tuple[bytes, bytes, bytes]:
         acc_hp_a_vec, acc_hp_b_vec, acc_hp_rand)
 
 
-def _check_direction(label: str, cv: Any, fixture: str, sponge_file: str) -> bool:
-    path = _ARTIFACTS / fixture
-    if not path.exists():
-        print(f"  SKIP [{label}] — no fixture at {path}")
-        return False
-    d = json.loads(path.read_text())
+def _check_direction(label: str, cv: Any, fixture: str, sponge_file: str) -> None:
+    d = json.loads(recursion_artifacts.fixture(fixture, _DUMP.format(cv.name)).read_text())
     acc_instance, acc_witness, proof = _fold(cv, d, _params(cv, sponge_file))
     assert acc_instance.hex() == d["golden_instance_hex"], (
         f"[{label}] folded acc.instance diverged ({len(acc_instance)}B)")
@@ -120,14 +118,16 @@ def _check_direction(label: str, cv: Any, fixture: str, sponge_file: str) -> boo
     print(f"  [{label}] recursion zk fold byte-matches arkworks "
           f"({d['num_constraints']} constraints, acc.instance {len(acc_instance)}B ‖ "
           f"acc.witness {len(acc_witness)}B ‖ proof {len(proof)}B)")
-    return True
 
 
 class RecursionFoldZkTest(absltest.TestCase):
     def test_recursion_fold_matches_arkworks(self) -> None:
-        ran = [_check_direction(*dirn) for dirn in _DIRECTIONS]
-        if not any(ran):
-            print("  (no fixtures present — nothing checked)")
+        # subTest so a forward-direction failure still reports the reverse: the two
+        # directions are independent folds (Vesta vs Pallas), and knowing whether
+        # both diverged or only one is what localizes a break.
+        for dirn in _DIRECTIONS:
+            with self.subTest(direction=dirn[0]):
+                _check_direction(*dirn)
 
 
 if __name__ == "__main__":
