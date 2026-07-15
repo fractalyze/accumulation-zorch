@@ -239,9 +239,10 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
     rows = len(a)
     n = input_len + witness_len  # z length = the circuit's num_vars (static)
     # Dense matrices for the AS-level `M·v` reduces: the assignment is a runtime
-    # input on the general core, so a sparse `segment_sum` would survive as an i256
-    # scatter-add the xla GPU atomic-RMW path can't lower; a dense matvec (constant
-    # matrix · runtime vector) has no scatter (the no-zk general core's approach).
+    # input on the general core, and `field.sparse_matvec`'s scatter-free CSR path
+    # needs host-constant row bounds — which a runtime vector doesn't give. A dense
+    # matvec (constant matrix · runtime vector) sidesteps that (the no-zk general
+    # core's approach); densifying is affordable at the general prover's scale.
     a_dense, b_dense, c_dense = (jnp.asarray(nark.to_dense(cv, m, n)) for m in (a, b, c))
     bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
     id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])
@@ -279,7 +280,7 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
             """`M·vec` over fr as a dense matvec (constant matrix · runtime vector →
             no GPU scatter), threaded straight into the commitments / HP opening
             with no host round-trip. See the `a_dense` note above for why the
-            general core densifies instead of reducing the sparse COO."""
+            general core densifies instead of reducing the sparse CSR."""
             return field.matvec(dense_m, vec)
 
         # comm_r_M = commit(M·(r1cs_r_input ‖ r1cs_r_witness)).
@@ -467,17 +468,15 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])
     acc_comms_arr = curve.stack_affine(cv, list(acc_comms))  # (6,)
 
-    # The fold's `M·v` reduces are all over BAKED vectors (the circuit + the replayed
-    # randomness are fixed at export time), so they are computed HOST-SIDE and baked
-    # as constants rather than left as on-device `segment_sum` scatters. The result is
-    # identical — a constant either way — but it keeps the scatter out of the GPU
-    # trace: at recursion scale XLA's GPU constant-folder leaves the big (~1.1M nnz)
-    # reduces un-folded (it folds them on CPU), and the xla GPU emitter cannot lower a
-    # surviving i256 `scatter`-add (the atomic-RMW path bitcasts assuming an integer
-    # element type), so a leftover reduce crashes codegen. `matrix_vec_mul` is the
-    # host sparse reduce (no 15 GB densify). The runtime-vector on-device sparse
-    # matvec is still exercised by the standalone NARK half-step; only the fold's
-    # constant reduces are pre-baked here.
+    # The fold's AS-level `M·v` reduces are all over BAKED vectors (the circuit + the
+    # replayed randomness are fixed at export time), so they are computed HOST-SIDE
+    # and baked as constants. `matrix_vec_mul` is the host sparse reduce (no 15 GB
+    # densify). This is orthogonal to the NARK-internal `M·z` / `M·zr` reduces inside
+    # `prove_zk_core`, which DO run on-device — `field.sparse_matvec` keeps those
+    # scatter-free (a CSR prefix sum) so they lower to a parallel reduce. Baking the
+    # AS reduces here is a data-movement choice (the vectors are constants anyway),
+    # not a scatter workaround; the on-device sparse matvec is exercised both by the
+    # standalone NARK half-step and by those NARK-internal fold reduces.
     def _host_mz(m: nark.Matrix, inp: list[int], wit: list[int]) -> frx.Array:
         return jnp.asarray(nark.matrix_vec_mul(cv, m, inp, wit))
 
