@@ -34,7 +34,7 @@
 use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
 use ark_ec::SWModelParameters;
-use ark_ff::{BigInteger, Field, One, PrimeField, UniformRand, Zero};
+use ark_ff::{Field, One, PrimeField, UniformRand};
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::UVPolynomial;
 use ark_poly_commit::ipa_pc::InnerProductArgPC;
@@ -44,6 +44,9 @@ use ark_sponge::domain_separated::DomainSeparatedSponge;
 use ark_sponge::poseidon::PoseidonSponge;
 use ark_sponge::Absorbable;
 use ark_std::rand::{rngs::StdRng, RngCore, SeedableRng};
+use serde::Serialize;
+
+use fixture_json::{curve_main, fe_hex, fe_list, point_list, PointJson};
 
 use ark_accumulation::ipa_pc_as::{
     AtomicASForInnerProductArgPC, InputInstance, IpaPCDomain, PredicateIndex,
@@ -71,84 +74,67 @@ const SEED_SETUP: u64 = 0x5e7;
 const SEED_ACC_PREV: u64 = 0xacc0;
 const SEED_FOLD: u64 = 0xf01d;
 
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
-
-fn fe_hex<F: PrimeField>(f: &F) -> String {
-    hex(&f.into_repr().to_bytes_le())
-}
-
-fn fr_list_json<F: PrimeField>(xs: &[F]) -> String {
-    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fe_hex(f))).collect();
-    format!("[{}]", v.join(","))
-}
-
-fn coord_x_hex<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    if p.is_zero() {
-        hex(&[0u8; 32])
-    } else {
-        hex(&p.x.into_repr().to_bytes_le())
-    }
-}
-
-fn coord_y_hex<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    if p.is_zero() {
-        hex(&[0u8; 32])
-    } else {
-        hex(&p.y.into_repr().to_bytes_le())
-    }
-}
-
-fn point_json<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    format!("{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}", coord_x_hex(p), coord_y_hex(p))
-}
-
-fn points_json<P: SWModelParameters>(ps: &[GroupAffine<P>]) -> String
-where
-    P::BaseField: PrimeField,
-{
-    let v: Vec<String> = ps.iter().map(point_json).collect();
-    format!("[{}]", v.join(","))
-}
-
 /// An `InputInstance` as JSON. The no-zk new input passes `hiding = None`; the
 /// hiding accumulators (acc_prev and the golden fold) pass
 /// `Some((hiding_comm, rand))` — the two extra fields their zk succinct check reads.
-fn instance_json<P: SWModelParameters>(
-    inst: &InputInstance<GroupAffine<P>>,
-    hiding: Option<(GroupAffine<P>, P::ScalarField)>,
-) -> String
-where
-    P::BaseField: PrimeField,
-{
-    let mut fields = format!(
-        "\"commitment\":{},\"point\":\"{}\",\"evaluation\":\"{}\",\"l_vec\":{},\"r_vec\":{},\"final_comm_key\":{},\"c\":\"{}\"",
-        point_json(&inst.ipa_commitment.commitment().comm),
-        fe_hex(&inst.point),
-        fe_hex(&inst.evaluation),
-        points_json(&inst.ipa_proof.l_vec),
-        points_json(&inst.ipa_proof.r_vec),
-        point_json(&inst.ipa_proof.final_comm_key),
-        fe_hex(&inst.ipa_proof.c),
-    );
-    if let Some((hiding_comm, rand)) = hiding {
-        fields += &format!(",\"hiding_comm\":{},\"rand\":\"{}\"", point_json(&hiding_comm), fe_hex(&rand));
+/// The pair is skipped entirely when absent (not emitted as `null`), so the no-zk
+/// input keeps the seven-key shape. Field order is the fixture's key order.
+#[derive(Serialize)]
+struct InstanceJson {
+    commitment: PointJson,
+    point: String,
+    evaluation: String,
+    l_vec: Vec<PointJson>,
+    r_vec: Vec<PointJson>,
+    final_comm_key: PointJson,
+    c: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hiding_comm: Option<PointJson>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rand: Option<String>,
+}
+
+impl InstanceJson {
+    fn from_instance<P: SWModelParameters>(
+        inst: &InputInstance<GroupAffine<P>>,
+        hiding: Option<(GroupAffine<P>, P::ScalarField)>,
+    ) -> Self
+    where
+        P::BaseField: PrimeField,
+    {
+        InstanceJson {
+            commitment: PointJson::from_affine(&inst.ipa_commitment.commitment().comm),
+            point: fe_hex(&inst.point),
+            evaluation: fe_hex(&inst.evaluation),
+            l_vec: point_list(&inst.ipa_proof.l_vec),
+            r_vec: point_list(&inst.ipa_proof.r_vec),
+            final_comm_key: PointJson::from_affine(&inst.ipa_proof.final_comm_key),
+            c: fe_hex(&inst.ipa_proof.c),
+            hiding_comm: hiding.map(|(comm, _)| PointJson::from_affine(&comm)),
+            rand: hiding.map(|(_, rand)| fe_hex(&rand)),
+        }
     }
-    format!("{{{}}}", fields)
+}
+
+/// The whole fixture. Field order is the fixture's key order.
+#[derive(Serialize)]
+struct FoldZkFixture {
+    note: String,
+    curve: String,
+    supported_degree: usize,
+    num_prev_inputs: usize,
+    h: PointJson,
+    s: PointJson,
+    generators: Vec<PointJson>,
+    random_linear_polynomial: Vec<String>,
+    random_linear_polynomial_commitment: PointJson,
+    commitment_randomness: String,
+    hiding_polynomial: Vec<String>,
+    hiding_rand: String,
+    input: InstanceJson,
+    acc_prev: InstanceJson,
+    accumulator: InstanceJson,
+    decider_coeffs: Vec<String>,
 }
 
 /// Commit a fresh random degree-`DEGREE` polynomial and open it at a random point
@@ -292,30 +278,28 @@ where
         acc_inst.ipa_proof.rand.expect("zk golden has rand"),
     );
 
-    println!("{{");
-    println!("  \"note\": \"IPA-PC accumulation fold (zk) fixtures ({} curve): one no-zk input folded into a hiding prior accumulator\",", curve);
-    println!("  \"curve\": \"{}\",", curve);
-    println!("  \"supported_degree\": {},", svk.supported_degree);
-    println!("  \"num_prev_inputs\": {},", NUM_PREV_INPUTS);
-    println!("  \"h\": {},", point_json(&svk.h));
-    println!("  \"s\": {},", point_json(&svk.s));
-    println!("  \"generators\": {},", points_json(&ck.comm_key));
-    println!("  \"random_linear_polynomial\": {},", fr_list_json(&rlp_coeffs));
-    println!("  \"random_linear_polynomial_commitment\": {},", point_json(&rlp_commitment));
-    println!("  \"commitment_randomness\": \"{}\",", fe_hex(&commitment_randomness));
-    println!("  \"hiding_polynomial\": {},", fr_list_json(hiding_polynomial.coeffs()));
-    println!("  \"hiding_rand\": \"{}\",", fe_hex(&hiding_rand));
-    println!("  \"input\": {},", instance_json(&new_input.instance, None));
-    println!("  \"acc_prev\": {},", instance_json(acc_prev_inst, Some(acc_prev_hiding)));
-    println!("  \"accumulator\": {},", instance_json(acc_inst, Some(golden_hiding)));
-    println!("  \"decider_coeffs\": {}", fr_list_json(&decider_coeffs));
-    println!("}}");
+    let fixture = FoldZkFixture {
+        note: format!(
+            "IPA-PC accumulation fold (zk) fixtures ({} curve): one no-zk input folded into a hiding prior accumulator",
+            curve
+        ),
+        curve: curve.to_string(),
+        supported_degree: svk.supported_degree,
+        num_prev_inputs: NUM_PREV_INPUTS,
+        h: PointJson::from_affine(&svk.h),
+        s: PointJson::from_affine(&svk.s),
+        generators: point_list(&ck.comm_key),
+        random_linear_polynomial: fe_list(&rlp_coeffs),
+        random_linear_polynomial_commitment: PointJson::from_affine(&rlp_commitment),
+        commitment_randomness: fe_hex(&commitment_randomness),
+        hiding_polynomial: fe_list(hiding_polynomial.coeffs()),
+        hiding_rand: fe_hex(&hiding_rand),
+        input: InstanceJson::from_instance(&new_input.instance, None),
+        acc_prev: InstanceJson::from_instance(acc_prev_inst, Some(acc_prev_hiding)),
+        accumulator: InstanceJson::from_instance(acc_inst, Some(golden_hiding)),
+        decider_coeffs: fe_list(&decider_coeffs),
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }
 
-fn main() {
-    match std::env::args().nth(1).as_deref().unwrap_or("pallas") {
-        "pallas" => dump::<ark_pallas::PallasParameters>("pallas"),
-        "vesta" => dump::<ark_vesta::VestaParameters>("vesta"),
-        other => panic!("unknown curve {} (expected pallas|vesta)", other),
-    }
-}
+curve_main!(dump);

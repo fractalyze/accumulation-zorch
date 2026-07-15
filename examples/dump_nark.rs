@@ -20,17 +20,17 @@
 use ark_ec::models::ModelParameters;
 use ark_ec::short_weierstrass_jacobian::GroupAffine;
 use ark_ec::SWModelParameters;
-use ark_ff::{BigInteger, Field, PrimeField, Zero};
+use ark_ff::{Field, PrimeField};
 use ark_poly_commit::trivial_pc::PedersenCommitment;
-use ark_relations::lc;
 use ark_relations::r1cs::{
-    ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, Matrix, OptimizationGoal,
-    SynthesisError, SynthesisMode,
+    ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, SynthesisMode,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_sponge::Absorbable;
+use serde::Serialize;
 
 use ark_accumulation::r1cs_nark_as::r1cs_nark::R1CSNark;
+use fixture_json::{curve_main, fe_list, matrix_json, point_list, ser_hex, DummyCircuit, MatrixJson, PointJson};
 
 /// `ConstraintF<G>` (the sponge / constraint field), re-derived: it is
 /// `pub(crate)` upstream. For the Pasta curves the base field is already prime,
@@ -41,97 +41,20 @@ type Sponge<P> = ark_sponge::poseidon::PoseidonSponge<CF<P>>;
 const NUM_INPUTS: usize = 5;
 const NUM_CONSTRAINTS: usize = 10;
 
-/// `a · b = c`, padded to `NUM_INPUTS` public inputs and `NUM_CONSTRAINTS`
-/// repeats of the multiplication constraint — the circuit the arkworks
-/// `r1cs_nark_as` tests (and `oracle.rs`) drive.
-#[derive(Clone)]
-struct DummyCircuit<F: Field> {
-    a: Option<F>,
-    b: Option<F>,
+/// The fixture schema. Field order is the emitted key order.
+#[derive(Serialize)]
+struct NarkFixture {
+    note: String,
+    curve: String,
     num_inputs: usize,
     num_constraints: usize,
-}
-
-impl<F: Field> ConstraintSynthesizer<F> for DummyCircuit<F> {
-    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
-        let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
-            Ok(a * b)
-        })?;
-        for _ in 0..(self.num_inputs - 1) {
-            cs.new_input_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        }
-        for _ in 0..(self.num_constraints - 1) {
-            cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
-        }
-        cs.enforce_constraint(lc!(), lc!(), lc!())?;
-        Ok(())
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
-
-/// Canonical-LE 32-byte hex of a field element.
-fn fe_hex<F: PrimeField>(f: &F) -> String {
-    hex(&f.into_repr().to_bytes_le())
-}
-
-fn ser_hex<T: CanonicalSerialize>(v: &T) -> String {
-    let mut b = Vec::new();
-    v.serialize(&mut b).unwrap();
-    hex(&b)
-}
-
-/// `[[coeff_le_hex, var_index], ...]` per row — the sparse `Matrix<Fr>` layout.
-fn matrix_json<F: PrimeField>(m: &Matrix<F>) -> String {
-    let rows: Vec<String> = m
-        .iter()
-        .map(|row| {
-            let entries: Vec<String> = row
-                .iter()
-                .map(|(coeff, idx)| format!("[\"{}\",{}]", fe_hex(coeff), idx))
-                .collect();
-            format!("[{}]", entries.join(","))
-        })
-        .collect();
-    format!("[{}]", rows.join(","))
-}
-
-fn fr_list_json<F: PrimeField>(xs: &[F]) -> String {
-    let v: Vec<String> = xs.iter().map(|f| format!("\"{}\"", fe_hex(f))).collect();
-    format!("[{}]", v.join(","))
-}
-
-/// x-coordinate of an affine point as canonical-LE 32B hex (identity → zeros).
-fn coord_x_hex<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    if p.is_zero() {
-        hex(&[0u8; 32])
-    } else {
-        hex(&p.x.into_repr().to_bytes_le())
-    }
-}
-
-fn coord_y_hex<P: SWModelParameters>(p: &GroupAffine<P>) -> String
-where
-    P::BaseField: PrimeField,
-{
-    if p.is_zero() {
-        hex(&[0u8; 32])
-    } else {
-        hex(&p.y.into_repr().to_bytes_le())
-    }
+    a: MatrixJson,
+    b: MatrixJson,
+    c: MatrixJson,
+    input: Vec<String>,
+    witness: Vec<String>,
+    generators: Vec<PointJson>,
+    proof_hex: String,
 }
 
 fn dump<P>(curve: &str)
@@ -193,33 +116,23 @@ where
         let mut r = &b[..];
         Vec::<GroupAffine<P>>::deserialize_uncompressed(&mut r).unwrap()
     };
-    let gens_json: Vec<String> = generators
-        .iter()
-        .map(|p| format!("{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}", coord_x_hex(p), coord_y_hex(p)))
-        .collect();
-
     // The first-round commitments are the leading 3×33B of `proof_hex`; the
     // Python test slices them out for per-commitment anchoring.
 
-    println!("{{");
-    println!("  \"note\": \"NARK no-zk prove fixtures ({} curve)\",", curve);
-    println!("  \"curve\": \"{}\",", curve);
-    println!("  \"num_inputs\": {},", input.len());
-    println!("  \"num_constraints\": {},", num_constraints);
-    println!("  \"a\": {},", matrix_json(&matrices.a));
-    println!("  \"b\": {},", matrix_json(&matrices.b));
-    println!("  \"c\": {},", matrix_json(&matrices.c));
-    println!("  \"input\": {},", fr_list_json(&input));
-    println!("  \"witness\": {},", fr_list_json(&witness));
-    println!("  \"generators\": [{}],", gens_json.join(","));
-    println!("  \"proof_hex\": \"{}\"", proof_hex);
-    println!("}}");
+    let fixture = NarkFixture {
+        note: format!("NARK no-zk prove fixtures ({} curve)", curve),
+        curve: curve.to_string(),
+        num_inputs: input.len(),
+        num_constraints,
+        a: matrix_json(&matrices.a),
+        b: matrix_json(&matrices.b),
+        c: matrix_json(&matrices.c),
+        input: fe_list(&input),
+        witness: fe_list(&witness),
+        generators: point_list(&generators),
+        proof_hex,
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }
 
-fn main() {
-    match std::env::args().nth(1).as_deref().unwrap_or("pallas") {
-        "pallas" => dump::<ark_pallas::PallasParameters>("pallas"),
-        "vesta" => dump::<ark_vesta::VestaParameters>("vesta"),
-        other => panic!("unknown curve {} (expected pallas|vesta)", other),
-    }
-}
+curve_main!(dump);

@@ -58,7 +58,10 @@ fixture-json = { path = "crates/fixture-json" }
 rand_chacha = "0.2.2"
 rand_core = "0.5.1"
 # Reads the `python/testdata/*.json` byte-match fixtures in the fused-core GPU
-# consumer test (`tests/gpu_fused_prove_byte_match.rs`).
+# consumer test (`tests/gpu_fused_prove_byte_match.rs`), and writes them in the
+# `examples/dump_*.rs` fixture dumpers (each declares its schema with
+# `derive(Serialize)`; see `crates/fixture-json` for the shared parts).
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [features]

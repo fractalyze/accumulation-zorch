@@ -11,25 +11,16 @@
 //! Run: `cargo run --example dump_fixtures > python/testdata/substrate_fixtures.json`
 
 use ark_ec::{AffineCurve, ProjectiveCurve};
-use ark_ff::{Field, One, PrimeField, Zero};
+use ark_ff::{One, PrimeField, Zero};
 use ark_pallas::{Affine, Fq, Fr};
 use ark_poly_commit::trivial_pc::PedersenCommitment;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use serde::Serialize;
 
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
-}
+use fixture_json::{hex, ser_hex, PointJson};
 
-fn ser_compressed<T: CanonicalSerialize>(v: &T) -> String {
-    let mut b = Vec::new();
-    v.serialize(&mut b).unwrap();
-    hex(&b)
-}
-
+/// Hex of a value's arkworks *uncompressed* canonical serialization. The
+/// compressed form is `fixture_json::ser_hex`; only this dumper pins both.
 fn ser_uncompressed<T: CanonicalSerialize>(v: &T) -> String {
     let mut b = Vec::new();
     v.serialize_uncompressed(&mut b).unwrap();
@@ -41,33 +32,76 @@ fn dec<F: PrimeField>(v: &F) -> String {
     v.into_repr().to_string()
 }
 
-fn field_entry<F: PrimeField>(label: &str, v: &F) -> String {
-    format!(
-        "{{\"label\":\"{}\",\"value\":\"{}\",\"canonical_hex\":\"{}\"}}",
-        label,
-        dec(v),
-        ser_compressed(v),
-    )
+/// One field-element fixture: its value and its canonical (compressed) bytes.
+#[derive(Serialize)]
+struct FieldEntry {
+    label: String,
+    value: String,
+    canonical_hex: String,
 }
 
-fn point_entry(label: &str, p: &Affine) -> String {
-    // x/y as standalone Fq canonical bytes (32B LE each) — the raw coords the
-    // zk_dtypes 64B `x‖y` affine encoding is built from on the Python side.
-    let (x_hex, y_hex) = if p.is_zero() {
-        (hex(&[0u8; 32]), hex(&[0u8; 32]))
-    } else {
-        (ser_compressed(&p.x), ser_compressed(&p.y))
-    };
-    format!(
-        "{{\"label\":\"{}\",\"infinity\":{},\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\",\
-         \"canonical_hex\":\"{}\",\"uncompressed_hex\":\"{}\"}}",
-        label,
-        p.is_zero(),
-        x_hex,
-        y_hex,
-        ser_compressed(p),
-        ser_uncompressed(p),
-    )
+fn field_entry<F: PrimeField>(label: &str, v: &F) -> FieldEntry {
+    FieldEntry {
+        label: label.to_string(),
+        value: dec(v),
+        canonical_hex: ser_hex(v),
+    }
+}
+
+#[derive(Serialize)]
+struct Fields {
+    fq: Vec<FieldEntry>,
+    fr: Vec<FieldEntry>,
+}
+
+/// One point fixture. `coords` is flattened so `x_le_hex`/`y_le_hex` land
+/// between `infinity` and `canonical_hex`, matching the fixture's key order.
+#[derive(Serialize)]
+struct PointEntry {
+    label: String,
+    infinity: bool,
+    #[serde(flatten)]
+    coords: PointJson,
+    canonical_hex: String,
+    uncompressed_hex: String,
+}
+
+fn point_entry(label: &str, p: &Affine) -> PointEntry {
+    PointEntry {
+        label: label.to_string(),
+        infinity: p.is_zero(),
+        // x/y as standalone Fq canonical bytes (32B LE each) — the raw coords the
+        // zk_dtypes 64B `x‖y` affine encoding is built from on the Python side.
+        coords: PointJson::from_affine(p),
+        canonical_hex: ser_hex(p),
+        uncompressed_hex: ser_uncompressed(p),
+    }
+}
+
+/// One Pedersen commit case: the (optional) randomizer and the resulting commitment.
+#[derive(Serialize)]
+struct PedersenCase {
+    randomizer: Option<String>,
+    result_canonical_hex: String,
+}
+
+#[derive(Serialize)]
+struct Pedersen {
+    n: usize,
+    generators: Vec<PointJson>,
+    hiding: PointJson,
+    elems: Vec<String>,
+    cases: Vec<PedersenCase>,
+}
+
+#[derive(Serialize)]
+struct SubstrateFixture {
+    note: String,
+    fq_modulus_minus_one: String,
+    fr_modulus_minus_one: String,
+    fields: Fields,
+    points: Vec<PointEntry>,
+    pedersen: Pedersen,
 }
 
 fn main() {
@@ -90,8 +124,8 @@ fn main() {
         ("modulus_minus_one".into(), -Fr::one()),
     ];
 
-    let fq_json: Vec<String> = fq_vals.iter().map(|(l, v)| field_entry(l, v)).collect();
-    let fr_json: Vec<String> = fr_vals.iter().map(|(l, v)| field_entry(l, v)).collect();
+    let fq_json: Vec<FieldEntry> = fq_vals.iter().map(|(l, v)| field_entry(l, v)).collect();
+    let fr_json: Vec<FieldEntry> = fr_vals.iter().map(|(l, v)| field_entry(l, v)).collect();
 
     // Point fixtures: generator, identity, 2G, 12345G (+ a sum to exercise add).
     let points = vec![
@@ -108,15 +142,6 @@ fn main() {
     // Pedersen commit fixture: the real `PedersenCommitment::{setup,trim,commit}`
     // path the prover drives, dumped so Python can replay the same generators
     // and byte-match the result of a CPU MSM reduction (no-hiding + hiding).
-    let coords_json = |p: &Affine| -> String {
-        let (x, y) = if p.is_zero() {
-            (hex(&[0u8; 32]), hex(&[0u8; 32]))
-        } else {
-            (ser_compressed(&p.x), ser_compressed(&p.y))
-        };
-        format!("{{\"x_le_hex\":\"{}\",\"y_le_hex\":\"{}\"}}", x, y)
-    };
-
     let n = 8usize;
     let pp = PedersenCommitment::<Affine>::setup(n);
     let ck = PedersenCommitment::<Affine>::trim(&pp, n);
@@ -137,36 +162,33 @@ fn main() {
     let result_hiding =
         PedersenCommitment::<Affine>::commit(&ck, &elems, Some(Fr::from(randomizer)));
 
-    let gens_json: Vec<String> = generators[..elems.len()]
-        .iter()
-        .map(coords_json)
-        .collect();
-    let elems_json: Vec<String> = elem_vals.iter().map(|v| format!("\"{}\"", v)).collect();
-    let pedersen_json = format!(
-        "{{\"n\":{},\"generators\":[{}],\"hiding\":{},\"elems\":[{}],\
-         \"cases\":[{{\"randomizer\":null,\"result_canonical_hex\":\"{}\"}},\
-         {{\"randomizer\":\"{}\",\"result_canonical_hex\":\"{}\"}}]}}",
+    let pedersen = Pedersen {
         n,
-        gens_json.join(","),
-        coords_json(&hiding),
-        elems_json.join(","),
-        ser_compressed(&result_plain),
-        randomizer,
-        ser_compressed(&result_hiding),
-    );
+        generators: fixture_json::point_list(&generators[..elems.len()]),
+        hiding: PointJson::from_affine(&hiding),
+        elems: elem_vals.iter().map(|v| v.to_string()).collect(),
+        cases: vec![
+            PedersenCase {
+                randomizer: None,
+                result_canonical_hex: ser_hex(&result_plain),
+            },
+            PedersenCase {
+                randomizer: Some(randomizer.to_string()),
+                result_canonical_hex: ser_hex(&result_hiding),
+            },
+        ],
+    };
 
-    let fq_modulus = dec(&(-Fq::one())); // p-1; p = that + 1
-    let fr_modulus = dec(&(-Fr::one()));
-
-    println!("{{");
-    println!("  \"note\": \"arkworks ark_pallas CanonicalSerialize fixtures\",");
-    println!("  \"fq_modulus_minus_one\": \"{}\",", fq_modulus);
-    println!("  \"fr_modulus_minus_one\": \"{}\",", fr_modulus);
-    println!("  \"fields\": {{");
-    println!("    \"fq\": [{}],", fq_json.join(","));
-    println!("    \"fr\": [{}]", fr_json.join(","));
-    println!("  }},");
-    println!("  \"points\": [{}],", points.join(","));
-    println!("  \"pedersen\": {}", pedersen_json);
-    println!("}}");
+    let fixture = SubstrateFixture {
+        note: "arkworks ark_pallas CanonicalSerialize fixtures".to_string(),
+        fq_modulus_minus_one: dec(&(-Fq::one())), // p-1; p = that + 1
+        fr_modulus_minus_one: dec(&(-Fr::one())),
+        fields: Fields {
+            fq: fq_json,
+            fr: fr_json,
+        },
+        points,
+        pedersen,
+    };
+    println!("{}", serde_json::to_string_pretty(&fixture).unwrap());
 }
