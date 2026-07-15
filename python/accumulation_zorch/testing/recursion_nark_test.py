@@ -9,7 +9,7 @@ real `R1CSNark::prove` emits, confirming the frx NARK core scales from the toy
 circuit to the recursion circuit.
 
 The dense `M·z` is infeasible here (`rows × vars` ≈ 471M entries ≈ 15 GB), so
-`prove_no_zk` reduces `M·z` **on-device** from the sparse COO
+`prove_no_zk` reduces `M·z` **on-device** from the sparse CSR
 (`field.sparse_matvec`) and commits with one `lax.msm` — the export-shaped trace.
 
 The fixture is large (~17 MB) so it is generated **off-tree**, not committed, and
@@ -70,8 +70,9 @@ class RecursionNarkTest(absltest.TestCase):
 
     def test_recursion_nark_no_zk_fused_proof_matches_arkworks(self) -> None:
         """The fused on-device variant at recursion scale: `prove_no_zk` reduces
-        `M·z` **in-trace** via `field.sparse_matvec` (`segment_sum` over the ~140K
-        sparse nonzeros) instead of host-side, and commits with `lax.msm`. This is the
+        `M·z` **in-trace** via `field.sparse_matvec` (a scatter-free CSR prefix sum
+        over the ~140K sparse nonzeros) instead of host-side, and commits with
+        `lax.msm`. This is the
         Slice-3 criterion — the export-shaped no-zk NARK core byte-matches the golden
         at the real ~22.5K-constraint scale, so the GPU export (next) reproduces the
         crate's `R1CSNark::prove`."""

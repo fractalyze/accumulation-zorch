@@ -4,14 +4,15 @@ StableHLO ``.mlirbc`` — the Vesta half-step.
 The whole no-zk NARK prove (three sparse ``M·z`` reduces + three ``lax.msm``
 commitments) is one ``@frx.jit`` core (``nark.build_no_zk_core``) that takes the
 committer key (``bases``) as its sole affine argument and closes over the circuit
-— the sparse-COO matrices and ``z = input ‖ witness``, baked as constants. This
+— the sparse-CSR matrices and ``z = input ‖ witness``, baked as constants. This
 lowers that core to one module: the single PJRT call the GPU byte-match runs
 against ``recursion_step_proves_on_vesta``.
 
 Unlike the toy AS export (``export_prove.py``, which densifies), the recursion
-circuit's ``M·z`` is reduced on-device from the **sparse** COO
-(``field.sparse_matvec`` → ``stablehlo.scatter``): densifying it (``rows × vars``
-≈ 471M ≈ 15 GB) is infeasible. The fixture is the off-tree Slice-2 recursion dump.
+circuit's ``M·z`` is reduced on-device from the **sparse** matrix
+(``field.sparse_matvec``, a scatter-free CSR prefix sum): densifying it
+(``rows × vars`` ≈ 471M ≈ 15 GB) is infeasible. The fixture is the off-tree
+Slice-2 recursion dump.
 
 Run under Bazel (CPU is enough — lowering needs no GPU):
 

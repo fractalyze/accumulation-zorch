@@ -22,21 +22,31 @@ def matvec(coeffs: frx.Array, z: frx.Array) -> frx.Array:
     return jnp.sum(coeffs * z[jnp.newaxis, :], axis=1)
 
 
-def sparse_matvec(vals: frx.Array, col_idx: frx.Array, row_idx: frx.Array,
+def sparse_matvec(vals: frx.Array, col_idx: frx.Array, indptr: frx.Array,
                   z: frx.Array, num_rows: int) -> frx.Array:
-    """`M·z` over Fr from a sparse matrix in flat COO form — `segment_sum` of the
-    per-nonzero products `vals·z[col_idx]` over their `row_idx` → `(num_rows,)` Fr.
+    """`M·z` over Fr from a sparse matrix in CSR form — the per-nonzero products
+    `vals·z[col_idx]` summed per row via a prefix sum → `(num_rows,)` Fr.
 
-    `vals` is the `(nnz,)` Fr coefficient vector, `col_idx`/`row_idx` the matching
-    `(nnz,)` int column/row indices; `num_rows` is static (the segment count).
+    `vals` is the `(nnz,)` Fr coefficient vector, `col_idx` the matching `(nnz,)`
+    int column indices, and `indptr` the `(num_rows+1,)` row boundaries (row `r`
+    owns `[indptr[r], indptr[r+1])`); `num_rows` is static.
     This is the **on-device** equivalent of `nark.matrix_vec_mul`, the in-trace
     reduction the fused export needs: the recursion-verifier R1CS is ~22.5K×21K
     but ~6 nonzeros/row, so densifying it (`rows × vars` ≈ 15 GB) is infeasible —
-    only the sparse reduce scales. The gather `z[col_idx]` and the scatter-add
-    `segment_sum` (→ `stablehlo.scatter`) both lower over the i256 `fr` dtype in
-    the xla fork. Byte-identical to `matvec` on the densified matrix.
+    only the sparse reduce scales. Byte-identical to `matvec` on the densified
+    matrix.
+
+    A row's sum is a difference of two prefix sums — exact in a field, so this is
+    byte-identical to the `segment_sum` it replaces, and it has no scatter. That
+    matters: `segment_sum` lowers to `stablehlo.scatter`, and since the Pasta
+    backend has no parallel scatter for the i256 `fr` dtype, XLA:GPU expands it to
+    a serial while loop running one element per iteration (~3.2M iterations of
+    1-thread kernels for this circuit — ~9.7x slower end to end, launch-bound).
+    The prefix sum is parallel over the same data.
     """
-    return frx.ops.segment_sum(vals * z[col_idx], row_idx, num_segments=num_rows)
+    prod = vals * z[col_idx]
+    prefix0 = jnp.concatenate([jnp.zeros((1,), dtype=prod.dtype), jnp.cumsum(prod)])
+    return prefix0[indptr[1:]] - prefix0[indptr[:num_rows]]
 
 
 def combine_vectors(vectors: frx.Array, challenges: frx.Array) -> frx.Array:

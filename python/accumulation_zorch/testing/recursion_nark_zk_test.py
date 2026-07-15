@@ -8,8 +8,8 @@ sigma blinders, dumped from the crate's real `R1CSNark::prove`) through the port
 `nark.prove_zk(VESTA, …)` and byte-matches the golden the crate emits.
 
 Three Slice-3 pieces converge here vs the no-zk half-step:
-  * the **on-device sparse M·z** (step: the six z_M / r_M reduces run as
-    `segment_sum`, not densified — the recursion R1CS densified is ~15 GB),
+  * the **on-device sparse M·z** (step: the six z_M / r_M reduces run as a
+    scatter-free CSR prefix sum, not densified — the recursion R1CS densified is ~15 GB),
   * the **Vesta Poseidon constants** (`sponge_vesta_fixtures.json`), feeding the
     gamma sponge over Vesta's base field,
   * the **unforked gamma sponge** (`fork=False`): the standalone half-step's

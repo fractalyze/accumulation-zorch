@@ -18,7 +18,7 @@ The fold runs on **both** cycle directions: forward folds on Vesta (constraint
 field ``ark_vesta::Fq``), reverse on Pallas. ``PROVE_CURVE`` selects the
 direction, which also picks the off-tree fold fixture + the Poseidon sponge
 fixture over that direction's constraint field. The ``M·z`` is reduced on-device
-from the **sparse** COO (densifying the recursion R1CS is ~15 GB).
+from the **sparse** CSR (densifying the recursion R1CS is ~15 GB).
 
 Run under Bazel (CPU is enough — lowering needs no GPU):
 

@@ -79,7 +79,7 @@ class NarkTest(absltest.TestCase):
 
     def test_no_zk_fused_proof_matches_arkworks(self) -> None:
         """The fused on-device variant (`prove_no_zk`) reduces `M·z` in-trace
-        from the sparse COO (`field.sparse_matvec`) instead of host-side, so this is
+        from the sparse CSR (`field.sparse_matvec`) instead of host-side, so this is
         the toy-scale regression that the on-device sparse reduce is byte-correct
         before scaling it to the recursion circuit."""
         for cv, fixture in _CURVES:

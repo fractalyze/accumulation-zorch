@@ -64,23 +64,25 @@ def to_dense(cv: Curve, matrix: Matrix, num_vars: int) -> np.ndarray:
     return dense
 
 
-def to_coo(cv: Curve, matrix: Matrix) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Flatten a sparse `Matrix<Fr>` (rows of `(coeff, var_index)`) to flat COO
-    arrays `(row_idx, col_idx, vals)` — the layout `field.sparse_matvec` reduces
-    on-device (`segment_sum` over the rows). The sparse analog of `to_dense`: it
-    never materializes the `rows × vars` grid, so it scales to the recursion
-    circuit where densifying would be ~15 GB. `vals` is `fr`; the indices are
-    `int32`. Empty / all-zero rows simply emit no entries — `segment_sum`'s
-    `num_segments = len(matrix)` still yields them as zero."""
-    row_idx: list[int] = []
+def to_csr(cv: Curve, matrix: Matrix) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Flatten a sparse `Matrix<Fr>` (rows of `(coeff, var_index)`) to CSR arrays
+    `(indptr, col_idx, vals)` — the layout `field.sparse_matvec` reduces. `indptr`
+    is `(num_rows+1,)`; row `r` owns `col_idx[indptr[r]:indptr[r+1]]`. The sparse
+    analog of `to_dense`: it never materializes the `rows × vars` grid, so it
+    scales to the recursion circuit where densifying would be ~15 GB. `vals` is
+    `fr`; the indices are `int32`. Walking rows in order makes each row's run
+    contiguous and `indptr` monotonic by construction, so the row bounds fall out
+    directly — no COO `row_idx` intermediate. Empty / all-zero rows leave `indptr`
+    flat (an empty span), so their reduce yields zero."""
+    indptr: list[int] = [0]
     col_idx: list[int] = []
     vals: list[int] = []
-    for r, row in enumerate(matrix):
+    for row in matrix:
         for coeff, idx in row:
-            row_idx.append(r)
             col_idx.append(idx)
             vals.append(coeff)
-    return (np.array(row_idx, dtype=np.int32), np.array(col_idx, dtype=np.int32),
+        indptr.append(len(col_idx))
+    return (np.array(indptr, dtype=np.int32), np.array(col_idx, dtype=np.int32),
             np.array(vals, dtype=cv.fr))
 
 
@@ -125,32 +127,34 @@ class NoZkNarkCore(NamedTuple):
     comm_c: frx.Array
 
 
-def _coo_dev(coo: tuple[np.ndarray, np.ndarray, np.ndarray]) -> tuple[frx.Array, frx.Array, frx.Array]:
-    """A host `(row_idx, col_idx, vals)` COO triple → device `jnp` arrays."""
-    row_idx, col_idx, vals = coo
-    return jnp.asarray(row_idx), jnp.asarray(col_idx), jnp.asarray(vals)
+def _csr_dev(csr: tuple[np.ndarray, np.ndarray, np.ndarray]) -> tuple[frx.Array, frx.Array, frx.Array]:
+    """A host `(indptr, col_idx, vals)` CSR triple → device arrays. The row
+    bounds `field.sparse_matvec` needs are already in `indptr` (`to_csr` built
+    them on the host, where the indices are concrete numpy)."""
+    indptr, col_idx, vals = csr
+    return jnp.asarray(indptr), jnp.asarray(col_idx), jnp.asarray(vals)
 
 
-def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: frx.Array,
+def prove_no_zk_core(cv: Curve, csr_a: tuple, csr_b: tuple, csr_c: tuple, z: frx.Array,
                      bases: frx.Array, num_rows: int) -> NoZkNarkCore:
     """On-device no-zk NARK prove: commit `M·z` for M in {a,b,c} with one
-    `lax.msm` each, the `M·z` reduced **in-trace** from the sparse COO
+    `lax.msm` each, the `M·z` reduced **in-trace** from the sparse matrix
     (`field.sparse_matvec`) rather than host-side. Plain (un-decorated) so it
-    inlines into the export's top-level `@frx.jit`. `coo_*` are
-    `(row_idx, col_idx, vals)` device arrays; `z = input ‖ witness` the `(vars,)`
+    inlines into the export's top-level `@frx.jit`. `csr_*` are the
+    `(indptr, col_idx, vals)` CSR device arrays `_csr_dev` builds; `z = input ‖ witness` the `(vars,)`
     Fr vector; `bases` the `(num_rows,)` generators (an affine jit argument — the
     committer key is a runtime input on the export path, and an affine constant
     doesn't lower). No blinders (no-zk), so a commitment is just `Σ (M·z)ᵢ·basesᵢ`."""
-    def commit(coo: tuple) -> frx.Array:
-        row_idx, col_idx, vals = coo
-        return lax.msm(field.sparse_matvec(vals, col_idx, row_idx, z, num_rows), bases)
-    return NoZkNarkCore(commit(coo_a), commit(coo_b), commit(coo_c))
+    def commit(csr: tuple) -> frx.Array:
+        indptr, col_idx, vals = csr
+        return lax.msm(field.sparse_matvec(vals, col_idx, indptr, z, num_rows), bases)
+    return NoZkNarkCore(commit(csr_a), commit(csr_b), commit(csr_c))
 
 
 def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
                      witness: list[int], generators: list[np.ndarray]) -> tuple:
     """Build the fused no-zk NARK core as `(core_fn, bases)`: a single `@frx.jit`
-    closing over the circuit (the sparse COO matrices + `z = input ‖ witness`) with
+    closing over the circuit (the sparse CSR matrices + `z = input ‖ witness`) with
     the committer key `bases` as its **sole runtime argument** — the export-correct
     shape (`core_fn(bases) -> NoZkNarkCore`). Shared by `prove_no_zk` (which
     runs + serializes it) and `export/export_nark.py` (which lowers it to one
@@ -158,11 +162,11 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     rows = len(a)
     z = jnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
     bases = curve.stack_affine(cv, list(generators))
-    coo_a, coo_b, coo_c = (_coo_dev(to_coo(cv, m)) for m in (a, b, c))
+    csr_a, csr_b, csr_c = (_csr_dev(to_csr(cv, m)) for m in (a, b, c))
 
     @frx.jit
     def core_fn(bases: frx.Array) -> NoZkNarkCore:
-        return prove_no_zk_core(cv, coo_a, coo_b, coo_c, z, bases, rows)
+        return prove_no_zk_core(cv, csr_a, csr_b, csr_c, z, bases, rows)
 
     return core_fn, bases
 
@@ -171,7 +175,7 @@ def prove_no_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
                 witness: list[int], generators: list[np.ndarray]) -> bytes:
     """ark `R1CSNark::prove` (no-zk) as a single fused `@frx.jit` trace — the
     standalone no-zk NARK prove. The `M·z` reduce runs **on-device** from the
-    sparse COO (`prove_no_zk_core`), so the whole prove is the trace the GPU
+    sparse CSR (`prove_no_zk_core`), so the whole prove is the trace the GPU
     export lowers; only the committer key (`bases`) is a runtime jit argument, the
     circuit / witness baked in as constants. Materialization + serialization
     (`_serialize_proof`) is the host seam outside the trace. Byte-identical to the
@@ -242,8 +246,8 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
                          witness: list[int], r: list[int], a_blinder: int, b_blinder: int,
                          c_blinder: int, r_a_blinder: int, r_b_blinder: int, r_c_blinder: int,
                          blinder_1: int, blinder_2: int, rt: NarkZkRuntime | None = None) -> tuple:
-    """Field operand prep for the zk NARK prove (no group ops): the sparse COO of
-    each matrix (`row_idx, col_idx, vals`, the layout `field.sparse_matvec`
+    """Field operand prep for the zk NARK prove (no group ops): the sparse CSR of
+    each matrix (`indptr, col_idx, vals`, the layout `field.sparse_matvec`
     reduces), `z` / `z_r` (`z_r = (0…0 ‖ r)`, the witness blinders with a zeroed
     instance part), and the blinder / witness / r fr arrays. Sparse — not dense —
     so the prove exports at recursion scale: densifying the recursion R1CS
@@ -255,20 +259,24 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
     from runtime device arrays rather than being baked from the host lists, so the
     lowered core proves any assignment; otherwise they are host constants (the
     baked half-step / fold path)."""
-    coo_a, coo_b, coo_c = (_coo_dev(to_coo(cv, m)) for m in (a, b, c))
+    csr_a, csr_b, csr_c = (_csr_dev(to_csr(cv, m)) for m in (a, b, c))
     if rt is not None:
-        # The assignment is a runtime input, so `M·z` can't be constant-folded; the
-        # sparse `segment_sum` would survive as an i256 scatter-add the xla GPU
-        # atomic-RMW path can't lower (crashes codegen — same constraint as
-        # `r1cs_nark_as._build_zk_fold_core`). Reduce DENSE instead (constant matrix
-        # · runtime vector → no scatter), as the no-zk general core does. Returns
-        # `(a_dense, b_dense, c_dense)`; densifying the recursion R1CS is ~15 GB, so
-        # the general single-prove is fixture-/moderate-scale (the general prover's target).
+        # The assignment is a runtime input, so the CSR row bounds `sparse_matvec`
+        # needs (a prefix-sum difference) can't be taken over a runtime `col_idx`
+        # gather — the bounds must be host constants. Reduce DENSE instead
+        # (constant matrix · runtime vector), as the no-zk general core does.
+        # Returns `(a_dense, b_dense, c_dense)`; densifying the recursion R1CS is
+        # ~15 GB, so the general single-prove is fixture-/moderate-scale (the
+        # general prover's target). NOTE: the sparse prefix-sum path is now
+        # scatter-free (see `field.sparse_matvec`), so the old reason for
+        # densifying — that a sparse `segment_sum` lowered to an i256 scatter the
+        # GPU couldn't run — no longer holds; whether the general path can also go
+        # sparse is a separate question (it would need runtime-derived row bounds).
         n = rt.r1cs_input.shape[0] + rt.witness.shape[0]
         dense = tuple(jnp.asarray(to_dense(cv, m, n)) for m in (a, b, c))
         z = jnp.concatenate([rt.r1cs_input, rt.witness])
         zr = jnp.concatenate([jnp.zeros_like(rt.r1cs_input), rt.r])
-        return (coo_a, coo_b, coo_c, z, zr, rt.blinders, rt.witness, rt.r, dense)
+        return (csr_a, csr_b, csr_c, z, zr, rt.blinders, rt.witness, rt.r, dense)
     z = jnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
     zr = jnp.asarray(np.array([0] * len(input) + list(r), dtype=cv.fr))
     blinders = jnp.asarray(np.array(
@@ -276,11 +284,11 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
         dtype=cv.fr))
     witness_arr = jnp.asarray(np.array(witness, dtype=cv.fr))
     r_arr = jnp.asarray(np.array(r, dtype=cv.fr))
-    return (coo_a, coo_b, coo_c, z, zr, blinders, witness_arr, r_arr, None)
+    return (csr_a, csr_b, csr_c, z, zr, blinders, witness_arr, r_arr, None)
 
 
 def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[int],
-                      coo_a: tuple, coo_b: tuple, coo_c: tuple, num_rows: int, z: frx.Array,
+                      csr_a: tuple, csr_b: tuple, csr_c: tuple, num_rows: int, z: frx.Array,
                       zr: frx.Array, bases_h: frx.Array, blinders: frx.Array,
                       witness_arr: frx.Array, r_arr: frx.Array, fork: bool = True,
                       input_u8b: frx.Array | None = None,
@@ -288,9 +296,9 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     """The zk NARK prove as on-device compute. **Plain** (un-decorated) so it
     inlines both into `prove_zk`'s own `@frx.jit` and into the AS top-level trace.
 
-    The six `M·z` / `M·z_r` reduces run **in-trace** from the sparse COO
-    (`field.sparse_matvec`, a `segment_sum`) rather than densifying — the
-    recursion R1CS densified is infeasible, so this is what lets the zk prove
+    The six `M·z` / `M·z_r` reduces run **in-trace** from the sparse matrix
+    (`field.sparse_matvec`, a scatter-free CSR prefix sum) rather than densifying —
+    the recursion R1CS densified is infeasible, so this is what lets the zk prove
     export at recursion scale. The DuplexSponge / Poseidon params aren't frx
     pytrees, so the gamma sponge can't cross a `@jit` boundary as an argument — the
     segment instead closes over them (and the host `matrices_hash` / `input`, baked
@@ -303,19 +311,21 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
         return lax.msm(jnp.concatenate([scalars, rand.reshape(1)]), bases_h)
 
     # `dense` (the runtime/general path) reduces `M·v` as a dense matvec (constant
-    # matrix · runtime vector → no GPU scatter); otherwise the sparse COO path (the
-    # baked half-step / fold, where the reduce constant-folds away). See
+    # matrix · runtime vector); otherwise the sparse CSR path (the baked half-step
+    # / fold). The sparse reduce does NOT constant-fold away — all six `M·z` / `M·zr`
+    # survive to the backend; `field.sparse_matvec` keeps them scatter-free so they
+    # lower to a parallel prefix sum rather than a serial per-row loop. See
     # `_prove_zk_field_prep`.
     dm_a, dm_b, dm_c = dense if dense is not None else (None, None, None)
 
-    def reduce(coo: tuple, dense_m: frx.Array | None, vec: frx.Array) -> frx.Array:
+    def reduce(csr: tuple, dense_m: frx.Array | None, vec: frx.Array) -> frx.Array:
         if dense_m is not None:
             return field.matvec(dense_m, vec)
-        row_idx, col_idx, vals = coo
-        return field.sparse_matvec(vals, col_idx, row_idx, vec, num_rows)
+        indptr, col_idx, vals = csr
+        return field.sparse_matvec(vals, col_idx, indptr, vec, num_rows)
 
-    z_a, z_b, z_c = reduce(coo_a, dm_a, z), reduce(coo_b, dm_b, z), reduce(coo_c, dm_c, z)
-    r_a, r_b, r_c = reduce(coo_a, dm_a, zr), reduce(coo_b, dm_b, zr), reduce(coo_c, dm_c, zr)
+    z_a, z_b, z_c = reduce(csr_a, dm_a, z), reduce(csr_b, dm_b, z), reduce(csr_c, dm_c, z)
+    r_a, r_b, r_c = reduce(csr_a, dm_a, zr), reduce(csr_b, dm_b, zr), reduce(csr_c, dm_c, zr)
     comm_a, comm_b, comm_c = commit(z_a, blinders[0]), commit(z_b, blinders[1]), commit(z_c, blinders[2])
     comm_r_a, comm_r_b, comm_r_c = commit(r_a, blinders[3]), commit(r_b, blinders[4]), commit(r_c, blinders[5])
     comm_1 = commit(z_a * r_b + z_b * r_a, blinders[6])
@@ -347,11 +357,11 @@ def prove_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
     `rt` (the general prover) lifts the assignment + randomness to runtime device arrays so
     one lowered core proves any prove; omitting it bakes them as host constants
     (the standalone half-step / fold path)."""
-    coo_a, coo_b, coo_c, z, zr, blinders, witness_arr, r_arr, dense = _prove_zk_field_prep(
+    csr_a, csr_b, csr_c, z, zr, blinders, witness_arr, r_arr, dense = _prove_zk_field_prep(
         cv, a, b, c, input, witness, r, a_blinder, b_blinder, c_blinder, r_a_blinder,
         r_b_blinder, r_c_blinder, blinder_1, blinder_2, rt=rt)
     input_u8b = rt.input_u8b if rt is not None else None
-    return _prove_zk_segment(cv, params, matrices_hash, input, coo_a, coo_b, coo_c, len(a),
+    return _prove_zk_segment(cv, params, matrices_hash, input, csr_a, csr_b, csr_c, len(a),
                              z, zr, bases_h, blinders, witness_arr, r_arr, fork,
                              input_u8b=input_u8b, dense=dense)
 
@@ -362,7 +372,7 @@ def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
                   c_blinder: int, r_a_blinder: int, r_b_blinder: int, r_c_blinder: int,
                   blinder_1: int, blinder_2: int, fork: bool = True) -> tuple:
     """Build the fused zk NARK core as `(core_fn, bases_h)`: a single `@frx.jit`
-    closing over the circuit + the prover's sampled randomness (the COO matrices,
+    closing over the circuit + the prover's sampled randomness (the CSR matrices,
     `z`/`z_r`, the blinders — baked as constants) with the committer key + hiding
     base (`bases_h`) as its **sole runtime argument** — the export-correct shape
     (`core_fn(bases_h) -> NarkZkCore`). Shared by `prove_zk` (runs + materializes)
