@@ -1,0 +1,143 @@
+name: Fold perf
+
+# The recursion IVC fold is the one number nothing else guards. The GPU
+# byte-match tests assert *bytes*, not time, and they are `#[ignore]` +
+# hardware-gated; the CPU tiers never touch the fused core. That gap is why the
+# `0.0.5.dev` → `0.10.dev` toolchain move took the fold from a 1.42× GPU win to a
+# 6.7× loss without anything going red — across a whole line migration, with the
+# README still advertising the old number (#54).
+#
+# This job closes the gap: when a toolchain pin moves, the fold gets timed and a
+# regression fails loudly.
+#
+# Deliberately not on every PR — one run is ~15 min (a ~6 min GPU compile plus 21
+# warm folds), and the fold only moves when the toolchain under it moves. It
+# fires on exactly the files whose bump caused #54, plus weekly and on demand.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - requirements.in
+      - requirements_lock_3_11.txt
+      - MODULE.bazel
+      - MODULE.bazel.lock
+      - Cargo.toml
+      - Cargo.lock
+      - bench/bench.sh
+      - .github/workflows/fold-perf.yml
+  pull_request:
+    paths:
+      - requirements.in
+      - requirements_lock_3_11.txt
+      - MODULE.bazel
+      - MODULE.bazel.lock
+      - Cargo.toml
+      - Cargo.lock
+      - bench/bench.sh
+      - .github/workflows/fold-perf.yml
+  schedule:
+    # Weekly, so a regression that arrives through a moving upstream pin (rather
+    # than a file in this repo) still surfaces within a week.
+    - cron: "0 17 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  # Never two folds on the box at once: a co-tenant benchmark inflates the timing
+  # and the plugin's BFC wants ~23.5 GB, so a neighbour OOMs the run outright.
+  group: fold-perf
+  cancel-in-progress: false
+
+jobs:
+  fold:
+    name: Recursion IVC fold (GPU timing)
+    # The bench box: an idle GPU is part of the measurement, not a nicety.
+    runs-on: [self-hosted, bench]
+    timeout-minutes: 45
+    env:
+      # Ceiling for the warm GPU fold median.
+      #
+      # ⚠️ 20 000 ms is NOT the healthy value — it is parked just above the #54
+      # regression so this gate can land green while that bug is open. Healthy is
+      # ~1 712 ms (the `0.0.5.dev` line, still reproducible to 0.1 ms). As soon as
+      # #54 lands, drop this to ~2 500 ms; at that value this gate would have
+      # caught #54 the moment it was introduced.
+      FOLD_GPU_CEILING_MS: "20000"
+    steps:
+      - name: Check out accumulation-zorch
+        uses: actions/checkout@v4
+        with:
+          path: accumulation-zorch
+
+      # Same pinned oracle as the `rust` job in ci.yml: the fold fixture dumper is
+      # a dev-dependency test, so `ark-accumulation = { path = "../accumulation" }`
+      # must sit next to this checkout.
+      - name: Check out the arkworks accumulation oracle (dev-dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: arkworks-rs/accumulation
+          ref: 4a680af486a061927e2e46f3d7bf8830a96752b7
+          path: accumulation
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: accumulation-zorch
+
+      # Mirrors README → Setup → "GPU byte-match tier": versions come from
+      # requirements.in so the plugin can't drift from what Bazel lowers with.
+      # That drift is exactly what this job is here to catch, so it must not be
+      # papered over with a floating install.
+      - name: Install the GPU plugin stack (versions from requirements.in)
+        working-directory: accumulation-zorch
+        run: |
+          set -euo pipefail
+          JAX_VER=$(grep '^jax==' requirements.in | cut -d= -f3)
+          ZK_VER=$(grep '^zk-dtypes==' requirements.in | cut -d= -f3)
+          echo "jax=$JAX_VER zk-dtypes=$ZK_VER"
+          uv venv --python 3.11 .venv
+          uv pip install --python .venv --index-strategy unsafe-best-match \
+            --index-url https://fractalyze.github.io/pypi/simple/ \
+            --extra-index-url https://pypi.org/simple/ \
+            "jax==$JAX_VER" "jaxlib==$JAX_VER" \
+            "jax-cuda12-pjrt==$JAX_VER" "jax-cuda12-plugin==$JAX_VER" \
+            "zk-dtypes==$ZK_VER" numpy absl-py
+
+      - name: Fold bench
+        working-directory: accumulation-zorch
+        env:
+          RUSTFLAGS: "--cap-lints=warn"
+          CARGO_NET_RETRY: "5"
+        run: |
+          set -euo pipefail
+          export XLA_PJRT_PLUGIN="$PWD/.venv/lib/python3.11/site-packages/jax_plugins/xla_cuda12/xla_cuda_plugin.so"
+          export ARTIFACTS_DIR="$(mktemp -d)"
+          # bench.sh fold = arkworks CPU timing → fixture dump → bazel lowering →
+          # warm GPU median. It `require`s each timing, so a silently-failed step
+          # cannot reach the ceiling check as a stale number.
+          bench/bench.sh fold 2>&1 | tee fold.log
+
+      - name: Check the ceiling
+        working-directory: accumulation-zorch
+        run: |
+          set -euo pipefail
+          # bench.sh prints: "→ CPU <n> ms  GPU <n> ms  <n>×"
+          gpu_ms=$(sed -n 's/.*GPU \([0-9]\+\) ms.*/\1/p' fold.log | tail -1)
+          cpu_ms=$(sed -n 's/.*CPU \([0-9]\+\) ms.*/\1/p' fold.log | tail -1)
+          if [ -z "$gpu_ms" ]; then
+            echo "::error::could not parse a GPU fold timing out of bench.sh output"
+            exit 1
+          fi
+          {
+            echo "| metric | value |"
+            echo "| --- | ---: |"
+            echo "| CPU arkworks | ${cpu_ms:-?} ms |"
+            echo "| GPU fused (warm median) | ${gpu_ms} ms |"
+            echo "| ceiling | ${FOLD_GPU_CEILING_MS} ms |"
+            echo "| healthy reference (0.0.5 line, #54) | 1712 ms |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "fold GPU ${gpu_ms} ms (ceiling ${FOLD_GPU_CEILING_MS} ms, healthy ~1712 ms)"
+          if [ "$gpu_ms" -gt "$FOLD_GPU_CEILING_MS" ]; then
+            echo "::error::fold GPU ${gpu_ms} ms exceeds the ${FOLD_GPU_CEILING_MS} ms ceiling — a toolchain pin in this diff likely regressed the fused core (cf. #54)"
+            exit 1
+          fi
