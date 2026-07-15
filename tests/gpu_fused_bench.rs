@@ -1,4 +1,4 @@
-//! Scale benchmark for the fused jax-exported prove core: warm GPU run time of
+//! Scale benchmark for the fused frx-exported prove core: warm GPU run time of
 //! `fused::run_fused` (one PJRT call) at a configurable circuit size, with a
 //! byte-match-at-scale correctness gate against the fixture golden. Pairs with
 //! the CPU `[bench]` timing the `dump_as_zk` example prints (the arkworks AS

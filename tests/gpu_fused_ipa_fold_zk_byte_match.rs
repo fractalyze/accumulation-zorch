@@ -79,7 +79,7 @@ where
 #[test]
 #[ignore = "needs XLA_PJRT_PLUGIN + artifacts/ipa_fold_zk_{pallas,vesta}.mlirbc + a GPU"]
 fn gpu_fused_ipa_fold_zk_byte_match() {
-    println!("fused jax-exported zk IPA-PC accumulation FOLD open GPU byte-match (hiding, Pallas + Vesta):");
+    println!("fused frx-exported zk IPA-PC accumulation FOLD open GPU byte-match (hiding, Pallas + Vesta):");
     println!("  [pallas]");
     check_curve::<Pallas>("ipa_as_fold_zk_fixtures.json", "ipa_fold_zk_pallas.mlirbc");
     println!("  [vesta]");

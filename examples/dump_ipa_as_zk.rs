@@ -1,4 +1,4 @@
-//! IPA-PC accumulation `prove` **zk/hiding** fixtures for the jax port, over
+//! IPA-PC accumulation `prove` **zk/hiding** fixtures for the frx port, over
 //! either Pasta cycle curve — the zk twin of `dump_ipa_as.rs`.
 //!
 //! Drives the unmodified arkworks `AtomicASForInnerProductArgPC::prove` with

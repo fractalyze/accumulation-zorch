@@ -1,4 +1,4 @@
-//! HP-AS prove (zk) fixtures for the jax port.
+//! HP-AS prove (zk) fixtures for the frx port.
 //!
 //! Drives the crate's real `ASForHadamardProducts::prove` with `make_zk = true`
 //! over a single hiding HP input (so the prover adds the zero placeholder input,

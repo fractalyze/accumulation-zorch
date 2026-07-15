@@ -1,4 +1,4 @@
-//! R1CS-NARK-AS prove (zk) end-to-end fixtures for the jax port, over either
+//! R1CS-NARK-AS prove (zk) end-to-end fixtures for the frx port, over either
 //! Pasta cycle curve (Pallas or Vesta) — the zk acceptance criterion. Mirrors
 //! `oracle.rs`'s `prove_byte_identical_to_arkworks_zk` flow (seeds {0, 42},
 //! num_inputs=5, num_constraints=10) so the golden bytes are the oracle's.
@@ -17,7 +17,7 @@
 //! `ASForR1CSNark::decide` is run on the produced accumulator and asserted to
 //! accept, so the fixture is emitted only for an accumulator arkworks decides
 //! `true`. The zk decider recomputes the hiding commitments `comm_{a,b,c} =
-//! commit(M·z, σ_*)` (the size-`n` MSMs the jax decide port reproduces) and
+//! commit(M·z, σ_*)` (the size-`n` MSMs the frx decide port reproduces) and
 //! accepts iff they equal the accumulator's stored commitments — which live in
 //! `acc_instance_hex` — so no extra golden is dumped beyond the `decide` flag.
 //!
@@ -228,7 +228,7 @@ where
     );
 
     // The decider oracle: arkworks recomputes the hiding commitments and accepts
-    // iff they equal the accumulator's stored commitments. The jax zk decide
+    // iff they equal the accumulator's stored commitments. The frx zk decide
     // port reproduces this; the fixture is valid only if arkworks accepts.
     let decided = AS::<P>::decide(&dk, accumulator.as_ref(), None::<Sponge<P>>).unwrap();
     assert!(decided, "arkworks decider must accept the produced zk accumulator (seed {})", seed);

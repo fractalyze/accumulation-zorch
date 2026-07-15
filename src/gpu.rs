@@ -11,7 +11,7 @@
 //! tags its inputs via these consts.
 //!
 //! (The per-MSM `GpuBackend` strategy — one `lax.msm` dispatch per Pedersen
-//! commitment — was retired once the fused jax-exported core became
+//! commitment — was retired once the fused frx-exported core became
 //! the sole GPU prove path; the CPU faithful-copy prover stays as the arkworks
 //! oracle + fixture generator.)
 

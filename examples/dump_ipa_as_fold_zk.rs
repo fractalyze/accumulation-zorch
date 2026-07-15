@@ -1,4 +1,4 @@
-//! IPA-PC accumulation **fold** (zk/hiding) fixtures for the jax port: one input
+//! IPA-PC accumulation **fold** (zk/hiding) fixtures for the frx port: one input
 //! folded INTO a prior *hiding* accumulator (`old_accumulators = [acc_prev]`), over
 //! either Pasta cycle curve. The fold twin of `dump_ipa_as_zk.rs`, and the zk twin
 //! of `dump_ipa_as_fold.rs`.
@@ -13,7 +13,7 @@
 //!
 //! The new wrinkle over the no-zk fold: `acc_prev` is hiding, so the fold's
 //! succinct check on it is the **zk** path (folding the hiding seed with `svk.s`
-//! and the proof's `hiding_comm`/`rand`), while the new input stays no-zk. The jax
+//! and the proof's `hiding_comm`/`rand`), while the new input stays no-zk. The frx
 //! port mirrors this: no-zk succinct check for the input, zk succinct check for the
 //! prior accumulator, then the same `combine_zk` + hiding `IpaPC::open`.
 //!

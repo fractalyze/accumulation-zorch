@@ -32,11 +32,11 @@ _TESTS = [
     "ipa_seam_zk_test",
     "ipa_test",
     "ipa_zk_test",
-    "sponge_frx_test",
     "nark_test",
     "nark_zk_test",
     "recursion_nark_test",
     "recursion_nark_zk_test",
+    "sponge_frx_test",
     "sponge_test",
     "substrate_test",
 ]

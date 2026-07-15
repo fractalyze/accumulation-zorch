@@ -1,4 +1,4 @@
-//! NARK prove (no-zk) fixtures for the jax port, over either
+//! NARK prove (no-zk) fixtures for the frx port, over either
 //! Pasta cycle curve (Pallas or Vesta).
 //!
 //! Drives the crate's real `R1CSNark::prove` (no-zk) over a fixed `DummyCircuit`

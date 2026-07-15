@@ -91,7 +91,7 @@ class AbsorbTest(absltest.TestCase):
             self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"point_absorb {case['label']}")
             print(f"  point absorb ({case['label']}) OK")
 
-    def test_point_to_field_array_jax_identity_matches_arkworks(self) -> None:
+    def test_point_to_field_array_frx_identity_matches_arkworks(self) -> None:
         """The in-jit device packing of the identity (infinity) point matches the
         arkworks `[0, 1, 1]` field-element golden — the jit twin of
         `test_identity_point_packs_as_0_1_1`. Non-identity / batched packing is

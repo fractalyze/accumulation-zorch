@@ -1,4 +1,4 @@
-//! End-to-end GPU byte-match for the **general** fused jax-exported zk prove core:
+//! End-to-end GPU byte-match for the **general** fused frx-exported zk prove core:
 //! the whole zk `ASForR1CSNark` prove run as **one** PJRT call
 //! (`crate::fused::run_fused`) must serialize byte-for-byte to the golden
 //! `acc.instance ‖ acc.witness ‖ proof` arkworks produces — the same target the
@@ -75,7 +75,7 @@ fn gpu_fused_prove_byte_match() {
 
     // --- Phase B: compile the ONE general core once, run it per seed (each fed its
     // own witness/randomness), and byte-match per component.
-    println!("general fused jax-exported prove core GPU byte-match (one core × seeds):");
+    println!("general fused frx-exported prove core GPU byte-match (one core × seeds):");
     let mlirbc = std::fs::read(artifacts.join("prove_zk_general.mlirbc"))
         .unwrap_or_else(|e| panic!("read prove_zk_general.mlirbc: {}", e));
     let exe = fused::load_fused(&mlirbc);

@@ -1,4 +1,4 @@
-//! NARK/AS Poseidon Fiat-Shamir sponge fixtures for the jax port,
+//! NARK/AS Poseidon Fiat-Shamir sponge fixtures for the frx port,
 //! over either Pasta cycle curve (Pallas or Vesta).
 //!
 //! Emits the default ark-sponge `PoseidonSponge<CF>` round constants (the 117

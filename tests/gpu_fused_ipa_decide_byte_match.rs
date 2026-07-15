@@ -7,7 +7,7 @@
 //! `ipa_as_zk{,_vesta}_fixtures.json` (zk) each hold the IPA committer-key
 //! `generators`, the accumulator's `final_comm_key` (the golden decider output),
 //! and `decider_coeffs` — the dense `compute_coeffs(succinct_check(accumulator))`
-//! the arkworks oracle emits, tied to the jax port by `testing/ipa_as_test.py`
+//! the arkworks oracle emits, tied to the frx port by `testing/ipa_as_test.py`
 //! (no-zk) / `testing/ipa_as_zk_test.py` (zk). The decider accepts iff
 //! `MSM(generators, decider_coeffs) == final_comm_key`; this exercises that MSM on
 //! the GPU. `export/export_ipa.py` lowers one general
@@ -75,7 +75,7 @@ where
 #[test]
 #[ignore = "needs XLA_PJRT_PLUGIN + artifacts/ipa_decider_msm_{pallas,vesta}.mlirbc + a GPU"]
 fn gpu_fused_ipa_decide_byte_match() {
-    println!("fused jax-exported IPA-PC accumulation DECIDER MSM GPU byte-match (no-zk + zk, Pallas + Vesta):");
+    println!("fused frx-exported IPA-PC accumulation DECIDER MSM GPU byte-match (no-zk + zk, Pallas + Vesta):");
     println!("  [pallas, no-zk]");
     check_curve::<Pallas>("ipa_as_fixtures.json", "ipa_decider_msm_pallas.mlirbc");
     println!("  [vesta, no-zk]");

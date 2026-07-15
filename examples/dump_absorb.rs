@@ -1,4 +1,4 @@
-//! Absorbable + fork + NARK gamma-challenge fixtures for the jax port.
+//! Absorbable + fork + NARK gamma-challenge fixtures for the frx port.
 //!
 //! Reconstructs, with the *public* ark-sponge / ark_pallas API (the same way
 //! `dump_sponge.rs` reconstructs the reference sponge), the field-element
