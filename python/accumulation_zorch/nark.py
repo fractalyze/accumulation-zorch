@@ -8,10 +8,10 @@ import hashlib
 import struct
 from typing import Any, NamedTuple
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
-from jax import lax
+from frx import lax
 
 from zorch.hash.duplex_sponge import DuplexSponge
 
@@ -120,28 +120,28 @@ class NoZkNarkCore(NamedTuple):
     arrays — the un-materialized form the fused export lowers. The no-zk
     `blinded_witness` is the raw witness (no `gamma·r`), so it is baked into
     serialization host-side and needn't ride on-device."""
-    comm_a: jax.Array
-    comm_b: jax.Array
-    comm_c: jax.Array
+    comm_a: frx.Array
+    comm_b: frx.Array
+    comm_c: frx.Array
 
 
-def _coo_dev(coo: tuple[np.ndarray, np.ndarray, np.ndarray]) -> tuple[jax.Array, jax.Array, jax.Array]:
+def _coo_dev(coo: tuple[np.ndarray, np.ndarray, np.ndarray]) -> tuple[frx.Array, frx.Array, frx.Array]:
     """A host `(row_idx, col_idx, vals)` COO triple → device `jnp` arrays."""
     row_idx, col_idx, vals = coo
     return jnp.asarray(row_idx), jnp.asarray(col_idx), jnp.asarray(vals)
 
 
-def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: jax.Array,
-                     bases: jax.Array, num_rows: int) -> NoZkNarkCore:
+def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: frx.Array,
+                     bases: frx.Array, num_rows: int) -> NoZkNarkCore:
     """On-device no-zk NARK prove: commit `M·z` for M in {a,b,c} with one
     `lax.msm` each, the `M·z` reduced **in-trace** from the sparse COO
     (`field.sparse_matvec`) rather than host-side. Plain (un-decorated) so it
-    inlines into the export's top-level `@jax.jit`. `coo_*` are
+    inlines into the export's top-level `@frx.jit`. `coo_*` are
     `(row_idx, col_idx, vals)` device arrays; `z = input ‖ witness` the `(vars,)`
     Fr vector; `bases` the `(num_rows,)` generators (an affine jit argument — the
     committer key is a runtime input on the export path, and an affine constant
     doesn't lower). No blinders (no-zk), so a commitment is just `Σ (M·z)ᵢ·basesᵢ`."""
-    def commit(coo: tuple) -> jax.Array:
+    def commit(coo: tuple) -> frx.Array:
         row_idx, col_idx, vals = coo
         return lax.msm(field.sparse_matvec(vals, col_idx, row_idx, z, num_rows), bases)
     return NoZkNarkCore(commit(coo_a), commit(coo_b), commit(coo_c))
@@ -149,7 +149,7 @@ def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: jax
 
 def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
                      witness: list[int], generators: list[np.ndarray]) -> tuple:
-    """Build the fused no-zk NARK core as `(core_fn, bases)`: a single `@jax.jit`
+    """Build the fused no-zk NARK core as `(core_fn, bases)`: a single `@frx.jit`
     closing over the circuit (the sparse COO matrices + `z = input ‖ witness`) with
     the committer key `bases` as its **sole runtime argument** — the export-correct
     shape (`core_fn(bases) -> NoZkNarkCore`). Shared by `prove_no_zk` (which
@@ -160,8 +160,8 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     bases = curve.stack_affine(cv, list(generators))
     coo_a, coo_b, coo_c = (_coo_dev(to_coo(cv, m)) for m in (a, b, c))
 
-    @jax.jit
-    def core_fn(bases: jax.Array) -> NoZkNarkCore:
+    @frx.jit
+    def core_fn(bases: frx.Array) -> NoZkNarkCore:
         return prove_no_zk_core(cv, coo_a, coo_b, coo_c, z, bases, rows)
 
     return core_fn, bases
@@ -169,7 +169,7 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
 
 def prove_no_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
                 witness: list[int], generators: list[np.ndarray]) -> bytes:
-    """ark `R1CSNark::prove` (no-zk) as a single fused `@jax.jit` trace — the
+    """ark `R1CSNark::prove` (no-zk) as a single fused `@frx.jit` trace — the
     standalone no-zk NARK prove. The `M·z` reduce runs **on-device** from the
     sparse COO (`prove_no_zk_core`), so the whole prove is the trace the GPU
     export lowers; only the committer key (`bases`) is a runtime jit argument, the
@@ -203,22 +203,22 @@ class NarkZkProof(NamedTuple):
 
 
 class NarkZkCore(NamedTuple):
-    """`prove_zk`'s outputs as on-device jax arrays — the un-materialized form of
+    """`prove_zk`'s outputs as on-device frx arrays — the un-materialized form of
     `NarkZkProof`. The R1CS-NARK-AS path threads these straight on (no host hop)
     so the whole zk prove stays one trace; `prove_zk` materializes them for the
     standalone NARK proof. Each commitment is a single affine point array."""
-    comm_a: jax.Array
-    comm_b: jax.Array
-    comm_c: jax.Array
-    comm_r_a: jax.Array
-    comm_r_b: jax.Array
-    comm_r_c: jax.Array
-    comm_1: jax.Array
-    comm_2: jax.Array
-    blinded_witness: jax.Array  # (witness_len,) Fr
-    sigma_abc: jax.Array        # (3,) Fr
-    sigma_o: jax.Array          # () Fr
-    gamma: jax.Array            # (1,) Fr
+    comm_a: frx.Array
+    comm_b: frx.Array
+    comm_c: frx.Array
+    comm_r_a: frx.Array
+    comm_r_b: frx.Array
+    comm_r_c: frx.Array
+    comm_1: frx.Array
+    comm_2: frx.Array
+    blinded_witness: frx.Array  # (witness_len,) Fr
+    sigma_abc: frx.Array        # (3,) Fr
+    sigma_o: frx.Array          # () Fr
+    gamma: frx.Array            # (1,) Fr
 
 
 class NarkZkRuntime(NamedTuple):
@@ -229,13 +229,13 @@ class NarkZkRuntime(NamedTuple):
     fq array). When `prove_zk_core` receives this it bakes nothing — one lowered
     core proves any (witness, randomness). `input_u8b` is pre-encoded by the
     consumer because the in-trace `fr→u8` rechunk the gamma sponge needs is
-    mis-lowered by the zkx GPU plugin (see `absorbable.point_to_field_array_jax`).
+    mis-lowered by the xla GPU plugin (see `absorbable.point_to_field_array_frx`).
     Omitting it (the half-step / fold) keeps the host-baked path."""
-    r1cs_input: jax.Array  # (input_len,) fr
-    witness: jax.Array     # (witness_len,) fr
-    r: jax.Array           # (witness_len,) fr — the NARK witness blinders
-    blinders: jax.Array    # (8,) fr — [a, b, c, r_a, r_b, r_c, 1, 2]
-    input_u8b: jax.Array   # (·,) fq — u8_batch(r1cs_input) for the gamma sponge
+    r1cs_input: frx.Array  # (input_len,) fr
+    witness: frx.Array     # (witness_len,) fr
+    r: frx.Array           # (witness_len,) fr — the NARK witness blinders
+    blinders: frx.Array    # (8,) fr — [a, b, c, r_a, r_b, r_c, 1, 2]
+    input_u8b: frx.Array   # (·,) fq — u8_batch(r1cs_input) for the gamma sponge
 
 
 def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
@@ -258,7 +258,7 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
     coo_a, coo_b, coo_c = (_coo_dev(to_coo(cv, m)) for m in (a, b, c))
     if rt is not None:
         # The assignment is a runtime input, so `M·z` can't be constant-folded; the
-        # sparse `segment_sum` would survive as an i256 scatter-add the zkx GPU
+        # sparse `segment_sum` would survive as an i256 scatter-add the xla GPU
         # atomic-RMW path can't lower (crashes codegen — same constraint as
         # `r1cs_nark_as._build_zk_fold_core`). Reduce DENSE instead (constant matrix
         # · runtime vector → no scatter), as the no-zk general core does. Returns
@@ -280,18 +280,18 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
 
 
 def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[int],
-                      coo_a: tuple, coo_b: tuple, coo_c: tuple, num_rows: int, z: jax.Array,
-                      zr: jax.Array, bases_h: jax.Array, blinders: jax.Array,
-                      witness_arr: jax.Array, r_arr: jax.Array, fork: bool = True,
-                      input_u8b: jax.Array | None = None,
+                      coo_a: tuple, coo_b: tuple, coo_c: tuple, num_rows: int, z: frx.Array,
+                      zr: frx.Array, bases_h: frx.Array, blinders: frx.Array,
+                      witness_arr: frx.Array, r_arr: frx.Array, fork: bool = True,
+                      input_u8b: frx.Array | None = None,
                       dense: tuple | None = None) -> NarkZkCore:
     """The zk NARK prove as on-device compute. **Plain** (un-decorated) so it
-    inlines both into `prove_zk`'s own `@jax.jit` and into the AS top-level trace.
+    inlines both into `prove_zk`'s own `@frx.jit` and into the AS top-level trace.
 
     The six `M·z` / `M·z_r` reduces run **in-trace** from the sparse COO
     (`field.sparse_matvec`, a `segment_sum`) rather than densifying — the
     recursion R1CS densified is infeasible, so this is what lets the zk prove
-    export at recursion scale. The DuplexSponge / Poseidon params aren't jax
+    export at recursion scale. The DuplexSponge / Poseidon params aren't frx
     pytrees, so the gamma sponge can't cross a `@jit` boundary as an argument — the
     segment instead closes over them (and the host `matrices_hash` / `input`, baked
     in as constants) and builds the sponge in-trace. A commitment is
@@ -299,7 +299,7 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     `blinders` is `[a, b, c, r_a, r_b, r_c, 1, 2]`. The eight commitments, the gamma
     challenge (its `FirstRoundMessage` point absorb), and the gamma-blinded
     responses are all one trace."""
-    def commit(scalars: jax.Array, rand: jax.Array) -> jax.Array:
+    def commit(scalars: frx.Array, rand: frx.Array) -> frx.Array:
         return lax.msm(jnp.concatenate([scalars, rand.reshape(1)]), bases_h)
 
     # `dense` (the runtime/general path) reduces `M·v` as a dense matvec (constant
@@ -308,7 +308,7 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     # `_prove_zk_field_prep`.
     dm_a, dm_b, dm_c = dense if dense is not None else (None, None, None)
 
-    def reduce(coo: tuple, dense_m: jax.Array | None, vec: jax.Array) -> jax.Array:
+    def reduce(coo: tuple, dense_m: frx.Array | None, vec: frx.Array) -> frx.Array:
         if dense_m is not None:
             return field.matvec(dense_m, vec)
         row_idx, col_idx, vals = coo
@@ -334,15 +334,15 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
 
 
 def prove_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witness: list[int],
-                  bases_h: jax.Array, params: Any, matrices_hash: bytes, r: list[int],
+                  bases_h: frx.Array, params: Any, matrices_hash: bytes, r: list[int],
                   a_blinder: int, b_blinder: int, c_blinder: int, r_a_blinder: int,
                   r_b_blinder: int, r_c_blinder: int, blinder_1: int, blinder_2: int,
                   fork: bool = True, rt: NarkZkRuntime | None = None) -> NarkZkCore:
-    """zk NARK prove returning on-device jax arrays (`NarkZkCore`) — the AS path's
+    """zk NARK prove returning on-device frx arrays (`NarkZkCore`) — the AS path's
     entry point, so the NARK commitments / gamma / responses thread into the rest
     of the prove without a host hop. `bases_h` is the pre-stacked generators +
     hiding base (an affine jit argument). Plain so it inlines into the AS
-    top-level `@jax.jit`; `prove_zk` is the materializing standalone wrapper.
+    top-level `@frx.jit`; `prove_zk` is the materializing standalone wrapper.
 
     `rt` (the general prover) lifts the assignment + randomness to runtime device arrays so
     one lowered core proves any prove; omitting it bakes them as host constants
@@ -361,7 +361,7 @@ def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
                   matrices_hash: bytes, r: list[int], a_blinder: int, b_blinder: int,
                   c_blinder: int, r_a_blinder: int, r_b_blinder: int, r_c_blinder: int,
                   blinder_1: int, blinder_2: int, fork: bool = True) -> tuple:
-    """Build the fused zk NARK core as `(core_fn, bases_h)`: a single `@jax.jit`
+    """Build the fused zk NARK core as `(core_fn, bases_h)`: a single `@frx.jit`
     closing over the circuit + the prover's sampled randomness (the COO matrices,
     `z`/`z_r`, the blinders — baked as constants) with the committer key + hiding
     base (`bases_h`) as its **sole runtime argument** — the export-correct shape
@@ -372,8 +372,8 @@ def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
     rows = len(a)
     bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
 
-    @jax.jit
-    def core_fn(bases_h: jax.Array) -> NarkZkCore:
+    @frx.jit
+    def core_fn(bases_h: frx.Array) -> NarkZkCore:
         return prove_zk_core(cv, a, b, c, input, witness, bases_h, params, matrices_hash, r,
                              a_blinder, b_blinder, c_blinder, r_a_blinder, r_b_blinder,
                              r_c_blinder, blinder_1, blinder_2, fork)
@@ -392,7 +392,7 @@ def prove_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witne
     Blinds the first-round commitments (`comm_M = commit(M·z, blinder_M)`),
     commits the sigma-protocol cross terms (`comm_r_M`, `comm_1`, `comm_2`),
     derives `gamma`, and forms the blinded witness `w + gamma·r` and the response
-    sigmas. The device compute (`prove_zk_core`) is one fused `@jax.jit` trace
+    sigmas. The device compute (`prove_zk_core`) is one fused `@frx.jit` trace
     closing over the host sponge constants, with the committer key (`bases_h`) as
     its affine argument; materialization (`np.asarray` to host `fr` arrays) is the
     serialize seam. See `prove_zk_core` for the un-materialized (AS-threaded)
@@ -430,7 +430,7 @@ def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
 
 
 def _gamma_pre_sponge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list[int],
-                      fork: bool = True, input_u8b: jax.Array | None = None) -> DuplexSponge:
+                      fork: bool = True, input_u8b: frx.Array | None = None) -> DuplexSponge:
     """The gamma sponge through the host byte-absorbs — optionally fork with the
     NARK protocol name, absorb the 32-byte matrices hash, then the scalar `inputs`
     (each 32B canonical LE, as one `Vec<u8>` Absorbable). This is the constant
@@ -444,7 +444,7 @@ def _gamma_pre_sponge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list
 
     `input_u8b` (the general prover) is the `inputs`' `u8_batch`
     field-element packing supplied as a runtime input and absorbed directly — the
-    in-trace `fr→u8` rechunk the zkx GPU plugin mis-lowers is done consumer-side.
+    in-trace `fr→u8` rechunk the xla GPU plugin mis-lowers is done consumer-side.
     Byte-identical to the host pack: `absorb_bytes` is exactly `sp.absorb(
     u8_batch_field_array(input_bytes))`. Omitting it packs the bytes host-side."""
     sp = sponge.new_sponge(params)
@@ -457,20 +457,20 @@ def _gamma_pre_sponge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list
     return absorbable.absorb_bytes(cv, sp, input_bytes)
 
 
-def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
-                  randomness: jax.Array | None) -> jax.Array:
+def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: frx.Array,
+                  randomness: frx.Array | None) -> frx.Array:
     """Absorb the `FirstRoundMessage` (comm packs ++ `Option` flag ++ randomness
     packs) into the pre-sponge and squeeze gamma. `comms` / `randomness` are
     pre-stacked `(N,)` affine arrays (`stack_affine` for host points, `jnp.stack`
     for the in-jit `lax.msm` outputs); `randomness` is None on the no-zk path. The
     point packing runs in-jit. Plain so it inlines into the `@jit`
     prove. Returns the `(1,)` truncated-128 fr challenge."""
-    parts = [absorbable.point_to_field_array_jax(cv, comms),
+    parts = [absorbable.point_to_field_array_frx(cv, comms),
              jnp.asarray(absorbable.option_flag(cv, randomness is not None))]
     if randomness is not None:
-        parts.append(absorbable.point_to_field_array_jax(cv, randomness))
+        parts.append(absorbable.point_to_field_array_frx(cv, randomness))
     sp = pre_sponge.absorb(jnp.concatenate(parts))
-    _, ch = sponge.squeeze_challenges_jax(sp, 1, _CHALLENGE_BITS, cv)
+    _, ch = sponge.squeeze_challenges_frx(sp, 1, _CHALLENGE_BITS, cv)
     return ch
 
 

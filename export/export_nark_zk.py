@@ -3,7 +3,7 @@
 
 The whole zk NARK prove (six sparse ``M·z`` / ``M·z_r`` reduces, eight ``lax.msm``
 blinded commitments, the in-trace gamma sponge, and the gamma-blinded responses)
-is one ``@jax.jit`` core (``nark.build_zk_core``) that takes the committer key +
+is one ``@frx.jit`` core (``nark.build_zk_core``) that takes the committer key +
 hiding base (``bases_h``) as its sole affine argument and closes over the circuit
 and the prover's sampled randomness (the ``r`` blinders + 8 sigma blinders), baked
 as constants. This lowers that core to one module: the single PJRT call the GPU

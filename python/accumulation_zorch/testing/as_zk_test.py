@@ -1,6 +1,6 @@
 """Slice-6c byte-match: the zk R1CS-NARK-AS prove vs arkworks — end-to-end.
 
-The zk acceptance criterion for the jax prover port. Replays the full cross-prover
+The zk acceptance criterion for the frx prover port. Replays the full cross-prover
 randomness (NARK + AS + HP) dumped from the crate's real `ASForR1CSNark::prove`
 (make_zk) — `examples/dump_as_zk.rs`, seeded identically to `src/oracle.rs`'s
 `prove_byte_identical_to_arkworks_zk` target — and asserts the ported zk prover

@@ -52,7 +52,7 @@ jobs:
     # The byte-match tests build + run under Bazel. `bazel test //python/...`
     # runs every absltest byte-match case in parallel (each sandboxed), so wall
     # time is the slowest test, not the sum — no manual sharding. zorch (the
-    # IPA-PC prover/verifier + Poseidon sponge) and the zkx Pasta jax fork come
+    # IPA-PC prover/verifier + Poseidon sponge) and the frx Pasta build come
     # from Bazel — the git_override pin + the pip hub — so there is no venv /
     # PYTHONPATH. recursion_fold_zk_test is tagged `manual` and excluded (the full
     # recursion-circuit IVC fold is minutes-slow on CPU; its fold math is covered

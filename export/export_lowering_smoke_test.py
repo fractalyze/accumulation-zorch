@@ -1,6 +1,6 @@
 """CPU lowering smoke test for the //export lowerers.
 
-Each exporter lowers a jax prove/decide core to StableHLO bytecode that the Rust
+Each exporter lowers a frx prove/decide core to StableHLO bytecode that the Rust
 GPU byte-match / bench consumes. A dangling reference inside an exporter (e.g. a
 helper removed from a leaf module -- what broke ``export_ipa``'s ``curve.msm``)
 is a runtime attribute access: invisible to ``bazel build``, ``py_compile``, and

@@ -31,10 +31,10 @@ multiple addends), where they get a real byte-output anchor.
 import functools
 from typing import Any, NamedTuple
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
-from jax import lax
+from frx import lax
 
 from . import absorbable, curve, field, hp_as, nark, sponge
 from .curve import Curve, FrVec
@@ -61,8 +61,8 @@ def _serialize_acc_instance(cv: Curve, r1cs_input: FrVec, comm_a: np.ndarray,
     return out
 
 
-def _serialize_acc_witness(cv: Curve, blinded_witness: FrVec, hp_a_vec: jax.Array,
-                           hp_b_vec: jax.Array) -> bytes:
+def _serialize_acc_witness(cv: Curve, blinded_witness: FrVec, hp_a_vec: frx.Array,
+                           hp_b_vec: frx.Array) -> bytes:
     """`AccumulatorWitness` CanonicalSerialize: `r1cs_blinded_witness`
     (`Vec<Fr>`), the HP witness (`a_vec`, `b_vec`, then `None` hiding flag), then
     the `None` accumulator-witness-randomness flag (both `None` for no-zk)."""
@@ -82,7 +82,7 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
                       r1cs_input: list[int], blinded_witness: list[int],
                       generators: list[np.ndarray], supported_num_elems: int,
                       params: Any) -> tuple:
-    """Build the fused no-zk prove `@jax.jit` core (the **general**
+    """Build the fused no-zk prove `@frx.jit` core (the **general**
     prover). The circuit (`a`/`b`/`c`, baked) is fixed, but the **assignment is a
     runtime input**: the core takes `(bases, r1cs_input, blinded_witness)` with the
     latter two device `fr` arrays — not captured constants — so one lowered core
@@ -99,8 +99,8 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
     r1cs_input_arr = jnp.asarray(np.array(list(r1cs_input), dtype=cv.fr))
     blinded_witness_arr = jnp.asarray(np.array(list(blinded_witness), dtype=cv.fr))
 
-    @jax.jit
-    def _core(bases: jax.Array, r1cs_input: jax.Array, blinded_witness: jax.Array) -> tuple:
+    @frx.jit
+    def _core(bases: frx.Array, r1cs_input: frx.Array, blinded_witness: frx.Array) -> tuple:
         z = jnp.concatenate([r1cs_input, blinded_witness])
         a_arr = field.matvec(a_dense, z)
         b_arr = field.matvec(b_dense, z)
@@ -139,8 +139,8 @@ def prove_no_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_
 # --- zk path ---------------------------------------------------------------
 
 def _serialize_acc_witness_zk(cv: Curve, blinded_witness: FrVec,
-                              hp_witness: tuple[jax.Array, jax.Array, jax.Array],
-                              sigmas: jax.Array) -> bytes:
+                              hp_witness: tuple[frx.Array, frx.Array, frx.Array],
+                              sigmas: frx.Array) -> bytes:
     """`AccumulatorWitness` CanonicalSerialize (zk): `r1cs_blinded_witness`, the
     HP witness (with `Some` randomness), then `Some` accumulator-witness
     randomness (`sigma_a, sigma_b, sigma_c`). `sigmas` is a length-3 `cv.fr`
@@ -162,7 +162,7 @@ def _serialize_proof_zk(cv: Curve, low: list[np.ndarray], high: list[np.ndarray]
     return out
 
 
-def _acc_instance_fe(cv: Curve, r1cs_input_bytes: bytes, comms: jax.Array) -> jax.Array:
+def _acc_instance_fe(cv: Curve, r1cs_input_bytes: bytes, comms: frx.Array) -> frx.Array:
     """`AccumulatorInstance::to_sponge_field_elements`: the `r1cs_input` bytes, then
     the six SW-affine points `comm_a, comm_b, comm_c` and the `hp_instance`'s
     `comm_1, comm_2, comm_3` — and **no option flag** (unlike the input instance's
@@ -170,14 +170,14 @@ def _acc_instance_fe(cv: Curve, r1cs_input_bytes: bytes, comms: jax.Array) -> ja
     array `[comm_a, comm_b, comm_c, hp_1, hp_2, hp_3]`."""
     return jnp.concatenate([
         jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_input_bytes)),
-        absorbable.point_to_field_array_jax(cv, comms),
+        absorbable.point_to_field_array_frx(cv, comms),
     ])
 
 
-def _beta_challenges_jax(cv: Curve, params: Any, as_matrices_hash: bytes, input_inst_fe: jax.Array,
-                         proof_rand_fe: jax.Array, acc_inst_fe: jax.Array | None = None,
-                         num_challenges: int = 1) -> jax.Array:
-    """`compute_beta_challenges` as jax: fork `AS-FOR-R1CS-NARK-2020`, absorb the
+def _beta_challenges_frx(cv: Curve, params: Any, as_matrices_hash: bytes, input_inst_fe: frx.Array,
+                         proof_rand_fe: frx.Array, acc_inst_fe: frx.Array | None = None,
+                         num_challenges: int = 1) -> frx.Array:
+    """`compute_beta_challenges` as frx: fork `AS-FOR-R1CS-NARK-2020`, absorb the
     matrices hash, the prior **accumulator** instances, the input instances, and the
     proof randomness (the `compute_beta_challenges` absorb order), then squeeze
     `num_challenges = num_addends − 1` truncated-128 challenges → `beta =
@@ -195,7 +195,7 @@ def _beta_challenges_jax(cv: Curve, params: Any, as_matrices_hash: bytes, input_
         sp = sp.absorb(acc_inst_fe)
     sp = sp.absorb(input_inst_fe)
     sp = sp.absorb(proof_rand_fe)
-    sp, ch = sponge.squeeze_challenges_jax(sp, num_challenges, _CHALLENGE_BITS, cv)
+    sp, ch = sponge.squeeze_challenges_frx(sp, num_challenges, _CHALLENGE_BITS, cv)
     return jnp.concatenate([fr_one, ch])
 
 
@@ -205,15 +205,15 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
                    nark_r: list[int], nark_blinders: tuple[int, int, int, int, int, int, int, int],
                    as_r1cs_r_input: int, as_r1cs_r_witness: int, as_rand: tuple[int, int, int],
                    hp_hiding_a: int, hp_hiding_b: int, hp_rand: tuple[int, int, int]) -> tuple:
-    """Build the fused zk-prove `@jax.jit` core (the **general** prover).
-    The circuit (`a`/`b`/`c`, the matrices hashes, `params` — none are jax pytrees)
+    """Build the fused zk-prove `@frx.jit` core (the **general** prover).
+    The circuit (`a`/`b`/`c`, the matrices hashes, `params` — none are frx pytrees)
     stays baked, but the **assignment + all replayed randomness are runtime inputs**:
     the core takes `(bases_h, id_pt)` plus the assignment / NARK / AS / HP randomness
     as device arrays, so one lowered core proves any prove (not a single baked
     fixture). The two `u8_batch` Fiat-Shamir absorbs (`r1cs_input` for gamma + the
     AS instance, `r1cs_r_input` for the AS proof randomness) are fed **pre-encoded**
-    as fq runtime arrays — the in-trace `fr→u8` rechunk the zkx GPU plugin mis-lowers
-    is done consumer-side (see `absorbable.point_to_field_array_jax`).
+    as fq runtime arrays — the in-trace `fr→u8` rechunk the xla GPU plugin mis-lowers
+    is done consumer-side (see `absorbable.point_to_field_array_frx`).
 
     The host `r1cs_input` / `witness` / `nark_*` / `as_*` / `hp_*` args supply the
     **example** runtime arrays for lowering (the lowered core is seed-independent);
@@ -240,7 +240,7 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
     n = input_len + witness_len  # z length = the circuit's num_vars (static)
     # Dense matrices for the AS-level `M·v` reduces: the assignment is a runtime
     # input on the general core, so a sparse `segment_sum` would survive as an i256
-    # scatter-add the zkx GPU atomic-RMW path can't lower; a dense matvec (constant
+    # scatter-add the xla GPU atomic-RMW path can't lower; a dense matvec (constant
     # matrix · runtime vector) has no scatter (the no-zk general core's approach).
     a_dense, b_dense, c_dense = (jnp.asarray(nark.to_dense(cv, m, n)) for m in (a, b, c))
     bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
@@ -261,11 +261,11 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
     ex_in_u8b = jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_input_bytes))
     ex_r_in_u8b = jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes))
 
-    @jax.jit
-    def _core(bases_h: jax.Array, id_pt: jax.Array, in_arr: jax.Array, wit_arr: jax.Array,
-              r_arr: jax.Array, blinders_arr: jax.Array, r_in_arr: jax.Array, r_wit_arr: jax.Array,
-              as_rand_arr: jax.Array, hp_rand_arr: jax.Array, in_u8b: jax.Array,
-              r_in_u8b: jax.Array) -> tuple:
+    @frx.jit
+    def _core(bases_h: frx.Array, id_pt: frx.Array, in_arr: frx.Array, wit_arr: frx.Array,
+              r_arr: frx.Array, blinders_arr: frx.Array, r_in_arr: frx.Array, r_wit_arr: frx.Array,
+              as_rand_arr: frx.Array, hp_rand_arr: frx.Array, in_u8b: frx.Array,
+              r_in_u8b: frx.Array) -> tuple:
         fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
         # The assignment + NARK randomness ride in as runtime arrays via `rt`; the
         # host `r1cs_input`/`witness`/`nark_*` args (closed over) are the unused
@@ -275,7 +275,7 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
                                 rt=nark.NarkZkRuntime(in_arr, wit_arr, r_arr, blinders_arr, in_u8b))
         gamma = nk.gamma  # (1,)
 
-        def _mz(dense_m: jax.Array, vec: jax.Array) -> jax.Array:
+        def _mz(dense_m: frx.Array, vec: frx.Array) -> frx.Array:
             """`M·vec` over fr as a dense matvec (constant matrix · runtime vector →
             no GPU scatter), threaded straight into the commitments / HP opening
             with no host round-trip. See the `a_dense` note above for why the
@@ -309,22 +309,22 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
             hp_rand[2], base_sponge=hp_sponge, hp_rand=hp_rand_arr)
 
         # beta challenges (num_addends=2): the as_sponge absorb of the input
-        # instance + proof randomness, packed straight from the jax commitments.
+        # instance + proof randomness, packed straight from the frx commitments.
         # The two `u8_batch` packings (`r1cs_input` / `r1cs_r_input`) are runtime
         # fq inputs (pre-encoded consumer-side, not rechunked in-trace).
         inst_fe = jnp.concatenate([
             in_u8b,
-            absorbable.point_to_field_array_jax(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
+            absorbable.point_to_field_array_frx(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
             jnp.asarray(absorbable.option_flag(cv, True)),
-            absorbable.point_to_field_array_jax(
+            absorbable.point_to_field_array_frx(
                 cv, jnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
         ])
         pr_fe = jnp.concatenate([
             jnp.asarray(absorbable.option_flag(cv, True)),
             r_in_u8b,
-            absorbable.point_to_field_array_jax(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
+            absorbable.point_to_field_array_frx(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
         ])
-        beta = _beta_challenges_jax(cv, params, as_matrices_hash, inst_fe, pr_fe)  # (2,) = [1, c]
+        beta = _beta_challenges_frx(cv, params, as_matrices_hash, inst_fe, pr_fe)  # (2,) = [1, c]
 
         # Fold the input + proof randomness under beta, all on-device.
         combined_input = field.combine_vectors(jnp.stack([in_arr, r_in_arr]), beta)
@@ -352,7 +352,7 @@ def prove_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_inp
              ) -> tuple[bytes, bytes, bytes]:
     """zk `ASForR1CSNark::prove` over a single input, no prior accumulators — the
     zk acceptance criterion. Replays every sampled randomness value (NARK, AS, HP)
-    rather than re-deriving arkworks' RNG. The whole prove is one fused `@jax.jit`
+    rather than re-deriving arkworks' RNG. The whole prove is one fused `@frx.jit`
     core (`_build_zk_core`); materialization (`np.asarray` to host `fr` arrays) is
     the serialize seam below."""
     r1cs_r_input = [as_r1cs_r_input] * len(r1cs_input)
@@ -420,8 +420,8 @@ def decide(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
 
     # HP decide check: product is the element-wise (Hadamard) a_vec ∘ b_vec. This
     # is the host oracle, so it uses a vectorized numpy `fr` multiply (the `fr`
-    # dtype reduces mod r) — host arithmetic, not jax, and vectorized rather than
-    # a per-element scalar multiply (which would dispatch to jax once per element).
+    # dtype reduces mod r) — host arithmetic, not frx, and vectorized rather than
+    # a per-element scalar multiply (which would dispatch to frx once per element).
     product = np.array(acc.hp_a_vec, dtype=cv.fr) * np.array(acc.hp_b_vec, dtype=cv.fr)
     rand_1, rand_2, rand_3 = acc.hp_rand if acc.hp_rand is not None else (None, None, None)
     hp_comm_1 = curve.pedersen_commit(cv, generators[:len(acc.hp_a_vec)], acc.hp_a_vec, hiding, rand_1)
@@ -442,9 +442,9 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
                         acc_r1cs_input: list[int], acc_comms: list[np.ndarray], acc_blinded_witness: list[int],
                         acc_sigma_abc: tuple[int, int, int], acc_hp_a_vec: list[int],
                         acc_hp_b_vec: list[int], acc_hp_rand: tuple[int, int, int]) -> tuple:
-    """Build the fused zk **fold** `@jax.jit` core (closing over the host constants:
+    """Build the fused zk **fold** `@frx.jit` core (closing over the host constants:
     `params`, the matrices hashes, both inputs' fr components, and replayed
-    randomness — none are jax pytrees) plus its three affine arguments
+    randomness — none are frx pytrees) plus its three affine arguments
     `(bases_h, id_pt, acc_comms)`: the committer key `generators[:rows] ‖ hiding`, the
     HP placeholder identity, and the old accumulator's `(6,)` commitments
     `[comm_a, comm_b, comm_c, hp_1, hp_2, hp_3]`. The full IVC fold step
@@ -472,13 +472,13 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     # as constants rather than left as on-device `segment_sum` scatters. The result is
     # identical — a constant either way — but it keeps the scatter out of the GPU
     # trace: at recursion scale XLA's GPU constant-folder leaves the big (~1.1M nnz)
-    # reduces un-folded (it folds them on CPU), and the zkx GPU emitter cannot lower a
+    # reduces un-folded (it folds them on CPU), and the xla GPU emitter cannot lower a
     # surviving i256 `scatter`-add (the atomic-RMW path bitcasts assuming an integer
     # element type), so a leftover reduce crashes codegen. `matrix_vec_mul` is the
     # host sparse reduce (no 15 GB densify). The runtime-vector on-device sparse
     # matvec is still exercised by the standalone NARK half-step; only the fold's
     # constant reduces are pre-baked here.
-    def _host_mz(m: nark.Matrix, inp: list[int], wit: list[int]) -> jax.Array:
+    def _host_mz(m: nark.Matrix, inp: list[int], wit: list[int]) -> frx.Array:
         return jnp.asarray(nark.matrix_vec_mul(cv, m, inp, wit))
 
     # comm_r = commit(M·(r1cs_r_input ‖ r1cs_r_witness)); the AS proof-randomness reduce.
@@ -490,10 +490,10 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     hp_mzr = [_host_mz(m, [0] * input_len, nark_r) for m in (a, b)]
 
     # keep_unused: at num_addends=3 the old accumulator replaces the HP placeholder,
-    # so `id_pt` is dead in the fold trace; without this jax DCE drops it and the
+    # so `id_pt` is dead in the fold trace; without this frx DCE drops it and the
     # lowered core has 2 args, mismatching the consumer's 3 (bases_h, id_pt, acc_comms).
-    @functools.partial(jax.jit, keep_unused=True)
-    def _core(bases_h: jax.Array, id_pt: jax.Array, acc_comms: jax.Array) -> tuple:
+    @functools.partial(frx.jit, keep_unused=True)
+    def _core(bases_h: frx.Array, id_pt: frx.Array, acc_comms: frx.Array) -> tuple:
         fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
         nk = nark.prove_zk_core(cv, a, b, c, r1cs_input, witness, bases_h, params,
                                 nark_matrices_hash, nark_r, *nark_blinders)
@@ -539,17 +539,17 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
         acc_inst_fe = _acc_instance_fe(cv, acc_input_bytes, acc_comms)
         inst_fe = jnp.concatenate([
             jnp.asarray(absorbable.u8_batch_field_array(cv, input_bytes)),
-            absorbable.point_to_field_array_jax(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
+            absorbable.point_to_field_array_frx(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
             jnp.asarray(absorbable.option_flag(cv, True)),
-            absorbable.point_to_field_array_jax(
+            absorbable.point_to_field_array_frx(
                 cv, jnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
         ])
         pr_fe = jnp.concatenate([
             jnp.asarray(absorbable.option_flag(cv, True)),
             jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes)),
-            absorbable.point_to_field_array_jax(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
+            absorbable.point_to_field_array_frx(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
         ])
-        beta = _beta_challenges_jax(
+        beta = _beta_challenges_frx(
             cv, params, as_matrices_hash, inst_fe, pr_fe, acc_inst_fe=acc_inst_fe, num_challenges=2)
 
         # AS-level fold under beta, order [acc, input, proof_randomness].

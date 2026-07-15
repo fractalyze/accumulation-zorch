@@ -34,8 +34,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
 
 from accumulation_zorch import curve, field, nark
@@ -89,9 +89,9 @@ def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix
     test_comm_3`."""
     a_dense, b_dense, c_dense = (jnp.asarray(nark.to_dense(cv, m, num_vars)) for m in (a, b, c))
 
-    @jax.jit
-    def _core(bases_h: jax.Array, z: jax.Array, hp_a: jax.Array, hp_b: jax.Array,
-              rand6: jax.Array) -> tuple:
+    @frx.jit
+    def _core(bases_h: frx.Array, z: frx.Array, hp_a: frx.Array, hp_b: frx.Array,
+              rand6: frx.Array) -> tuple:
         av = field.matvec(a_dense, z)
         bv = field.matvec(b_dense, z)
         cv_vec = field.matvec(c_dense, z)
@@ -145,9 +145,9 @@ def build_decider_bench_core(cv: Curve) -> Any:
     Hadamard `A·z ∘ B·z` (on device). One lowering per size, like ``export_ipa``'s
     bench core."""
 
-    @jax.jit
-    def _core(bases_h: jax.Array, av: jax.Array, bv: jax.Array, cv_vec: jax.Array,
-              rand6: jax.Array) -> tuple:
+    @frx.jit
+    def _core(bases_h: frx.Array, av: frx.Array, bv: frx.Array, cv_vec: frx.Array,
+              rand6: frx.Array) -> tuple:
         product = av * bv
         return (
             curve.commit_hiding(cv, av, rand6[0], bases_h),

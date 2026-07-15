@@ -10,10 +10,10 @@ The zk path (hiding vectors/commitments) is slice 6.
 import struct
 from typing import Any, NamedTuple
 
-import jax
-import jax.numpy as jnp
+import frx
+import frx.numpy as jnp
 import numpy as np
-from jax import lax
+from frx import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, field, sponge
@@ -47,32 +47,32 @@ class HpNoZkCore(NamedTuple):
     instance is the input's own commitments and the openings are its own vectors.
     The transcript (absorb instance + None hiding, squeeze nu) is run for
     faithfulness but does not affect the output."""
-    instance: jax.Array  # (3,) affine
-    a_open: jax.Array    # (L,) fr
-    b_open: jax.Array    # (L,) fr
+    instance: frx.Array  # (3,) affine
+    a_open: frx.Array    # (L,) fr
+    b_open: frx.Array    # (L,) fr
 
 
-def prove_no_zk_core(cv: Curve, real_inst: jax.Array, a_real: jax.Array, b_real: jax.Array,
+def prove_no_zk_core(cv: Curve, real_inst: frx.Array, a_real: frx.Array, b_real: frx.Array,
                      supported_num_elems: int, params: Any,
                      base_sponge: DuplexSponge | None = None) -> HpNoZkCore:
     """make_zk=false HP prove over a single input (no prior accumulators) returning
-    on-device jax — the R1CS-NARK-AS no-zk entry point, so the HP step threads on
+    on-device frx — the R1CS-NARK-AS no-zk entry point, so the HP step threads on
     without a host hop. `real_inst` the `(3,)` input commitments; `a_real`/`b_real`
     the `(L,)` opening vectors. Plain so it inlines into the AS top-level
-    `@jax.jit`."""
+    `@frx.jit`."""
     sp = sponge.new_sponge(params) if base_sponge is None else base_sponge
     sp = absorbable.absorb_u64(cv, sp, supported_num_elems)
-    sp = absorbable.absorb_points_jax(cv, sp, real_inst)
+    sp = absorbable.absorb_points_frx(cv, sp, real_inst)
     sp = absorbable.absorb_none(cv, sp)  # hiding_comms = None
     # num_inputs == 1: mu = [1] (no sponge consumed), the lone
     # t_vec row is the skipped (n-1)-th (no product-poly commitments to absorb), and
     # nu folds the identity — the nu squeeze runs only to mirror the transcript.
-    sp, _nu = squeeze_nu_jax(cv, sp, 1)
+    sp, _nu = squeeze_nu_frx(cv, sp, 1)
     return HpNoZkCore(real_inst, a_real, b_real)
 
 
 def materialize_no_zk(core: HpNoZkCore) -> tuple[
-        Instance, tuple[jax.Array, jax.Array], list[np.ndarray], list[np.ndarray]]:
+        Instance, tuple[frx.Array, frx.Array], list[np.ndarray], list[np.ndarray]]:
     """Materialize an `HpNoZkCore` to the host serialize shape `(instance, (a_open,
     b_open), low, high)` — `low`/`high` are empty for the single-input fold."""
     inst_np = np.asarray(core.instance)
@@ -84,49 +84,49 @@ def materialize_no_zk(core: HpNoZkCore) -> tuple[
 
 
 class HpZkCore(NamedTuple):
-    """`prove_zk`'s outputs as on-device jax arrays — the un-materialized form the
+    """`prove_zk`'s outputs as on-device frx arrays — the un-materialized form the
     R1CS-NARK-AS path threads on so the HP fold stays in the one prove trace.
     `instance` is the combined `(comm_1, comm_2, comm_3)` (3,) affine; `low`/`high`
     the product-poly commitments; `hiding_comms` the `(comm_h1, h2, h3)` (3,);
     `a_open`/`b_open` the `(L,)` openings; `rand` the `(3,)` `(rand_1, rand_2,
     rand_3)`."""
-    instance: jax.Array      # (3,) affine
-    a_open: jax.Array        # (L,) fr
-    b_open: jax.Array        # (L,) fr
-    rand: jax.Array          # (3,) fr
-    low: jax.Array           # (n_low,) affine
-    high: jax.Array          # (n_high,) affine
-    hiding_comms: jax.Array  # (3,) affine
+    instance: frx.Array      # (3,) affine
+    a_open: frx.Array        # (L,) fr
+    b_open: frx.Array        # (L,) fr
+    rand: frx.Array          # (3,) fr
+    low: frx.Array           # (n_low,) affine
+    high: frx.Array          # (n_high,) affine
+    hiding_comms: frx.Array  # (3,) affine
 
 
-def squeeze_mu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, jax.Array]:
-    """`squeeze_mu_challenges` (make_zk) as jax: `[1, c_1, …, c_{n-1}, mu_n]` where
+def squeeze_mu_frx(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, frx.Array]:
+    """`squeeze_mu_challenges` (make_zk) as frx: `[1, c_1, …, c_{n-1}, mu_n]` where
     `mu_n = mu[1]·mu[n-1]` (the extra entry that folds the hiding terms). Returns
     the `(n+1,)` fr array."""
     mu = jnp.asarray(np.array([1], dtype=cv.fr))
     if num_inputs > 1:
-        sp, rest = sponge.squeeze_challenges_jax(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
+        sp, rest = sponge.squeeze_challenges_frx(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
         mu = jnp.concatenate([mu, rest])
     mu_n = mu[1] * mu[num_inputs - 1]
     return sp, jnp.concatenate([mu, mu_n.reshape(1)])
 
 
-def squeeze_nu_jax(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, jax.Array]:
-    """`squeeze_nu_challenges` as jax: one truncated-128 `nu` expanded to its
+def squeeze_nu_frx(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, frx.Array]:
+    """`squeeze_nu_challenges` as frx: one truncated-128 `nu` expanded to its
     `2n-1` powers `[nu^0, …, nu^{2n-2}]`."""
-    sp, nu = sponge.squeeze_challenges_jax(sp, 1, _CHALLENGE_BITS, cv)
+    sp, nu = sponge.squeeze_challenges_frx(sp, 1, _CHALLENGE_BITS, cv)
     return sp, field.powers(nu, 2 * num_inputs - 1)
 
 
-def _product_poly_comm_jax(bases: jax.Array, t_vecs: jax.Array,
-                           num_inputs: int) -> tuple[list[jax.Array], list[jax.Array]]:
+def _product_poly_comm_frx(bases: frx.Array, t_vecs: frx.Array,
+                           num_inputs: int) -> tuple[list[frx.Array], list[frx.Array]]:
     """`compute_product_poly_comm` (on-device): commit every
     `t_vec` row except the `(n-1)`-th, split into `low` (`i < n-1`) / `high`
-    (`i > n-1`). `bases` is the pre-stacked generators (no hiding base). Plain jax
+    (`i > n-1`). `bases` is the pre-stacked generators (no hiding base). Plain frx
     (no `np.asarray`) so it inlines into the prove trace. Curve-agnostic — the
     dtype rides on `t_vecs`/`bases`."""
-    low: list[jax.Array] = []
-    high: list[jax.Array] = []
+    low: list[frx.Array] = []
+    high: list[frx.Array] = []
     for i in range(t_vecs.shape[0]):
         if i == num_inputs - 1:
             continue
@@ -151,15 +151,15 @@ def _combine_randomness(cv: Curve, rands: list[int | None], challenges: list[int
     return acc
 
 
-def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h: jax.Array,
-                      id_pt: jax.Array, hiding_a: int, hiding_b: int, hr1: int, hr2: int,
-                      hr3: int, sp: DuplexSponge, real_inst: jax.Array, a_real: jax.Array,
-                      b_real: jax.Array, input_rand: jax.Array, old_inst: jax.Array | None = None,
-                      old_a: jax.Array | None = None, old_b: jax.Array | None = None,
-                      old_rand: jax.Array | None = None,
-                      hp_rand: jax.Array | None = None) -> HpZkCore:
+def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h: frx.Array,
+                      id_pt: frx.Array, hiding_a: int, hiding_b: int, hr1: int, hr2: int,
+                      hr3: int, sp: DuplexSponge, real_inst: frx.Array, a_real: frx.Array,
+                      b_real: frx.Array, input_rand: frx.Array, old_inst: frx.Array | None = None,
+                      old_a: frx.Array | None = None, old_b: frx.Array | None = None,
+                      old_rand: frx.Array | None = None,
+                      hp_rand: frx.Array | None = None) -> HpZkCore:
     """The make_zk HP prove as on-device compute (plain, so it inlines into both
-    `prove_zk`'s `@jax.jit` and the AS top-level trace). Commits the hiding +
+    `prove_zk`'s `@frx.jit` and the AS top-level trace). Commits the hiding +
     product-poly terms, squeezes mu/nu off `sp` (the caller-supplied base sponge),
     and folds the real input together with the **second input** — the IVC fold's
     old accumulator, or the zero placeholder arkworks pads a single input with —
@@ -211,18 +211,18 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     hiding_comms = jnp.stack([comm_h1, comm_h2, comm_h3])  # (3,)
 
     # Transcript: supported size, the input commitments (+ the row-1 commitments),
-    # the hiding commitments — all threaded as jax, no host hop.
+    # the hiding commitments — all threaded as frx, no host hop.
     sp = absorbable.absorb_u64(cv, sp, supported_num_elems)
-    sp = absorbable.absorb_points_jax(cv, sp, jnp.concatenate([real_inst, row1_comms]))
-    sp = absorbable.absorb_option_points_jax(cv, sp, hiding_comms)
+    sp = absorbable.absorb_points_frx(cv, sp, jnp.concatenate([real_inst, row1_comms]))
+    sp = absorbable.absorb_option_points_frx(cv, sp, hiding_comms)
 
-    sp, mu = squeeze_mu_jax(cv, sp, num_inputs)  # (3,) = [1, c, mu_n]
+    sp, mu = squeeze_mu_frx(cv, sp, num_inputs)  # (3,) = [1, c, mu_n]
     t_vecs = field.t_vecs_zk(a, b, mu[:num_inputs], hiding_a_vec, hiding_b_vec,
                               mu[num_inputs].reshape(1), mu[1].reshape(1))
-    low, high = _product_poly_comm_jax(bases, t_vecs, num_inputs)
+    low, high = _product_poly_comm_frx(bases, t_vecs, num_inputs)
 
-    sp = absorbable.absorb_points_jax(cv, sp, jnp.stack(low + high))
-    sp, nu = squeeze_nu_jax(cv, sp, num_inputs)  # (2n-1,) powers of nu
+    sp = absorbable.absorb_points_frx(cv, sp, jnp.stack(low + high))
+    sp, nu = squeeze_nu_frx(cv, sp, num_inputs)  # (2n-1,) powers of nu
 
     combined = mu[:num_inputs] * nu[:num_inputs]  # (n,)
     mu_n = mu[num_inputs:num_inputs + 1]          # (1,)
@@ -257,18 +257,18 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     return HpZkCore(instance, a_open, b_open, rand, jnp.stack(low), jnp.stack(high), hiding_comms)
 
 
-def prove_zk_core(cv: Curve, bases_h: jax.Array, id_pt: jax.Array, real_inst: jax.Array,
-                  a_real: jax.Array, b_real: jax.Array, input_rand: jax.Array,
+def prove_zk_core(cv: Curve, bases_h: frx.Array, id_pt: frx.Array, real_inst: frx.Array,
+                  a_real: frx.Array, b_real: frx.Array, input_rand: frx.Array,
                   supported_num_elems: int, params: Any, hiding_a: int, hiding_b: int,
                   hiding_rand_1: int, hiding_rand_2: int, hiding_rand_3: int,
-                  base_sponge: DuplexSponge | None = None, old_inst: jax.Array | None = None,
-                  old_a: jax.Array | None = None, old_b: jax.Array | None = None,
-                  old_rand: jax.Array | None = None, hp_rand: jax.Array | None = None) -> HpZkCore:
-    """make_zk HP prove returning on-device jax (`HpZkCore`) — the R1CS-NARK-AS
+                  base_sponge: DuplexSponge | None = None, old_inst: frx.Array | None = None,
+                  old_a: frx.Array | None = None, old_b: frx.Array | None = None,
+                  old_rand: frx.Array | None = None, hp_rand: frx.Array | None = None) -> HpZkCore:
+    """make_zk HP prove returning on-device frx (`HpZkCore`) — the R1CS-NARK-AS
     entry point, so the HP fold threads on without a host hop. `bases_h` the
     pre-stacked generators + hiding base; `id_pt` the `(1,)` identity; `real_inst`
     the `(3,)` input commitments; `a_real` / `b_real` the `(L,)` opening vectors;
-    `input_rand` the `(3,)` input randomness — all jax (off `lax.msm` / `M·z`).
+    `input_rand` the `(3,)` input randomness — all frx (off `lax.msm` / `M·z`).
     `base_sponge` is the AS `AS-FOR-HP-2020` fork (a fresh sponge if omitted).
 
     `old_inst` / `old_a` / `old_b` / `old_rand` are the IVC fold's old-accumulator
@@ -277,7 +277,7 @@ def prove_zk_core(cv: Curve, bases_h: jax.Array, id_pt: jax.Array, real_inst: ja
     zero placeholder. `hp_rand` (the general prover) lifts the hiding values + randomizers
     to a runtime `(5,)` fr array so one lowered core proves any HP randomness;
     omitting it bakes them as host constants. Plain so it inlines into the AS
-    top-level `@jax.jit`."""
+    top-level `@frx.jit`."""
     sp = sponge.new_sponge(params) if base_sponge is None else base_sponge
     return _prove_zk_segment(cv, params, supported_num_elems, bases_h, id_pt, hiding_a,
                              hiding_b, hiding_rand_1, hiding_rand_2, hiding_rand_3, sp,
@@ -290,7 +290,7 @@ def prove_zk(cv: Curve, generators: list[np.ndarray], hiding: np.ndarray, instan
              input_rands: list[tuple[int, int, int] | None], supported_num_elems: int,
              params: Any, hiding_a: int, hiding_b: int, hiding_rand_1: int, hiding_rand_2: int,
              hiding_rand_3: int, base_sponge: DuplexSponge | None = None) -> tuple[
-                 Instance, tuple[jax.Array, jax.Array, jax.Array],
+                 Instance, tuple[frx.Array, frx.Array, frx.Array],
                  list[np.ndarray], list[np.ndarray], Instance]:
     """zk HP prove over a single real input (the zero placeholder is added by the
     core, as the make_zk path does), replaying the prover's hiding randomness.
@@ -314,7 +314,7 @@ def prove_zk(cv: Curve, generators: list[np.ndarray], hiding: np.ndarray, instan
 
 
 def materialize_zk(core: HpZkCore) -> tuple[
-        Instance, tuple[jax.Array, jax.Array, jax.Array],
+        Instance, tuple[frx.Array, frx.Array, frx.Array],
         list[np.ndarray], list[np.ndarray], Instance]:
     """Materialize an `HpZkCore` to the host serialize shape `(instance, (a_open,
     b_open, (rand_1, rand_2, rand_3)), low, high, hiding_comms)` — the serialize
@@ -329,7 +329,7 @@ def materialize_zk(core: HpZkCore) -> tuple[
     return instance, witness, low, high, hiding_comms
 
 
-def serialize_witness_zk(cv: Curve, witness: tuple[jax.Array, jax.Array, jax.Array]) -> bytes:
+def serialize_witness_zk(cv: Curve, witness: tuple[frx.Array, frx.Array, frx.Array]) -> bytes:
     """`InputWitness` CanonicalSerialize (zk): `a_vec`, `b_vec`, then `Some`
     randomness (`rand_1, rand_2, rand_3`)."""
     a_vec, b_vec, rands = witness

@@ -2,7 +2,7 @@
 name = "accumulation-zorch"
 version = "0.1.0"
 edition = "2018"
-description = "GPU accumulation prover over the Pasta cycle: the arkworks ark-accumulation native prove path (r1cs_nark_as + hp_as), authored in Python/JAX and run as one fused GPU core, byte-identical to the unmodified arkworks prover."
+description = "GPU accumulation prover over the Pasta cycle: the arkworks ark-accumulation native prove path (r1cs_nark_as + hp_as), authored in Python/FRX and run as one fused GPU core, byte-identical to the unmodified arkworks prover."
 license = "MIT OR Apache-2.0"
 
 # The git deps track the same `accumulation-experimental` branch ark-accumulation
@@ -34,7 +34,7 @@ tracing = { version = "0.1", default-features = false, features = ["attributes"]
 # avoid `cargo update` drift). The Pasta G1/scalar buffer-type tags it does not
 # carry are named locally in `src/gpu.rs`. Optional + behind the `gpu` feature:
 # the byte bridge (`wire`) builds without it; only the `gpu` + `fused` consumer
-# (plus a runtime zkx_gpu plugin) needs it.
+# (plus a runtime xla_gpu plugin) needs it.
 xla-pjrt = { git = "https://github.com/fractalyze/xla-pjrt", rev = "e955dc1", optional = true }
 # In-circuit verifier gadget stack for the recursion step, behind the `recursion`
 # feature. Same arkworks 0.2 line / nonnative rev as the arkworks oracle so the
@@ -68,7 +68,7 @@ parallel = [
     "ark-poly-commit/parallel", "ark-std/parallel", "rayon",
 ]
 # Enables `GpuBackend` (the Pasta GPU MSM prover). At runtime it additionally
-# needs a zkx_gpu plugin carrying the Pasta MSM (`XLA_PJRT_PLUGIN`) and an
+# needs an xla_gpu plugin carrying the Pasta MSM (`XLA_PJRT_PLUGIN`) and an
 # exported `lax.msm` core; compiling the backend needs neither.
 gpu = ["dep:xla-pjrt"]
 # Enables the Pasta-cycle recursion step: the reused arkworks

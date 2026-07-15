@@ -1,4 +1,4 @@
-# Type-checking config for the jax prover port. Run from this `python/` dir: `mypy`.
+# Type-checking config for the frx prover port. Run from this `python/` dir: `mypy`.
 [tool.mypy]
 python_version = "3.11"
 files = ["accumulation_zorch"]
@@ -7,11 +7,11 @@ disallow_incomplete_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 
-# Untyped / statically-unresolvable third parties: the ZKX jax fork is an
-# editable build whose .pyi stubs don't parse (jax.Array collapses to Any);
+# Untyped / statically-unresolvable third parties: frx is an editable build
+# whose .pyi stubs don't parse (frx.Array collapses to Any);
 # zk_dtypes ships no py.typed; zorch is consumed off PYTHONPATH (DuplexSponge /
 # Poseidon), not installed, so mypy can't import it. disallow_untyped_defs still
 # enforces our own annotations regardless.
 [[tool.mypy.overrides]]
-module = ["jax.*", "jaxlib.*", "zk_dtypes.*", "zorch.*"]
+module = ["frx.*", "frxlib.*", "zk_dtypes.*", "zorch.*"]
 ignore_missing_imports = true

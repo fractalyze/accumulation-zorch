@@ -1,7 +1,7 @@
 load("@rules_python//python:defs.bzl", "py_library")
 load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
 
-# The jax port of the accumulation prover. `imports = ["."]` puts this directory
+# The frx port of the accumulation prover. `imports = ["."]` puts this directory
 # (python/) on the import path so the package resolves as `accumulation_zorch`.
 # zorch's IPA-PC prover/verifier + Poseidon sponge arrive as Bazel deps (the
 # git_override pin in MODULE.bazel), replacing the former in-tree vendored copy.
@@ -17,7 +17,7 @@ py_library(
         "@zorch//zorch/hash:duplex_sponge",
         "@zorch//zorch/hash/poseidon",
         "@zorch//zorch/pcs/ipa",
-        requirement("jax"),
+        requirement("frx"),
         requirement("numpy"),
         requirement("zk_dtypes"),
     ],

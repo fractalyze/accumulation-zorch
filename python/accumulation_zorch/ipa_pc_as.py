@@ -32,7 +32,7 @@ The per-input check polynomials and `final_comm_key`s come from
 
 from typing import Any, NamedTuple
 
-import jax.numpy as jnp
+import frx.numpy as jnp
 import numpy as np
 
 from . import absorbable, curve, ipa_challenger, ipa_open, sponge

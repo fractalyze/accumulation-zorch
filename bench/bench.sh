@@ -14,12 +14,12 @@
 # once every point is measured — so `bench/bench.sh prove >table.md` captures a
 # clean table and nothing else.
 #
-# Prereqs are the README "GPU + jax tier": an **idle** NVIDIA GPU, plus the GPU
+# Prereqs are the README "GPU + frx tier": an **idle** NVIDIA GPU, plus the GPU
 # plugin the README Setup exports —
 #
 #   XLA_PJRT_PLUGIN   path to pjrt_c_api_gpu_plugin.so (loaded by the Rust GPU tests)
 #
-# The jax lowering steps run via `bazel run //export:export_*` (zorch + the jax
+# The frx lowering steps run via `bazel run //export:export_*` (zorch + the frx
 # fork come from Bazel, see MODULE.bazel), so no separate venv interpreter is
 # needed here.
 #

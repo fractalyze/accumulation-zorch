@@ -2,7 +2,7 @@
 StableHLO ``.mlirbc`` — the Vesta half-step.
 
 The whole no-zk NARK prove (three sparse ``M·z`` reduces + three ``lax.msm``
-commitments) is one ``@jax.jit`` core (``nark.build_no_zk_core``) that takes the
+commitments) is one ``@frx.jit`` core (``nark.build_no_zk_core``) that takes the
 committer key (``bases``) as its sole affine argument and closes over the circuit
 — the sparse-COO matrices and ``z = input ‖ witness``, baked as constants. This
 lowers that core to one module: the single PJRT call the GPU byte-match runs

@@ -5,11 +5,11 @@ load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
 # asserts the serialized bytes equal the golden arkworks fixtures
 # (//python/testdata:fixtures). `bazel test` forces JAX_PLATFORMS=cpu (.bazelrc);
 # the GPU byte-match is separate (Rust, hardware-gated). All tests share one dep
-# set: the jax port plus the pip runtime.
+# set: the frx port plus the pip runtime.
 _TEST_DEPS = [
     "//python:accumulation_zorch",
     requirement("absl_py"),
-    requirement("jax"),
+    requirement("frx"),
     requirement("numpy"),
     requirement("zk_dtypes"),
 ]
@@ -32,7 +32,7 @@ _TESTS = [
     "ipa_seam_zk_test",
     "ipa_test",
     "ipa_zk_test",
-    "sponge_jax_test",
+    "sponge_frx_test",
     "nark_test",
     "nark_zk_test",
     "recursion_nark_test",

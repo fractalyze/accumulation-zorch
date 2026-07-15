@@ -23,7 +23,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-import jax
+import frx
 import numpy as np
 from absl.testing import absltest
 
@@ -97,11 +97,11 @@ class AbsorbTest(absltest.TestCase):
         `test_identity_point_packs_as_0_1_1`. Non-identity / batched packing is
         covered end-to-end by the fused-core byte-match tests (as_fold_zk, nark)."""
         want = json.loads(_ABSORB.read_text())["identity_to_field_elements_le_hex"]
-        pack = jax.jit(lambda pts: absorbable.point_to_field_array_jax(cv, pts))
+        pack = frx.jit(lambda pts: absorbable.point_to_field_array_frx(cv, pts))
         fes = np.asarray(pack(curve.stack_affine(cv, [cv.g1((0, 0))])))
         got = [fes[i].tobytes().hex() for i in range(fes.shape[0])]
         self.assertEqual(got, want, f"in-jit identity packing: {got} != {want}")
-        print("  point_to_field_array_jax identity packing byte-matches arkworks OK")
+        print("  point_to_field_array_frx identity packing byte-matches arkworks OK")
 
     def test_gamma_challenge_matches_arkworks(self) -> None:
         g = json.loads(_ABSORB.read_text())["gamma"]
