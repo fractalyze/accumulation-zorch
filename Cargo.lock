@@ -22,6 +22,7 @@ dependencies = [
  "blake2",
  "derivative",
  "digest",
+ "fixture-json",
  "rand_chacha",
  "rand_core",
  "rayon",
@@ -480,6 +481,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "fixture-json"
+version = "0.1.0"
+dependencies = [
+ "accumulation-zorch",
+ "ark-ec",
+ "ark-ff",
+ "ark-pallas",
+ "ark-relations",
+ "ark-serialize",
+ "ark-std",
+ "ark-vesta",
+ "blake2",
+ "digest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -850,6 +869,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]

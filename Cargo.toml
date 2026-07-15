@@ -47,6 +47,10 @@ ark-nonnative-field = { git = "https://github.com/arkworks-rs/nonnative", rev = 
 # `r1cs` feature also exposes its in-circuit verifier gadget, reused (not copied)
 # by the recursion step.
 ark-accumulation = { path = "../accumulation", features = ["r1cs-nark-as", "ipa-pc-as", "r1cs"] }
+# The fixture JSON schema + codec, shared by the dumpers (`examples/`) and the
+# GPU byte-match tests (`tests/`) so the encoding has one definition. Dev-only:
+# nothing the crate ships reads or writes fixtures.
+fixture-json = { path = "crates/fixture-json" }
 # Regenerate ark-sponge's default Poseidon round constants in the Python-port
 # fixture dumper (`examples/dump_sponge.rs`): the ARK are drawn from
 # `ChaChaRng::seed_from_u64(123456789)` exactly as `PoseidonSponge::new()` does.
@@ -88,3 +92,8 @@ version = "1"
 optional = true
 
 [workspace]
+# Stated explicitly: Cargo would auto-promote the `fixture-json` path dev-dep to
+# a member since it lives inside the workspace dir, but the implicit rule is easy
+# to misread next to `../accumulation` above, which is a path dep *outside* the
+# dir and so is correctly not a member.
+members = ["crates/fixture-json"]

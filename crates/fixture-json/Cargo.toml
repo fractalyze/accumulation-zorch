@@ -1,0 +1,29 @@
+[package]
+name = "fixture-json"
+version = "0.1.0"
+edition = "2018"
+description = "The golden-fixture JSON codec shared by the arkworks fixture dumpers (examples/) and the GPU byte-match tests (tests/): one schema, one encoding, both directions."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+# The point encoding is `wire::g1_to_bytes` — this crate does not re-derive it.
+# A dev-dependency cycle (this crate -> accumulation-zorch, and back via
+# accumulation-zorch's [dev-dependencies]) is the standard test-support-crate
+# shape and is supported by Cargo.
+accumulation-zorch = { path = "../.." }
+ark-ec = { version = "^0.2.0", default-features = false }
+ark-ff = { version = "^0.2.0", default-features = false }
+ark-relations = { version = "^0.2.0", default-features = false }
+ark-serialize = { version = "^0.2.0", default-features = false, features = ["derive"] }
+# Named so `curve_main!` can expand to fully-qualified paths and the dumpers
+# don't have to import them just to satisfy the macro.
+ark-pallas = { version = "^0.2.0", features = ["curve"] }
+ark-vesta = { version = "^0.2.0" }
+blake2 = { version = "0.9.1", default-features = false }
+digest = { version = "0.9.0", default-features = false }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+ark-std = { version = "^0.2.0", default-features = false }
+serde_json = "1"
