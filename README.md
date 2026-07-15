@@ -32,7 +32,7 @@ the unmodified arkworks prover over the Pasta cycle (Pallas + Vesta):
   commitment, the NARK + HP cores, all three Fiat-Shamir sponges — is one fused
   PJRT call. The prover is MSM-heavy (big Pedersen witness commitments), so the
   GPU win is the **prove** itself (the "Single AS prove" benchmark; the recursion
-  IVC fold is host-bound by design).
+  IVC fold wins by less — accumulation is light by design, deferring verification).
 - **`ipa_pc_as`** — the IPA-PC (Halo / DL-style) accumulation of BCMS20, **prove +
   decide, no-zk and zk**. Here the prover is *field*-heavy (building the degree-`d`
   check polynomial) with only small MSMs; the heavy size-`d` MSM is the
@@ -211,13 +211,12 @@ into a prior accumulator (`num_addends = 3`), at recursion scale (`n = 77 556`):
 
 | operation   | CPU arkworks (release) | GPU fused (1 PJRT call, warm) |   speedup |
 | ----------- | ---------------------: | ----------------------------: | --------: |
-| zk IVC fold |               2 447 ms |                      1 712 ms | **1.43×** |
+| zk IVC fold |               2 481 ms |                      1 715 ms | **1.45×** |
 
 The fold's GPU win is smaller than the single prove's because per-step accumulation
-is **light by design** (it defers verification) and the fold bakes its `M·z` reduces
-host-side — the xla GPU emitter cannot lower the i256 `scatter`-add that survives
-constant-folding at recursion scale, so part of the work stays on CPU
-(Amdahl-capped). Reproduce: `bench/bench.sh fold`.
+is **light by design** — it defers verification to the decider, so proportionally
+less of the step is the MSM-heavy work the GPU wins on. Reproduce:
+`bench/bench.sh fold`.
 
 ### R1CS-NARK — decide
 
