@@ -19,34 +19,32 @@ Three Slice-3 pieces converge here vs the no-zk half-step:
 
 This is the host-side `prove_zk` gate; the fused on-device export is the next slice.
 
-The fixture is large (~147 MB) so it is generated **off-tree**, not committed:
+The fixture is large (~147 MB) so it is generated **off-tree**, not committed, and
+`$ACCUMULATION_ZORCH_ARTIFACTS` must name the directory holding it — see
+`recursion_artifacts.py` for why there is no default. Run on demand:
 
-    ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
+    ACCUMULATION_ZORCH_ARTIFACTS=$PWD/artifacts \
       cargo test --features recursion --test recursion_step dump_recursion_nark_zk
+    ACCUMULATION_ZORCH_ARTIFACTS=$PWD/artifacts \
+      bazel test //python/accumulation_zorch/testing:recursion_nark_zk_test
 
-This test reads it from `$ACCUMULATION_ZORCH_ARTIFACTS` (default `artifacts/`)
-and **skips** when absent — the same on-demand contract as the `#[ignore]` GPU
-gates.
-
-Run under Bazel:
-
-    bazel test //python/accumulation_zorch/testing:recursion_nark_zk_test
+The target is `manual`, so `bazel test //python/...` does not run it: a clean checkout
+has no fixture, and a test that cannot check anything must not report a pass.
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 from absl.testing import absltest
 
+import recursion_artifacts
 from accumulation_zorch import curve, nark, sponge
 
 cv = curve.VESTA  # the forward half-step proves on Vesta
 
-_REPO = Path(__file__).resolve().parents[3]
-_ARTIFACTS = Path(os.environ.get("ACCUMULATION_ZORCH_ARTIFACTS", str(_REPO / "artifacts")))
-_FIXTURE = _ARTIFACTS / "recursion_nark_zk_fixtures.json"
+_FIXTURE = "recursion_nark_zk_fixtures.json"
+_DUMP = "cargo test --features recursion --test recursion_step dump_recursion_nark_zk"
 _SPONGE = Path(__file__).resolve().parents[2] / "testdata" / "sponge_vesta_fixtures.json"
 
 
@@ -67,10 +65,6 @@ def _params() -> Any:
     return sponge.poseidon_params(cv, ark_le)
 
 
-def _load() -> Any:
-    return json.loads(_FIXTURE.read_text())
-
-
 def _prove(d: Any) -> nark.NarkZkProof:
     a, b, c = _matrix(d["a"]), _matrix(d["b"]), _matrix(d["c"])
     return nark.prove_zk(
@@ -89,13 +83,10 @@ def _prove(d: Any) -> nark.NarkZkProof:
 class RecursionNarkZkTest(absltest.TestCase):
     def setUp(self) -> None:
         super().setUp()
-        if not _FIXTURE.exists():
-            self.skipTest(
-                f"no fixture at {_FIXTURE} "
-                "(generate it: cargo test --features recursion --test recursion_step dump_recursion_nark_zk)")
+        self.fixture = recursion_artifacts.fixture(_FIXTURE, _DUMP)
 
     def test_recursion_nark_zk_proof_matches_arkworks(self) -> None:
-        d = _load()
+        d = json.loads(self.fixture.read_text())
         proof = nark.serialize_zk_proof(cv, _prove(d))
         self.assertEqual(proof.hex(), d["proof_hex"], (
             f"[vesta] recursion zk NARK proof diverged "
