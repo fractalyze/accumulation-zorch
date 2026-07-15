@@ -36,13 +36,12 @@ jobs:
         with:
           workspaces: accumulation-zorch
 
-      # Scope to the main package: the `crates/zkx-pjrt` workspace member is the
-      # GPU PJRT shim whose build runs bindgen (needs libclang + a vendored
-      # header), so it is excluded here. With default features the `gpu` feature
-      # and every `#![cfg(feature = "gpu")]` byte-match test stay off, so no
-      # CUDA / PJRT plugin / libclang is needed. `--cap-lints=warn` keeps the
-      # older arkworks oracle's lints from failing the build.
-      - name: Build + test (CPU; GPU shim + GPU tests excluded)
+      # Default features only: the `gpu` feature (which pulls the xla-pjrt git
+      # dep — bindgen + libclang) and every `#![cfg(feature = "gpu")]` byte-match
+      # test stay off, so this CPU job needs no CUDA / PJRT plugin / libclang.
+      # `--cap-lints=warn` keeps the older arkworks oracle's lints from failing
+      # the build.
+      - name: Build + test (CPU; gpu feature + GPU tests off)
         working-directory: accumulation-zorch
         env:
           RUSTFLAGS: "--cap-lints=warn"

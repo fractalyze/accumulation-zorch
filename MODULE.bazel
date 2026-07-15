@@ -1,7 +1,7 @@
 """accumulation-zorch — a GPU accumulation prover over the Pasta curve.
 
 bzlmod module for the Python/JAX byte-match suite. The Rust GPU prover
-(src/fused.rs + the crates/zkx-pjrt bindgen shim) stays on Cargo; only the jax
+(src/fused.rs + the xla-pjrt bindgen shim) stays on Cargo; only the jax
 port and its byte-match tests build under Bazel.
 
 zorch's pcs/ipa IPA-PC prover/verifier and Poseidon sponge are consumed as a

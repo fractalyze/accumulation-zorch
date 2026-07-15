@@ -104,7 +104,7 @@ bazel test //python/...   # the full CPU byte-match suite (JAX_PLATFORMS=cpu, se
 ### GPU byte-match tier (the zkx Pasta GPU plugin)
 
 The GPU byte-match is the Rust side (`cargo test --features gpu`, hardware-gated).
-It needs an NVIDIA GPU (CUDA), `clang`/`libclang` (the `crates/zkx-pjrt` shim
+It needs an NVIDIA GPU (CUDA), `clang`/`libclang` (the `xla-pjrt` shim
 generates its PJRT bindings with `bindgen` at build time), and the zkx Pasta GPU
 PJRT plugin `.so`. Install the plugin from the public Fractalyze index into a venv
 and point `XLA_PJRT_PLUGIN` at it:
