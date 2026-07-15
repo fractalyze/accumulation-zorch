@@ -41,12 +41,39 @@ jobs:
       # test stay off, so this CPU job needs no CUDA / PJRT plugin / libclang.
       # `--cap-lints=warn` keeps the older arkworks oracle's lints from failing
       # the build.
+      #
+      # `--workspace`, not `-p accumulation-zorch`: the latter skips the
+      # `crates/fixture-json` member's own unit tests, which are what pin the
+      # fixture codec's traps (the identity mapping, the sparse-matrix tuple
+      # shape).
       - name: Build + test (CPU; gpu feature + GPU tests off)
         working-directory: accumulation-zorch
         env:
           RUSTFLAGS: "--cap-lints=warn"
           CARGO_NET_RETRY: "5"
-        run: cargo test -p accumulation-zorch --verbose
+        run: cargo test --workspace --verbose
+
+      # The recursion feature is CPU-only — it is the reused arkworks in-circuit
+      # verifier gadget, no GPU seam — but it is off by default, so the job above
+      # compiles tests/recursion_step.rs to nothing and reports a green
+      # `0 passed`. That silently hid `recursion_circuit_satisfiable`, the gate
+      # its own module header calls "CPU gate (no GPU, --features recursion)".
+      #
+      # `--skip dump` excludes the four `dump_recursion_*` tests: they are
+      # fixture generators, not gates, and cost ~74s and ~157 MB of off-tree
+      # output. It is a substring filter, so it also catches a future
+      # `*_dump_*` gate by accident — the cleaner fix is `#[ignore]` on the four
+      # generators (the bench in the same file already uses it), which would fix
+      # the local run too. That is deferred: the generators' documented
+      # invocation is quoted in several docstrings, and `#[ignore]` silently
+      # turns those into a no-op that still exits 0 unless every one gains
+      # `-- --ignored`.
+      - name: Test (CPU recursion gate)
+        working-directory: accumulation-zorch
+        env:
+          RUSTFLAGS: "--cap-lints=warn"
+          CARGO_NET_RETRY: "5"
+        run: cargo test --features recursion --test recursion_step --verbose -- --skip dump
 
   python:
     # The byte-match tests build + run under Bazel. `bazel test //python/...`
