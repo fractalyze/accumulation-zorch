@@ -202,13 +202,24 @@ into a prior accumulator (`num_addends = 3`), at recursion scale (`n = 77 556`):
 
 | operation   | CPU arkworks (release) | GPU fused (1 PJRT call, warm) |   speedup |
 | ----------- | ---------------------: | ----------------------------: | --------: |
-| zk IVC fold |               2 447 ms |                      1 712 ms | **1.43×** |
+| zk IVC fold |               2 421 ms |                     16 192 ms | **0.15×** |
 
-The fold's GPU win is smaller than the single prove's because per-step accumulation
-is **light by design** (it defers verification) and the fold bakes its `M·z` reduces
-host-side — the zkx GPU emitter cannot lower the i256 `scatter`-add that survives
-constant-folding at recursion scale, so part of the work stays on CPU
-(Amdahl-capped). Reproduce: `bench/bench.sh fold`.
+> **The fold is regressed on the jax line this repo pins — see
+> [#54](https://github.com/fractalyze/accumulation-zorch/issues/54).** It used to be
+> a **1.43×** win (GPU 1 712 ms), and that number is real and still reproduces
+> exactly — but only on the retired `0.0.5.dev` jax line. The `0.10.dev` line in
+> [`requirements.in`](requirements.in) compiles the *same* lowered core **25× slower**
+> (13.8 s → ~346 s) and runs it **9.7× slower**, with the GPU saturated either way.
+> The compile half is root-caused upstream
+> ([fractalyze/xla#270](https://github.com/fractalyze/xla/issues/270)); the execute
+> half is still open. Every other row in this section reproduces on `0.10` within ~3%
+> — the fold is the only one that moved.
+
+The fold's GPU win — when the toolchain isn't regressing it — is smaller than the
+single prove's because per-step accumulation is **light by design** (it defers
+verification) and the fold bakes its `M·z` reduces host-side — the GPU emitter cannot
+lower the i256 `scatter`-add that survives constant-folding at recursion scale, so
+part of the work stays on CPU (Amdahl-capped). Reproduce: `bench/bench.sh fold`.
 
 ### R1CS-NARK — decide
 
