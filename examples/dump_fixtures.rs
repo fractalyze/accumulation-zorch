@@ -1,9 +1,9 @@
 //! Substrate fixtures for the frx prover-port byte-match.
 //!
 //! Emits, as JSON, the arkworks `CanonicalSerialize` bytes of a handful of
-//! `ark_pallas::Fq` / `Fr` field elements and `ark_pallas::Affine` points (the
-//! same `serialize` call `oracle.rs` drives), so the Python side in
-//! `python/` can reproduce them byte-for-byte. This pins, empirically:
+//! `ark_pallas::Fq` / `Fr` field elements and `ark_pallas::Affine` points — the
+//! same `serialize` call every golden fixture's bytes go through — so the Python
+//! side in `python/` can reproduce them byte-for-byte. This pins, empirically:
 //!   * the Fq/Fr ↔ zk_dtypes (`vesta_sf`/`pallas_sf`) mapping,
 //!   * the point ↔ curve dtype mapping (`pallas_g1` vs `vesta_g1`), and
 //!   * arkworks' compressed SW-affine layout (x LE + flag bits).

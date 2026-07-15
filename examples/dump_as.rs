@@ -2,12 +2,11 @@
 //! Pasta cycle curve (Pallas or Vesta).
 //!
 //! This is the acceptance criterion: the ported `prove` must reproduce the
-//! serialized `(acc.instance ‖ acc.witness ‖ proof)` that
-//! `src/oracle.rs`'s `prove_byte_identical_to_arkworks_no_zk` test pins to
-//! arkworks — seeds {0, 42}, num_inputs=5, num_constraints=10.
+//! serialized `(acc.instance ‖ acc.witness ‖ proof)` the unmodified arkworks
+//! prover emits — seeds {0, 42}, num_inputs=5, num_constraints=10.
 //!
-//! The flow mirrors `oracle.rs`'s `prove_bytes!` macro exactly (same `StdRng`
-//! draw order) so the golden bytes are the oracle's bytes. Per seed it dumps the
+//! The golden bytes come from driving `ark-accumulation` directly here, one
+//! seeded `StdRng` per seed, so the draw order *is* the oracle's. Per seed it dumps the
 //! replay inputs (the single input's `r1cs_input` and `blinded_witness`) and the
 //! golden output split into `acc.instance` / `acc.witness` / `proof` for
 //! localization, plus the **decider oracle**: it runs the unmodified arkworks
@@ -93,7 +92,7 @@ struct AsFixture {
     seeds: Vec<SeedJson>,
 }
 
-/// One seeded no-zk accumulation step, mirroring `oracle.rs`'s `prove_bytes!`,
+/// One seeded no-zk accumulation step on the unmodified arkworks prover,
 /// followed by the arkworks decider on the produced accumulator. Returns the
 /// replay inputs, the golden serialized accumulator + proof, and the decider's
 /// verdict (asserted `true` here).
@@ -138,8 +137,8 @@ where
     )
     .unwrap();
 
-    // R1CS input + witness assignments (Weight mode, as oracle.rs extracts the
-    // r1cs_input). Assignments are optimization-goal-invariant; no-zk
+    // R1CS input + witness assignments, extracted under the Weight optimization
+    // goal. Assignments are optimization-goal-invariant; no-zk
     // blinded_witness = witness.
     let pcs = ConstraintSystem::new_ref();
     pcs.set_optimization_goal(OptimizationGoal::Weight);

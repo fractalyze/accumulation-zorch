@@ -1,7 +1,7 @@
 //! R1CS-NARK-AS prove (zk) end-to-end fixtures for the frx port, over either
-//! Pasta cycle curve (Pallas or Vesta) — the zk acceptance criterion. Mirrors
-//! `oracle.rs`'s `prove_byte_identical_to_arkworks_zk` flow (seeds {0, 42},
-//! num_inputs=5, num_constraints=10) so the golden bytes are the oracle's.
+//! Pasta cycle curve (Pallas or Vesta) — the zk acceptance criterion. Drives
+//! the unmodified arkworks zk prove (seeds {0, 42}, num_inputs=5,
+//! num_constraints=10), so the golden bytes are the oracle's.
 //!
 //! Per seed it dumps the replay inputs (the single input's `r1cs_input` + raw
 //! witness) and the golden zk `(acc.instance ‖ acc.witness ‖ proof)`, plus the
@@ -113,7 +113,7 @@ struct AsZkFixture {
     seeds: Vec<SeedJson>,
 }
 
-/// One seeded zk accumulation step (mirrors `oracle.rs`'s `prove_bytes!`), the
+/// One seeded zk accumulation step on the unmodified arkworks prover, the
 /// replayed randomness, and the arkworks decider verdict on the produced
 /// accumulator (asserted `true`).
 fn run_seed<P>(seed: u64) -> SeedJson
