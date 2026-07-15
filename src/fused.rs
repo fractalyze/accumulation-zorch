@@ -1,4 +1,4 @@
-//! Thin Rust consumer of the fused jax-exported prove core.
+//! Thin Rust consumer of the fused frx-exported prove core.
 //!
 //! The export pipeline lowers the whole zk `ASForR1CSNark` prove to one
 //! StableHLO `.mlirbc` — every commitment, fold, and Fiat-Shamir sponge in a
@@ -21,7 +21,7 @@
 //! `C::Params`, so the same code serves the Pallas single-step and the Vesta
 //! recursion step. The Python export selects the curve to lower the matching core.
 //!
-//! ## Output contract (pinned via `jax.tree_flatten` of the lowered core)
+//! ## Output contract (pinned via `frx.tree_flatten` of the lowered core)
 //!
 //! `Session::run(.., num_outputs = 16)` returns the pytree leaves of the core's
 //! return in this order (`G1` = 64B `x‖y`, `Fr` = 32B LE):

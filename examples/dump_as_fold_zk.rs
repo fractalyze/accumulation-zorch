@@ -1,18 +1,18 @@
-//! Multi-addend fold fixtures for the jax port: the full IVC
+//! Multi-addend fold fixtures for the frx port: the full IVC
 //! fold — one input folded INTO one prior accumulator — the `num_addends = 3`
-//! path (`beta = [1, c₁, c₂]`) the current single-input jax (`r1cs_nark_as.
+//! path (`beta = [1, c₁, c₂]`) the current single-input frx (`r1cs_nark_as.
 //! _build_zk_core`, num_addends=2) does not yet cover.
 //!
 //! Per seed it runs TWO proves on a fixed toy circuit (num_inputs=5,
 //! num_constraints=10), each with its own seeded rng so the replay is local:
 //!   1. **acc_prev** — init-accumulate input₁ (no old accumulators); its instance
-//!      + witness are dumped as serialized bytes (the jax fold parses them; their
+//!      + witness are dumped as serialized bytes (the frx fold parses them; their
 //!      `pub(crate)` components aren't reachable from this external example).
 //!   2. **fold** — `AS::prove([input₂], [acc_prev])` → the golden folded
 //!      accumulator + proof. The golden is checked with `AS::verify` here, so a
 //!      green dump is itself a validated num_addends=3 fold.
 //!
-//! Replayed randomness (the jax re-derives input₂'s NARK + the fold's AS/HP
+//! Replayed randomness (the frx re-derives input₂'s NARK + the fold's AS/HP
 //! commitments from these, not from arkworks' rng):
 //!   * input₂ NARK (seed^0x5ec2): `r` × num_witness, then the 8 blinders.
 //!   * fold AS `generate_prover_randomness` (seed^0xf01d): `r1cs_r_input`,
@@ -129,7 +129,7 @@ fn point_json(p: &Affine) -> String {
 }
 
 /// Parse a serialized `AccumulatorInstance` into its components and render them
-/// as structured JSON (points uncompressed as `{x_le_hex,y_le_hex}`, so the jax
+/// as structured JSON (points uncompressed as `{x_le_hex,y_le_hex}`, so the frx
 /// side needs no point decompression). The serialization is the derived
 /// field-order one: `r1cs_input: Vec<Fr>`, `comm_a/comm_b/comm_c: G`, then
 /// `hp_instance: HPInputInstance` = `comm_1/comm_2/comm_3: G`.

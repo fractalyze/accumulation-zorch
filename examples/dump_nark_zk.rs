@@ -1,4 +1,4 @@
-//! NARK prove (zk) fixtures for the jax port.
+//! NARK prove (zk) fixtures for the frx port.
 //!
 //! Drives the crate's real `R1CSNark::prove` with `make_zk = true` over a fixed
 //! `DummyCircuit` and dumps the golden serialized zk `Proof`, the replay inputs

@@ -1,4 +1,4 @@
-//! IPA-PC accumulation **fold** (no-zk) fixtures for the jax port: one input
+//! IPA-PC accumulation **fold** (no-zk) fixtures for the frx port: one input
 //! folded INTO a prior accumulator (`old_accumulators = [acc_prev]`), over either
 //! Pasta cycle curve (Pallas or Vesta). The fold twin of `dump_ipa_as.rs` (which
 //! accumulates inputs with NO old accumulators).
@@ -15,7 +15,7 @@
 //! The crux of the fold: an accumulator IS an `InputInstance` (commitment, point,
 //! evaluation, IPA proof) of the same shape as an input, so it is succinct-checked
 //! and combined exactly like one — the only new structure over `dump_ipa_as.rs` is
-//! the prior accumulator appended as a second addend. The jax port replays it with
+//! the prior accumulator appended as a second addend. The frx port replays it with
 //! the same combine + `IpaPC::open` machinery, fed `[in_new, acc_prev]`.
 //!
 //! No-zk only (`MakeZK::Disabled`): both `acc_prev` and the golden fold are

@@ -1,4 +1,4 @@
-//! End-to-end GPU byte-match for the **no-zk** fused jax-exported prove core
+//! End-to-end GPU byte-match for the **no-zk** fused frx-exported prove core
 //! — the no-zk twin of `gpu_fused_prove_byte_match.rs`. The
 //! whole no-zk `ASForR1CSNark` prove runs as **one** PJRT call
 //! (`crate::fused::prove_no_zk_fused`) and must serialize byte-for-byte to the
@@ -109,7 +109,7 @@ fn gpu_fused_no_zk_prove_byte_match() {
     assert!(!cases.is_empty(), "fixture has no seeds");
 
     // --- Phase B: ONE general core, per-seed runtime assignment, byte-match each.
-    println!("fused jax-exported GENERAL NO-ZK prove core GPU byte-match:");
+    println!("fused frx-exported GENERAL NO-ZK prove core GPU byte-match:");
     for c in &cases {
         let got =
             fused::prove_no_zk_fused::<Pallas>(&mlirbc, &bases, &c.r1cs_input, &c.blinded_witness);

@@ -1,4 +1,4 @@
-//! IPA-PC accumulation `prove` (no-zk) fixtures for the jax port, over either
+//! IPA-PC accumulation `prove` (no-zk) fixtures for the frx port, over either
 //! Pasta cycle curve (Pallas or Vesta).
 //!
 //! Drives the unmodified arkworks `AtomicASForInnerProductArgPC::prove` (no-zk,

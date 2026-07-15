@@ -1,4 +1,4 @@
-//! HP-AS prove (no-zk) fixtures for the jax port.
+//! HP-AS prove (no-zk) fixtures for the frx port.
 //!
 //! Drives the crate's real `ASForHadamardProducts::prove` (no-zk) over two
 //! Hadamard-product inputs and dumps the golden accumulator instance + `Proof`,

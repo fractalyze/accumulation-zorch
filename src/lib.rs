@@ -1,7 +1,7 @@
-//! A thin Rust consumer of the jax-exported fused GPU accumulation prover core.
+//! A thin Rust consumer of the frx-exported fused GPU accumulation prover core.
 //!
 //! The whole prover — the arkworks `ark-accumulation` `r1cs_nark_as` + `hp_as`
-//! native prove path over the Pasta cycle — is authored in Python/JAX
+//! native prove path over the Pasta cycle — is authored in Python/FRX
 //! (`python/accumulation_zorch/`), exported to a single fused StableHLO core, and
 //! run here as one PJRT call (see [`fused`]). Rust feeds the committer key plus
 //! the assignment/randomness and re-serializes the output; it does not
@@ -25,7 +25,7 @@ pub mod wire;
 #[allow(unsafe_code)]
 pub mod gpu;
 
-/// Thin consumer of the fused jax-exported prove core (feature `gpu`): loads the
+/// Thin consumer of the fused frx-exported prove core (feature `gpu`): loads the
 /// general prover `.mlirbc` (the assignment + randomness are runtime inputs) and
 /// runs the whole prove — every commitment, the NARK + HP cores, and all three
 /// Fiat-Shamir sponges — as one PJRT call.

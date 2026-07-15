@@ -149,7 +149,7 @@ where
 #[test]
 #[ignore = "needs XLA_PJRT_PLUGIN + artifacts/as_decider_{pallas,vesta}.mlirbc + a GPU"]
 fn gpu_fused_r1cs_decide_byte_match() {
-    println!("fused jax-exported R1CS-NARK accumulation DECIDER GPU byte-match (no-zk + zk, Pallas + Vesta):");
+    println!("fused frx-exported R1CS-NARK accumulation DECIDER GPU byte-match (no-zk + zk, Pallas + Vesta):");
     println!("  [pallas, no-zk]");
     check_curve::<Pallas>("as_fixtures.json", "as_decider_pallas.mlirbc", false);
     println!("  [vesta, no-zk]");

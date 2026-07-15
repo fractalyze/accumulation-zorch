@@ -1,4 +1,4 @@
-//! Substrate fixtures for the jax prover-port byte-match.
+//! Substrate fixtures for the frx prover-port byte-match.
 //!
 //! Emits, as JSON, the arkworks `CanonicalSerialize` bytes of a handful of
 //! `ark_pallas::Fq` / `Fr` field elements and `ark_pallas::Affine` points (the

@@ -25,7 +25,7 @@
 //! submodules drive the pristine arkworks prover to write the off-tree recursion
 //! fixtures the **fused** GPU gates (`gpu_fused_{nark,fold}_*`) byte-match against,
 //! and `arkworks_fold_timing` is the CPU baseline for the fold benchmark. The
-//! fused jax-exported fold core (`tests/gpu_fused_fold_zk_byte_match.rs`) is the
+//! fused frx-exported fold core (`tests/gpu_fused_fold_zk_byte_match.rs`) is the
 //! recursion fold's GPU path.
 #![cfg(feature = "recursion")]
 
@@ -524,7 +524,7 @@ mod vesta {
     }
 
     /// Dump the forward recursion-circuit no-zk Vesta NARK
-    /// to an off-tree JSON fixture, for the jax `nark.prove_no_zk` byte-match. The
+    /// to an off-tree JSON fixture, for the frx `nark.prove_no_zk` byte-match. The
     /// circuit is the AS verifier gadget (~22.5K constraints × ~21K vars, but
     /// sparse), so the fixture is large and written **off-tree**
     /// (`$ACCUMULATION_ZORCH_ARTIFACTS`, default `artifacts/`); the Python gate
@@ -599,7 +599,7 @@ mod vesta {
         const AS_PROTOCOL_NAME: &[u8] = b"AS-FOR-R1CS-NARK-2020";
 
         /// Parse a serialized `AccumulatorInstance` into structured JSON components
-        /// (points uncompressed, so jax needs no decompression). Field order is the
+        /// (points uncompressed, so frx needs no decompression). Field order is the
         /// derived one: `r1cs_input: Vec<CF>`, `comm_a/comm_b/comm_c: VG`, then
         /// `hp_instance` = `hp_comm_1/2/3: VG`.
         fn acc_instance_json(bytes: &[u8]) -> String {
@@ -909,7 +909,7 @@ mod vesta {
 
         /// Dump the forward recursion-circuit zk **fold** (one
         /// input folded INTO one prior Vesta accumulator, num_addends=3) for the
-        /// jax `r1cs_nark_as.prove_zk_fold(VESTA, …)` end-to-end byte-match — the
+        /// frx `r1cs_nark_as.prove_zk_fold(VESTA, …)` end-to-end byte-match — the
         /// recursion-scale analog of the toy `dump_as_fold_zk`. Replays the input's
         /// NARK randomness (`seed ^ 0x5ec2`) and the fold's AS + HP randomness
         /// (`seed ^ 0xf01d`); `acc_prev` is fed as its parsed instance/witness
@@ -1365,7 +1365,7 @@ mod pallas {
         }
 
         /// Dump the **reverse** recursion-circuit zk fold (one
-        /// input folded into a prior Pallas accumulator, num_addends=3) for the jax
+        /// input folded into a prior Pallas accumulator, num_addends=3) for the frx
         /// `prove_zk_fold(PALLAS, …)` byte-match — the Pallas twin of
         /// `vesta::dump::dump_recursion_fold_zk`.
         ///

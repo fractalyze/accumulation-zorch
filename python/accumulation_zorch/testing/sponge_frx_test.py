@@ -75,7 +75,7 @@ def _n_elems(k: int) -> int:
     return (num_bits + sponge.FQ_CAPACITY - 1) // sponge.FQ_CAPACITY
 
 
-class SpongeJaxTest(absltest.TestCase):
+class SpongeFrxTest(absltest.TestCase):
     def test_gamma_challenge_matches_arkworks(self) -> None:
         g = json.loads(_ABSORB.read_text())["gamma"]
         self.assertIsNone(g["randomness"])

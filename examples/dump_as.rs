@@ -1,4 +1,4 @@
-//! R1CS-NARK-AS prove (no-zk) end-to-end fixtures for the jax port, over either
+//! R1CS-NARK-AS prove (no-zk) end-to-end fixtures for the frx port, over either
 //! Pasta cycle curve (Pallas or Vesta).
 //!
 //! This is the acceptance criterion: the ported `prove` must reproduce the
@@ -13,7 +13,7 @@
 //! localization, plus the **decider oracle**: it runs the unmodified arkworks
 //! `ASForR1CSNark::decide` on the produced accumulator and asserts it accepts, so
 //! the fixture is emitted only for an accumulator arkworks decides `true`. The
-//! decider recomputes `comm_{a,b,c}` (the size-`n` MSMs the jax decide port
+//! decider recomputes `comm_{a,b,c}` (the size-`n` MSMs the frx decide port
 //! reproduces) and accepts iff they equal the accumulator's stored commitments —
 //! which live in `acc_instance_hex` — so no extra golden is dumped beyond the
 //! `decide` flag.
@@ -222,7 +222,7 @@ where
     .unwrap();
 
     // The decider oracle: recompute comm_{a,b,c} + the HP check and accept iff
-    // they equal the accumulator's stored commitments. The jax decide port
+    // they equal the accumulator's stored commitments. The frx decide port
     // reproduces this; the produced fixture is valid only if arkworks accepts.
     let decided = AS::<P>::decide(&dk, accumulator.as_ref(), None::<Sponge<P>>).unwrap();
     assert!(decided, "arkworks decider must accept the produced accumulator (seed {})", seed);

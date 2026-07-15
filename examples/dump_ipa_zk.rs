@@ -1,4 +1,4 @@
-//! IPA-PC `succinct_check` **zk/hiding** fixtures for the jax port, over either
+//! IPA-PC `succinct_check` **zk/hiding** fixtures for the frx port, over either
 //! Pasta cycle curve (Pallas or Vesta) — the zk twin of `dump_ipa.rs`.
 //!
 //! Same flow as the no-zk dump (commit a random degree-`d` polynomial, open it at
