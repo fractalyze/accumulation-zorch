@@ -11,12 +11,12 @@ from typing import Any, NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import lax
 
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import absorbable, curve, jcurve, jfield, jsponge, sponge
-from .curve import Curve
-from .field import fe_value, fe_values
+from . import absorbable, curve, field, sponge
+from .curve import Curve, FrScalar
 
 # ark `r1cs_nark::PROTOCOL_NAME` — the domain the NARK sponge is forked with.
 PROTOCOL_NAME = b"R1CS-NARK-2020"
@@ -53,8 +53,9 @@ def hash_matrices(cv: Curve, domain: bytes, a: Matrix, b: Matrix, c: Matrix) -> 
 
 def to_dense(cv: Curve, matrix: Matrix, num_vars: int) -> np.ndarray:
     """Densify a sparse `Matrix<Fr>` (rows of `(coeff, var_index)`) to a
-    `(rows × num_vars)` fr array — the dense form `jcurve.commit_dense` reduces
-    on-device (`M·z`). Host-side data prep; the DummyCircuit matrices are tiny,
+    `(rows × num_vars)` fr array — the dense form `_prove_zk_segment` reduces
+    on-device (`M·z` via `field.matvec`). Host-side data prep; the DummyCircuit
+    matrices are tiny,
     and jagged commitment is a Phase-2 perf concern."""
     dense = np.zeros((len(matrix), num_vars), dtype=cv.fr)
     for r, row in enumerate(matrix):
@@ -65,7 +66,7 @@ def to_dense(cv: Curve, matrix: Matrix, num_vars: int) -> np.ndarray:
 
 def to_coo(cv: Curve, matrix: Matrix) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Flatten a sparse `Matrix<Fr>` (rows of `(coeff, var_index)`) to flat COO
-    arrays `(row_idx, col_idx, vals)` — the layout `jfield.sparse_matvec` reduces
+    arrays `(row_idx, col_idx, vals)` — the layout `field.sparse_matvec` reduces
     on-device (`segment_sum` over the rows). The sparse analog of `to_dense`: it
     never materializes the `rows × vars` grid, so it scales to the recursion
     circuit where densifying would be ~15 GB. `vals` is `fr`; the indices are
@@ -83,20 +84,20 @@ def to_coo(cv: Curve, matrix: Matrix) -> tuple[np.ndarray, np.ndarray, np.ndarra
             np.array(vals, dtype=cv.fr))
 
 
-def matrix_vec_mul(cv: Curve, matrix: Matrix, input: list[int], witness: list[int]) -> list[int]:
-    """ark `matrix_vec_mul`: `matrix * (input ‖ witness)` in fr. `matrix` is a
-    sparse `Vec<Vec<(coeff, var_index)>>`; `input`/`witness` are fr ints. The
-    per-row inner product runs over `cv.fr` arrays, so the dtype reduces mod r — no
-    manual `% fr_modulus`."""
+def matrix_vec_mul(cv: Curve, matrix: Matrix, input: list[int], witness: list[int]) -> np.ndarray:
+    """ark `matrix_vec_mul`: `matrix * (input ‖ witness)` in fr, as an `fr` array.
+    `matrix` is a sparse `Vec<Vec<(coeff, var_index)>>`; `input`/`witness` are fr
+    ints. The per-row inner product runs over `cv.fr` arrays, so the dtype reduces
+    mod r — no manual `% fr_modulus`. Stays an `fr` array end-to-end (feeding
+    `pedersen_commit` / the device `z`), never decoded back to a python int."""
     z = np.array(list(input) + list(witness), dtype=cv.fr)
-    out: list[int] = []
-    for row in matrix:
+    out = np.zeros(len(matrix), dtype=cv.fr)
+    for i, row in enumerate(matrix):
         if not row:
-            out.append(0)
-            continue
+            continue  # empty row → the `fr` zero already in `out`
         coeffs = np.array([coeff for coeff, _ in row], dtype=cv.fr)
         idxs = [idx for _, idx in row]
-        out.append(fe_value(np.dot(coeffs, z[idxs])))
+        out[i] = np.dot(coeffs, z[idxs])
     return out
 
 
@@ -109,32 +110,9 @@ def _serialize_proof(cv: Curve, comm_a: np.ndarray, comm_b: np.ndarray, comm_c: 
     out = (curve.point_to_bytes(cv, comm_a) + curve.point_to_bytes(cv, comm_b)
            + curve.point_to_bytes(cv, comm_c))
     out += b"\x00"  # FirstRoundMessage.randomness = None
-    out += struct.pack("<Q", len(blinded_witness))
-    out += b"".join(cv.fr(w).tobytes() for w in blinded_witness)
+    out += curve.serialize_fr_vec(cv, blinded_witness)
     out += b"\x00"  # SecondRoundMessage.randomness = None
     return out
-
-
-def prove_no_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
-                witness: list[int], generators: list[np.ndarray]) -> bytes:
-    """ark `R1CSNark::prove` for the no-zk path: commit `M·z` for M in {a,b,c}
-    (no blinders), and the blinded witness is the raw witness (no `gamma·r`
-    term). Returns the serialized `Proof`. The zk path is slice 6.
-
-    The `M·z` reduction runs **host-side over the sparse matrices**
-    (`matrix_vec_mul`); each commitment is one `lax.msm` over the resulting
-    `(rows,)` `fr` vector. The sparse `M·z` is what lets this replay a real
-    recursion-verifier R1CS (~22.5K constraints × ~21K vars, but ~6 non-zeros per
-    row): densifying it to `rows × vars` would be ~15 GB. (Fusing the `M·z`
-    on-device — for the export — is a later slice; this no-zk standalone is the
-    byte-match oracle, so the host reduction + an on-device MSM is enough.)
-    Serialization stays host-side."""
-    bases = jcurve.stack_affine(cv, generators)
-    comms = [
-        np.asarray(jcurve.msm(jnp.asarray(np.array(matrix_vec_mul(cv, m, input, witness), dtype=cv.fr)), bases))
-        for m in (a, b, c)
-    ]
-    return _serialize_proof(cv, comms[0], comms[1], comms[2], witness)
 
 
 class NoZkNarkCore(NamedTuple):
@@ -157,7 +135,7 @@ def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: jax
                      bases: jax.Array, num_rows: int) -> NoZkNarkCore:
     """On-device no-zk NARK prove: commit `M·z` for M in {a,b,c} with one
     `lax.msm` each, the `M·z` reduced **in-trace** from the sparse COO
-    (`jfield.sparse_matvec`) rather than host-side. Plain (un-decorated) so it
+    (`field.sparse_matvec`) rather than host-side. Plain (un-decorated) so it
     inlines into the export's top-level `@jax.jit`. `coo_*` are
     `(row_idx, col_idx, vals)` device arrays; `z = input ‖ witness` the `(vars,)`
     Fr vector; `bases` the `(num_rows,)` generators (an affine jit argument — the
@@ -165,7 +143,7 @@ def prove_no_zk_core(cv: Curve, coo_a: tuple, coo_b: tuple, coo_c: tuple, z: jax
     doesn't lower). No blinders (no-zk), so a commitment is just `Σ (M·z)ᵢ·basesᵢ`."""
     def commit(coo: tuple) -> jax.Array:
         row_idx, col_idx, vals = coo
-        return jcurve.msm(jfield.sparse_matvec(vals, col_idx, row_idx, z, num_rows), bases)
+        return lax.msm(field.sparse_matvec(vals, col_idx, row_idx, z, num_rows), bases)
     return NoZkNarkCore(commit(coo_a), commit(coo_b), commit(coo_c))
 
 
@@ -174,12 +152,12 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     """Build the fused no-zk NARK core as `(core_fn, bases)`: a single `@jax.jit`
     closing over the circuit (the sparse COO matrices + `z = input ‖ witness`) with
     the committer key `bases` as its **sole runtime argument** — the export-correct
-    shape (`core_fn(bases) -> NoZkNarkCore`). Shared by `prove_no_zk_fused` (which
+    shape (`core_fn(bases) -> NoZkNarkCore`). Shared by `prove_no_zk` (which
     runs + serializes it) and `export/export_nark.py` (which lowers it to one
     StableHLO module). Mirrors `r1cs_nark_as._build_zk_core` for the no-zk NARK."""
     rows = len(a)
     z = jnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
-    bases = jcurve.stack_affine(cv, list(generators))
+    bases = curve.stack_affine(cv, list(generators))
     coo_a, coo_b, coo_c = (_coo_dev(to_coo(cv, m)) for m in (a, b, c))
 
     @jax.jit
@@ -189,15 +167,15 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     return core_fn, bases
 
 
-def prove_no_zk_fused(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
-                      witness: list[int], generators: list[np.ndarray]) -> bytes:
+def prove_no_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
+                witness: list[int], generators: list[np.ndarray]) -> bytes:
     """ark `R1CSNark::prove` (no-zk) as a single fused `@jax.jit` trace — the
-    export-shaped twin of `prove_no_zk`. The `M·z` reduce runs **on-device** from
-    the sparse COO (`prove_no_zk_core`), so the whole prove is the trace the GPU
+    standalone no-zk NARK prove. The `M·z` reduce runs **on-device** from the
+    sparse COO (`prove_no_zk_core`), so the whole prove is the trace the GPU
     export lowers; only the committer key (`bases`) is a runtime jit argument, the
     circuit / witness baked in as constants. Materialization + serialization
-    (`_serialize_proof`) is the host seam outside the trace. Byte-identical to
-    `prove_no_zk` (and to the crate's `R1CSNark::prove` no-zk proof)."""
+    (`_serialize_proof`) is the host seam outside the trace. Byte-identical to the
+    crate's `R1CSNark::prove` no-zk proof."""
     core_fn, bases = build_no_zk_core(cv, a, b, c, input, witness, generators)
     core = core_fn(bases)
     return _serialize_proof(cv, np.asarray(core.comm_a), np.asarray(core.comm_b),
@@ -216,12 +194,12 @@ class NarkZkProof(NamedTuple):
     comm_r_c: np.ndarray
     comm_1: np.ndarray
     comm_2: np.ndarray
-    blinded_witness: list[int]
-    sigma_a: int
-    sigma_b: int
-    sigma_c: int
-    sigma_o: int
-    gamma: int
+    blinded_witness: np.ndarray  # (witness_len,) fr
+    sigma_a: FrScalar            # response sigma fr scalars
+    sigma_b: FrScalar
+    sigma_c: FrScalar
+    sigma_o: FrScalar
+    gamma: FrScalar              # retained fr scalar (the AS path re-derives it)
 
 
 class NarkZkCore(NamedTuple):
@@ -265,7 +243,7 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
                          c_blinder: int, r_a_blinder: int, r_b_blinder: int, r_c_blinder: int,
                          blinder_1: int, blinder_2: int, rt: NarkZkRuntime | None = None) -> tuple:
     """Field operand prep for the zk NARK prove (no group ops): the sparse COO of
-    each matrix (`row_idx, col_idx, vals`, the layout `jfield.sparse_matvec`
+    each matrix (`row_idx, col_idx, vals`, the layout `field.sparse_matvec`
     reduces), `z` / `z_r` (`z_r = (0…0 ‖ r)`, the witness blinders with a zeroed
     instance part), and the blinder / witness / r fr arrays. Sparse — not dense —
     so the prove exports at recursion scale: densifying the recursion R1CS
@@ -311,7 +289,7 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     inlines both into `prove_zk`'s own `@jax.jit` and into the AS top-level trace.
 
     The six `M·z` / `M·z_r` reduces run **in-trace** from the sparse COO
-    (`jfield.sparse_matvec`, a `segment_sum`) rather than densifying — the
+    (`field.sparse_matvec`, a `segment_sum`) rather than densifying — the
     recursion R1CS densified is infeasible, so this is what lets the zk prove
     export at recursion scale. The DuplexSponge / Poseidon params aren't jax
     pytrees, so the gamma sponge can't cross a `@jit` boundary as an argument — the
@@ -322,7 +300,7 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     challenge (its `FirstRoundMessage` point absorb), and the gamma-blinded
     responses are all one trace."""
     def commit(scalars: jax.Array, rand: jax.Array) -> jax.Array:
-        return jcurve.msm(jnp.concatenate([scalars, rand.reshape(1)]), bases_h)
+        return lax.msm(jnp.concatenate([scalars, rand.reshape(1)]), bases_h)
 
     # `dense` (the runtime/general path) reduces `M·v` as a dense matvec (constant
     # matrix · runtime vector → no GPU scatter); otherwise the sparse COO path (the
@@ -332,9 +310,9 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
 
     def reduce(coo: tuple, dense_m: jax.Array | None, vec: jax.Array) -> jax.Array:
         if dense_m is not None:
-            return jfield.matvec(dense_m, vec)
+            return field.matvec(dense_m, vec)
         row_idx, col_idx, vals = coo
-        return jfield.sparse_matvec(vals, col_idx, row_idx, vec, num_rows)
+        return field.sparse_matvec(vals, col_idx, row_idx, vec, num_rows)
 
     z_a, z_b, z_c = reduce(coo_a, dm_a, z), reduce(coo_b, dm_b, z), reduce(coo_c, dm_c, z)
     r_a, r_b, r_c = reduce(coo_a, dm_a, zr), reduce(coo_b, dm_b, zr), reduce(coo_c, dm_c, zr)
@@ -392,7 +370,7 @@ def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
     of `build_no_zk_core`; `fork=False` selects the standalone half-step's unforked
     gamma sponge."""
     rows = len(a)
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
 
     @jax.jit
     def core_fn(bases_h: jax.Array) -> NarkZkCore:
@@ -416,7 +394,7 @@ def prove_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witne
     derives `gamma`, and forms the blinded witness `w + gamma·r` and the response
     sigmas. The device compute (`prove_zk_core`) is one fused `@jax.jit` trace
     closing over the host sponge constants, with the committer key (`bases_h`) as
-    its affine argument; materialization (`np.asarray` / `fe_values`) is the
+    its affine argument; materialization (`np.asarray` to host `fr` arrays) is the
     serialize seam. See `prove_zk_core` for the un-materialized (AS-threaded)
     form."""
     core_fn, bases_h = build_zk_core(cv, a, b, c, input, witness, generators, hiding, params,
@@ -424,13 +402,14 @@ def prove_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witne
                                      r_a_blinder, r_b_blinder, r_c_blinder, blinder_1, blinder_2,
                                      fork)
     core = core_fn(bases_h)
-    sigma_a, sigma_b, sigma_c = fe_values(core.sigma_abc)
+    sigma_abc = np.asarray(core.sigma_abc, dtype=cv.fr)
     return NarkZkProof(
         np.asarray(core.comm_a), np.asarray(core.comm_b), np.asarray(core.comm_c),
         np.asarray(core.comm_r_a), np.asarray(core.comm_r_b), np.asarray(core.comm_r_c),
         np.asarray(core.comm_1), np.asarray(core.comm_2),
-        fe_values(core.blinded_witness), sigma_a, sigma_b, sigma_c,
-        fe_value(core.sigma_o), fe_values(core.gamma)[0])
+        np.asarray(core.blinded_witness, dtype=cv.fr), sigma_abc[0], sigma_abc[1], sigma_abc[2],
+        np.asarray(core.sigma_o, dtype=cv.fr).reshape(-1)[0],
+        np.asarray(core.gamma, dtype=cv.fr).reshape(-1)[0])
 
 
 def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
@@ -443,11 +422,10 @@ def serialize_zk_proof(cv: Curve, p: NarkZkProof) -> bytes:
     out += b"\x01"  # FirstRoundMessage.randomness = Some
     for pt in (p.comm_r_a, p.comm_r_b, p.comm_r_c, p.comm_1, p.comm_2):
         out += curve.point_to_bytes(cv, pt)
-    out += struct.pack("<Q", len(p.blinded_witness))
-    out += b"".join(cv.fr(w).tobytes() for w in p.blinded_witness)
+    out += curve.serialize_fr_vec(cv, p.blinded_witness)  # Vec<Fr>
     out += b"\x01"  # SecondRoundMessage.randomness = Some
     for s in (p.sigma_a, p.sigma_b, p.sigma_c, p.sigma_o):
-        out += cv.fr(s).tobytes()
+        out += s.tobytes()
     return bytes(out)
 
 
@@ -492,18 +470,19 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: jax.Array,
     if randomness is not None:
         parts.append(absorbable.point_to_field_array_jax(cv, randomness))
     sp = pre_sponge.absorb(jnp.concatenate(parts))
-    _, ch = jsponge.squeeze_challenges(sp, 1, _CHALLENGE_BITS, cv)
+    _, ch = sponge.squeeze_challenges_jax(sp, 1, _CHALLENGE_BITS, cv)
     return ch
 
 
 def compute_challenge(cv: Curve, params: Any, matrices_hash: bytes, inputs: list[int],
-                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> int:
-    """ark `R1CSNark::compute_challenge` (gamma) over host commitment points.
+                      comms: list[np.ndarray], randomness: list[np.ndarray] | None = None) -> FrScalar:
+    """ark `R1CSNark::compute_challenge` (gamma) over host commitment points, as an
+    `fr` scalar.
 
     `inputs` are fr values as ints; `comms` is the three first-round commitment
     points. `randomness`, when present (zk path), is the five first-round
     randomness commitments `[comm_r_a, comm_r_b, comm_r_c, comm_1, comm_2]`."""
-    rstack = jcurve.stack_affine(cv, randomness) if randomness is not None else None
+    rstack = curve.stack_affine(cv, randomness) if randomness is not None else None
     ch = _gamma_finish(cv, _gamma_pre_sponge(cv, params, matrices_hash, inputs),
-                       jcurve.stack_affine(cv, comms), rstack)
-    return fe_values(ch)[0]
+                       curve.stack_affine(cv, comms), rstack)
+    return np.asarray(ch, dtype=cv.fr).reshape(-1)[0]

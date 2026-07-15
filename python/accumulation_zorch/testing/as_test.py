@@ -11,10 +11,9 @@ The instance / witness / proof are checked separately (localizes a divergence to
 one component) and then concatenated for the full match. A mutation check
 confirms the byte-match is sensitive (perturbing a witness element breaks it).
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/as_test.py
+    bazel test //python/accumulation_zorch/testing:as_test
 """
 
 import json

@@ -3,6 +3,11 @@
 __pycache__/
 *.pyc
 
+# Bazel (the Python byte-match suite builds under bzlmod; the Rust side is Cargo).
+/bazel-*
+# Local, machine-specific Bazel config (never commit — holds absolute paths).
+.bazelrc.user
+
 # Exported StableHLO cores (regenerable via export/export_*.py): the general
 # single-step AS cores (prove_{zk,no_zk}_general), the recursion NARK half-step
 # (nark_*), and the recursion IVC fold (fold_zk_*; ~80-100 MB each). All artifacts

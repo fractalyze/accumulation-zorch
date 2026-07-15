@@ -38,7 +38,11 @@ the unmodified arkworks prover over the Pasta cycle (Pallas + Vesta):
   check polynomial) with only small MSMs; the heavy size-`d` MSM is the
   **decider** (`final_comm_key == ⟨combined_check_poly_coeffs, generators⟩`). So
   the decider MSM is the GPU-value op — a pure MSM that scales far better than the
-  fold (the "Decider size-`d` MSM" benchmark).
+  fold (the "Decider size-`d` MSM" benchmark). The IPA-PC prover/verifier primitive
+  itself (commit / open fold / reduce) is zorch's `zorch.pcs.ipa` (a pinned Bazel
+  dependency — `git_override` in `MODULE.bazel`), driven by an arkworks-faithful
+  challenger (`ipa_challenger.py`); `ipa_pc_as` supplies only the accumulation
+  scheme on top.
 
 The in-circuit verifier gadgets are reused from `ark-accumulation` as-is (they
 have no prover MSM); the repo re-derives neither.
@@ -60,9 +64,10 @@ cd accumulation-zorch
 fetched by Cargo automatically — only `accumulation` is a manual clone.
 
 Reproduction has two layers: a **Rust toolchain** regenerates the golden fixtures
-by driving the pristine arkworks prover directly (no GPU, no Python); the **jax /
-GPU byte-match** then checks the port against them and needs the Fractalyze zkx
-Pasta toolchain.
+by driving the pristine arkworks prover directly (no GPU, no Python); the **jax
+byte-match** then checks the port against them. The jax port builds under
+**Bazel** (zorch and the zkx Pasta jax fork are Bazel deps), so the CPU byte-match
+needs only Bazel; the GPU byte-match additionally needs the zkx Pasta GPU plugin.
 
 ### Regenerate the golden fixtures (Rust only — no GPU, no Python)
 
@@ -73,13 +78,36 @@ compile `../accumulation` — which needs `RUSTFLAGS="--cap-lints=warn"` (arkwor
 [Reproduce](#reproduce); plain `cargo build` / `cargo test` (the crate's own suite)
 need no extra flags.
 
-### GPU + jax tier (the zkx Pasta toolchain)
+### CPU byte-match (Bazel)
 
-Needs an NVIDIA GPU (CUDA), `clang`/`libclang` (the vendored `crates/zkx-pjrt` shim
-generates its PJRT bindings with `bindgen` at build time), Python 3.11, and
-[`uv`](https://docs.astral.sh/uv/). Install the matched zkx Pasta jax fork + GPU
-plugin from the public Fractalyze index (the `zorch` Poseidon sponge lives in-tree
-at `python/zorch/`, Apache-2.0, so it is *not* pip-installed):
+The jax port and its byte-match tests build under **Bazel** — no venv, no
+`PYTHONPATH`, nothing vendored in-tree. zorch (the IPA-PC prover/verifier +
+Poseidon sponge) is a pinned `git_override` dependency and the zkx Pasta jax fork
+is pulled from the public Fractalyze index through Bazel's pip hub. Install Bazel
+via [bazelisk](https://github.com/bazelbuild/bazelisk) (`.bazelversion` pins the
+version), then:
+
+```bash
+bazel test //python/...   # the full CPU byte-match suite (JAX_PLATFORMS=cpu, set in .bazelrc)
+```
+
+> The pinned zkx Pasta jax fork (`0.10.0.dev…`, in `requirements_lock_3_11.txt`)
+> registers the Pasta curve dtypes and `zk-dtypes==0.0.7` carries them. `bazel test
+> //python/...` is 24/24 byte-match vs arkworks (Pallas + Vesta, no-zk + zk); it
+> excludes the `manual`-tagged `recursion_fold_zk_test` (minutes-slow). To bump the
+> zorch pin, edit the `git_override` commit in `MODULE.bazel` and keep
+> `requirements.in`'s jax / zk-dtypes in lockstep (both this repo's pip hub and
+> zorch's must resolve jax to the same wheel), then `bazel run //:requirements.update`.
+> For dev against a local zorch checkout, add
+> `common --override_module=zorch=/abs/path/to/zorch` to `.bazelrc.user`.
+
+### GPU byte-match tier (the zkx Pasta GPU plugin)
+
+The GPU byte-match is the Rust side (`cargo test --features gpu`, hardware-gated).
+It needs an NVIDIA GPU (CUDA), `clang`/`libclang` (the `xla-pjrt` shim
+generates its PJRT bindings with `bindgen` at build time), and the zkx Pasta GPU
+PJRT plugin `.so`. Install the plugin from the public Fractalyze index into a venv
+and point `XLA_PJRT_PLUGIN` at it:
 
 ```bash
 uv venv --python 3.11 .venv
@@ -89,20 +117,11 @@ uv pip install --python .venv --index-strategy unsafe-best-match \
   jax==0.10.0.dev20260702143130 jaxlib==0.10.0.dev20260702143130 \
   jax-cuda12-pjrt==0.10.0.dev20260702143130 jax-cuda12-plugin==0.10.0.dev20260702143130 \
   zk-dtypes==0.0.7 numpy absl-py
-```
-
-Point the env vars at that venv (copy-paste from the repo root):
-
-```bash
-export XLA_VENV_PYTHON=$PWD/.venv/bin/python
 export XLA_PJRT_PLUGIN=$PWD/.venv/lib/python3.11/site-packages/jax_plugins/xla_cuda12/xla_cuda_plugin.so
 ```
 
-> The `0.10.0.dev` jax fork registers the Pasta curve dtypes (`pallas_sf` etc.);
-> `zk-dtypes==0.0.7` carries them (`0.0.6` does not). `PYTHONPATH=python` resolves both
-> `accumulation_zorch` and the vendored `zorch`. This pin set byte-matches arkworks:
-> the CPU suite is 24/24, and the prover byte-matches on GPU via the Python prove
-> (`JAX_PLATFORMS=cuda`).
+> The jax **lowering** to StableHLO `.mlirbc` runs under Bazel (`bazel run
+> //export:export_*`), so it needs no venv — only the GPU **run** loads the plugin.
 
 ## Reproduce
 
@@ -119,23 +138,24 @@ RUSTFLAGS="--cap-lints=warn" cargo run --example dump_as_zk > python/testdata/as
 
 ### Python jax prove byte-match (CPU)
 
-The jax port reproduces the arkworks `(acc.instance ‖ acc.witness ‖ proof)` bytes,
-on CPU (the same trace the GPU export lowers):
+The jax port reproduces the arkworks `(acc.instance ‖ acc.witness ‖ proof)` bytes
+on CPU (the same trace the GPU export lowers) — run one test, or the whole suite:
 
 ```bash
-JAX_PLATFORMS=cpu PYTHONPATH=python \
-  $XLA_VENV_PYTHON python/accumulation_zorch/testing/as_zk_test.py
+bazel test //python/accumulation_zorch/testing:as_zk_test   # one test
+bazel test //python/...                                      # the full 24-test suite
 # seed 0 / 42: (acc.instance 398B ‖ acc.witness 922B ‖ proof 482B) byte-matches arkworks
 ```
 
 ### Fused GPU byte-match (one core proves every seed)
 
 ```bash
-# 1. Lower the ONE general fused core (CPU; no GPU needed for lowering).
-JAX_PLATFORMS=cpu PYTHONPATH=python \
-  $XLA_VENV_PYTHON export/export_prove.py           # -> artifacts/prove_zk_general.mlirbc
-JAX_PLATFORMS=cpu PYTHONPATH=python \
-  $XLA_VENV_PYTHON export/export_prove.py no-zk      # -> artifacts/prove_no_zk_general.mlirbc
+# 1. Lower the ONE general fused core (CPU; no GPU needed for lowering). Bazel
+#    supplies zorch + the jax fork; ACCUMULATION_ZORCH_ARTIFACTS picks the out dir.
+ACCUMULATION_ZORCH_ARTIFACTS=artifacts JAX_PLATFORMS=cpu \
+  bazel run //export:export_prove              # -> artifacts/prove_zk_general.mlirbc
+ACCUMULATION_ZORCH_ARTIFACTS=artifacts JAX_PLATFORMS=cpu \
+  bazel run //export:export_prove -- no-zk     # -> artifacts/prove_no_zk_general.mlirbc
 
 # 2. GPU byte-match: the one core, fed each seed's witness/randomness at run time.
 #    (`XLA_PJRT_PLUGIN` is read from the Setup export; --nocapture shows the
@@ -174,8 +194,8 @@ grows:
 - The CPU prove is ~**O(n)** (MSM-bound). **Crossover ≈ n ≈ 8 K**; the GPU win grows
   with size.
 - Reproduce: `PROVE_SIZES="4096 16384 32768" bench/bench.sh prove` (or
-  `bench/bench.sh all`). Needs an idle GPU + the `XLA_VENV_PYTHON` /
-  `XLA_PJRT_PLUGIN` env from [Setup](#setup).
+  `bench/bench.sh all`). Needs an idle GPU + the `XLA_PJRT_PLUGIN` env from
+  [Setup](#setup); the jax lowering runs via `bazel run //export:...`.
 
 **Recursion IVC fold.** The actual PCD step — fold one verifier-circuit NARK proof
 into a prior accumulator (`num_addends = 3`), at recursion scale (`n = 77 556`):
@@ -243,18 +263,38 @@ prior accumulator — `old_accumulators` non-empty, the IVC step). An accumulato
 an `InputInstance` of the same shape as an input, so arkworks succinct-checks the
 inputs then the accumulators into one list and combines them identically — the fold
 is the prove fed `[inputs…, accumulators…]`, a prior *hiding* accumulator's succinct
-check taking the zk path. Unlike the decider, this corner carries no GPU bench, and
-that *is* the result:
+check taking the zk path.
 
-- The accumulate's `IpaPC::open` is **sequential** — each round's Fiat-Shamir
-  challenge is squeezed from that round's `L`/`R` fold commitments, so the per-round
-  MSMs and the Poseidon sponge interleave with a two-way data dependency (the MSMs
-  need the prior challenge; the next challenge needs the MSMs). It is **host-bound by
-  design** — accumulation *defers* verification — so the GPU-value op for IPA-PC is
-  the decider above, mirror-image to R1CS-NARK where it is the accumulate.
+The fold's `IpaPC::open` is **sequential** — each round's Fiat-Shamir challenge is
+squeezed from that round's `L`/`R` fold commitments, so the per-round MSMs and the
+Poseidon sponge interleave with a two-way data dependency (the MSMs need the prior
+challenge; the next challenge needs the MSMs). There is no host-challenge shortcut
+like the decider has, so the fused fold core runs the **whole open on-device** — the
+`lax.scan` basis fold, the Poseidon sponge squeezed on-device per round, and the
+`final_comm_key` MSM — as **one** PJRT call (`fused::open_ipa_fold_fused`,
+`export/export_ipa_fold.py`). It byte-matches the golden folded accumulator's IPA
+proof (`l_vec`/`r_vec`/`final_comm_key`/`c`) over both curves — and the **zk** twin
+(`ipa_fold_zk_<curve>.mlirbc`, the hiding prelude + blinded fold) additionally
+reproduces `hiding_comm`/`rand`, completing no-zk + zk on GPU:
+
+| fold open (Pallas, d=7, 3 rounds) | warm GPU (1 PJRT call) |
+| --------------------------------: | ---------------------: |
+|      one input folded into acc    |            **~255 ms** |
+
+- That ~255 ms is a **fixed floor** — the Pippenger bucket-reduction MSM kernel is
+  size-independent (the same ~100 ms-class floor the R1CS prove hits), and the
+  accumulate's MSMs are *tiny* (8 coeffs), so the run is dominated by dispatch +
+  kernel overhead and does **not** beat the CPU open at accumulate scale. That *is*
+  the result: the accumulate is **host/overhead-bound by design** — accumulation
+  *defers* verification — so the GPU-value op for IPA-PC is the decider above,
+  mirror-image to R1CS-NARK where it is the accumulate.
 - The CPU port is **curve-generic and zk-agnostic in structure**: prove and fold,
   no-zk and zk, Pallas and Vesta all run the one combine + `IpaPC::open`, each
-  byte-matched to arkworks.
+  byte-matched to arkworks; the fused GPU fold core covers the fold both no-zk and
+  zk (both curves).
 - Reproduce: `ipa_as_test.py` (prove) and `ipa_as_fold_test.py` /
   `ipa_as_fold_zk_test.py` (fold), the CPU byte-match (run as in
-  [Python jax prove byte-match](#python-jax-prove-byte-match-cpu)).
+  [Python jax prove byte-match](#python-jax-prove-byte-match-cpu)); the GPU fold
+  byte-matches + bench are `gpu_fused_ipa_fold_byte_match` /
+  `gpu_fused_ipa_fold_zk_byte_match` / `gpu_fused_ipa_fold_bench` (as in
+  [Fused GPU byte-match](#fused-gpu-byte-match-one-core-proves-every-seed)).

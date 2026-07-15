@@ -16,10 +16,9 @@ golden commitment *bytes* (no point decompression), recompute the commitments
 with the curve-generic port, and compare byte-for-byte — over BOTH Pasta cycle
 curves and both the no-zk and zk accumulators.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/as_decide_test.py
+    bazel test //python/accumulation_zorch/testing:as_decide_test
 """
 
 import json

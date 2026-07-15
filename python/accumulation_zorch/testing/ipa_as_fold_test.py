@@ -16,10 +16,9 @@ of the same shape as an input, so the fold is the no-fold prove fed
 Running the SAME curve-generic port against the Vesta fixture is the curve-generic
 gate.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \
-      python python/accumulation_zorch/testing/ipa_as_fold_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_as_fold_test
 """
 
 import json
@@ -28,7 +27,7 @@ from typing import Any, NamedTuple
 
 from absl.testing import absltest
 
-from accumulation_zorch import curve, ipa_pc, ipa_pc_as, sponge
+from accumulation_zorch import curve, ipa_challenger, ipa_pc_as, sponge
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
@@ -86,7 +85,7 @@ class IpaAsFoldTest(absltest.TestCase):
             svk_h = _point(cv, d["h"])
             generators = [_point(cv, g) for g in d["generators"]]
 
-            acc = ipa_pc_as.prove_no_zk_fold(
+            acc = ipa_pc_as.prove_fold(
                 cv, params, svk_h, generators, [new_input], [acc_prev])
             want = d["accumulator"]
 
@@ -95,7 +94,7 @@ class IpaAsFoldTest(absltest.TestCase):
 
             self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
             self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(cv.fr(acc.evaluation).tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
 
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
@@ -137,10 +136,10 @@ class IpaAsFoldTest(absltest.TestCase):
             d = json.loads(fold_fixture.read_text())
             acc = _parse_input(cv, d["accumulator"])
 
-            check_poly = ipa_pc.succinct_check_challenges(
+            check_poly = ipa_challenger.succinct_check_challenges(
                 cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec)
-            coeffs = ipa_pc.compute_coeffs(cv, check_poly)
-            got = [cv.fr(c).tobytes().hex() for c in coeffs]
+            coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
+            got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
             self.assertEqual(got, want, f"[{cv.name}] decider_coeffs: port {got} != fixture {want}")
             print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's "

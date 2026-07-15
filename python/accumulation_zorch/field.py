@@ -1,46 +1,105 @@
-"""Field-element helpers shared across the prover: canonical-integer decode of a
-jit kernel's output, and the small jax ``fr`` reductions the host orchestration
-needs.
+"""Fr field / vector / polynomial kernels for the prove path — jax over the
+`cv.fr` dtype, inlined into the prove cores' outermost `@jax.jit` (GPU-lowerable).
+All Fr arithmetic on the prove path runs here; there is no host `zk_dtypes`
+field-math counterpart (the old int-decode `field.py` was dropped once `fr`
+values started riding the prove path as `cv.fr` arrays).
 
-Field *identity* (which scalar/base dtype, its modulus and capacity) lives on
-:class:`curve.Curve` now — construct a field element with the dtype itself
-(``cv.fr(v)``) and serialize it with ``cv.fr(v).tobytes()`` (32-byte canonical
-LE). The helpers here are curve-agnostic: they take an already-built array (or a
-``Curve`` for the ``fr`` reductions), so they name no curve.
+Each kernel takes Fr `jnp` arrays and returns Fr `jnp` arrays; the orchestration
+(the AS / NARK prove cores) keeps the challenge / opening values as int lists and
+rebuilds the arrays at the kernel boundary (data movement, not arithmetic).
 """
 
-from typing import Any
-
+import jax
 import jax.numpy as jnp
-import numpy as np
-
-from .curve import Curve
 
 
-def fe_value(arr: Any) -> int:
-    """Canonical integer of a 1-element field array (Montgomery-decoded). Accepts
-    a numpy or jax array (`np.asarray` normalizes)."""
-    return int(np.asarray(arr).astype(object).reshape(()))
+def matvec(coeffs: jax.Array, z: jax.Array) -> jax.Array:
+    """`M·z` over Fr: a dense `(rows × vars)` matrix times the `(vars,)` vector
+    `z = r1cs_input ‖ witness`, as a broadcast multiply-and-sum → `(rows,)` Fr.
+    (`coeffs @ z` / `einsum` also lower over the field dtype — a body-once
+    `scf.for` — so this explicit reduction is an idiom choice matching zorch's i256
+    inner products, not a lowering workaround.)"""
+    return jnp.sum(coeffs * z[jnp.newaxis, :], axis=1)
 
 
-def fe_values(arr: Any) -> list[int]:
-    """Canonical integers of a 1-D field array — the host boundary that turns a
-    jit kernel's ``fr``/``fq`` output back into the int lists the (still host-side)
-    serialization consumes."""
-    a = np.asarray(arr)
-    return [int(a[i].astype(object)) for i in range(a.shape[0])]
+def sparse_matvec(vals: jax.Array, col_idx: jax.Array, row_idx: jax.Array,
+                  z: jax.Array, num_rows: int) -> jax.Array:
+    """`M·z` over Fr from a sparse matrix in flat COO form — `segment_sum` of the
+    per-nonzero products `vals·z[col_idx]` over their `row_idx` → `(num_rows,)` Fr.
+
+    `vals` is the `(nnz,)` Fr coefficient vector, `col_idx`/`row_idx` the matching
+    `(nnz,)` int column/row indices; `num_rows` is static (the segment count).
+    This is the **on-device** equivalent of `nark.matrix_vec_mul`, the in-trace
+    reduction the fused export needs: the recursion-verifier R1CS is ~22.5K×21K
+    but ~6 nonzeros/row, so densifying it (`rows × vars` ≈ 15 GB) is infeasible —
+    only the sparse reduce scales. The gather `z[col_idx]` and the scatter-add
+    `segment_sum` (→ `stablehlo.scatter`) both lower over the i256 `fr` dtype in
+    the zkx fork. Byte-identical to `matvec` on the densified matrix.
+    """
+    return jax.ops.segment_sum(vals * z[col_idx], row_idx, num_segments=num_rows)
 
 
-def fr_mul(cv: Curve, *vals: int) -> int:
-    """Product of canonical ``fr`` values, reduced mod r — a jax ``fr`` reduction
-    (no numpy field arithmetic on the prove path)."""
-    if not vals:
-        return 1
-    return fe_value(jnp.prod(jnp.asarray(np.array(vals, dtype=cv.fr))))
+def combine_vectors(vectors: jax.Array, challenges: jax.Array) -> jax.Array:
+    """`combine_vectors`: `output[li] = Σ_ni challenges[ni]·vectors[ni][li]`.
+    `vectors` is `(m, L)` Fr, `challenges` `(m,)` Fr → `(L,)` Fr."""
+    return jnp.sum(challenges[:, jnp.newaxis] * vectors, axis=0)
 
 
-def fr_add(cv: Curve, *vals: int) -> int:
-    """Sum of canonical ``fr`` values, reduced mod r — a jax ``fr`` reduction."""
-    if not vals:
-        return 0
-    return fe_value(jnp.sum(jnp.asarray(np.array(vals, dtype=cv.fr))))
+def powers(nu: jax.Array, count: int) -> jax.Array:
+    """`[nu^0, …, nu^{count-1}]` as a `(count,)` Fr array. `nu` is `(1,)` Fr; the
+    powers are built by repeated Fr multiply (no `lax.pow` over the field dtype)."""
+    out = [jnp.ones_like(nu)]
+    cur = out[0]
+    for _ in range(count - 1):
+        cur = cur * nu
+        out.append(cur)
+    return jnp.concatenate(out)
+
+
+def _conv(a_col: jax.Array, b_rev: jax.Array) -> jax.Array:
+    """Per-column polynomial product of `(n, L)` coefficient grids `a_col` and the
+    already-reversed `b_rev`: `out[k,li] = Σ_{i+j=k} a_col[i,li]·b_rev[j,li]` →
+    `(2n-1, L)` Fr. `n` is static, so the convolution unrolls at trace time."""
+    n = a_col.shape[0]
+    cols = []
+    for k in range(2 * n - 1):
+        acc = None
+        for i in range(n):
+            j = k - i
+            if 0 <= j < n:
+                term = a_col[i] * b_rev[j]
+                acc = term if acc is None else acc + term
+        assert acc is not None  # every k in [0, 2n-2] has ≥1 decomposition i+j=k
+        cols.append(acc)
+    return jnp.stack(cols, axis=0)
+
+
+def t_vecs_no_zk(a: jax.Array, b: jax.Array, mu: jax.Array) -> jax.Array:
+    """`compute_t_vecs` (no-zk): the per-column product-polynomial coefficients.
+
+    `a`/`b` are `(n, L)` Fr (per-input witness vectors, padded to the common
+    length `L`), `mu` is `(n,)` Fr. For each column, form `a(X,mu)` (coeff `ni` =
+    `mu[ni]·a[ni,li]`) and the reversed `b(X)`, convolve, and stack the `2n-1`
+    product coefficients → `(2n-1, L)` Fr."""
+    return _conv(mu[:, jnp.newaxis] * a, jnp.flip(b, axis=0))
+
+
+def t_vecs_zk(a: jax.Array, b: jax.Array, mu: jax.Array, hiding_a: jax.Array,
+              hiding_b: jax.Array, mu_n: jax.Array, mu_1: jax.Array) -> jax.Array:
+    """`compute_t_vecs` (zk): like `t_vecs_no_zk` plus the hiding addends —
+    `hiding_a·mu[n]` on the first `a` coefficient (input 0) and `hiding_b·mu[1]`
+    on the first (post-reverse) `b` coefficient. `hiding_a`/`hiding_b` are `(L,)`,
+    `mu_n`/`mu_1` are `(1,)`.
+
+    The hiding addend is folded onto row 0 by rebuilding-and-concatenating, NOT by
+    `.at[0].add`: that is a scatter-add, and a runtime scatter over the i256 fr
+    dtype does not lower on the zkx GPU emitter at recursion scale (the scatter →
+    atomic-RMW path bitcasts assuming an integer element type). At HP-fold scale `a`
+    / `b` are the full constraint length, so this is the load-bearing difference vs
+    the toy single-input prove. The value is identical: row 0 gains the hiding
+    addend, the remaining rows are untouched."""
+    ma = mu[:, jnp.newaxis] * a
+    a_col = jnp.concatenate([(ma[0] + hiding_a * mu_n)[jnp.newaxis], ma[1:]], axis=0)
+    fb = jnp.flip(b, axis=0)
+    b_rev = jnp.concatenate([(fb[0] + hiding_b * mu_1)[jnp.newaxis], fb[1:]], axis=0)
+    return _conv(a_col, b_rev)

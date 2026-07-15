@@ -14,10 +14,9 @@ fixtures form an isolating ladder so a divergence localizes to one primitive:
 
 The 117 Poseidon ARK constants come from the slice-2 sponge fixtures.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/absorb_test.py
+    bazel test //python/accumulation_zorch/testing:absorb_test
 """
 
 import json
@@ -25,11 +24,10 @@ from pathlib import Path
 from typing import Any
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
-from accumulation_zorch import absorbable, curve, jcurve, nark, sponge
+from accumulation_zorch import absorbable, curve, nark, sponge
 
 cv = curve.PALLAS
 
@@ -93,17 +91,17 @@ class AbsorbTest(absltest.TestCase):
             self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"point_absorb {case['label']}")
             print(f"  point absorb ({case['label']}) OK")
 
-    def test_point_to_field_array_jax_matches_host(self) -> None:
-        """The in-jit batched affine short-Weierstrass point packing reproduces the
-        host `point_to_field_array` concatenation byte-for-byte, including the
-        arkworks identity `[0, 1, 1]` convention (the all-zero point in the batch)."""
-        g = json.loads(_ABSORB.read_text())["gamma"]
-        points = [_point_from_fixture(c) for c in g["comms"]] + [cv.g1((0, 0))]
-        host = np.concatenate([absorbable.point_to_field_array(cv, p) for p in points])
+    def test_point_to_field_array_jax_identity_matches_arkworks(self) -> None:
+        """The in-jit device packing of the identity (infinity) point matches the
+        arkworks `[0, 1, 1]` field-element golden — the jit twin of
+        `test_identity_point_packs_as_0_1_1`. Non-identity / batched packing is
+        covered end-to-end by the fused-core byte-match tests (as_fold_zk, nark)."""
+        want = json.loads(_ABSORB.read_text())["identity_to_field_elements_le_hex"]
         pack = jax.jit(lambda pts: absorbable.point_to_field_array_jax(cv, pts))
-        got = np.asarray(pack(jcurve.stack_affine(cv, points)))
-        self.assertEqual(host.tobytes(), got.tobytes(), "in-jit point packing != host packing")
-        print("  point_to_field_array_jax byte-matches host (incl identity) OK")
+        fes = np.asarray(pack(curve.stack_affine(cv, [cv.g1((0, 0))])))
+        got = [fes[i].tobytes().hex() for i in range(fes.shape[0])]
+        self.assertEqual(got, want, f"in-jit identity packing: {got} != {want}")
+        print("  point_to_field_array_jax identity packing byte-matches arkworks OK")
 
     def test_gamma_challenge_matches_arkworks(self) -> None:
         g = json.loads(_ABSORB.read_text())["gamma"]
@@ -113,7 +111,7 @@ class AbsorbTest(absltest.TestCase):
         comms = [_point_from_fixture(c) for c in g["comms"]]
         self.assertIsNone(g["randomness"], "this slice ports the no-zk gamma only")
         gamma = nark.compute_challenge(cv, params, matrices_hash, inputs, comms, randomness=None)
-        got = cv.fr(gamma).tobytes().hex()
+        got = gamma.tobytes().hex()
         self.assertEqual(got, g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}")
         print("  NARK gamma challenge byte-matches R1CSNark::compute_challenge OK")
 

@@ -14,13 +14,12 @@ runs the zk prove over `[input, acc_prev]`, and asserts the golden folded
 accumulator (instance + hiding IPA proof) matches arkworks byte-for-byte.
 
 The new logic over the no-zk fold: `acc_prev` carries a hiding IPA opening, so its
-succinct check is the zk path (`succinct_check_input_zk`), while the new input stays
-no-zk.
+succinct check is the zk path (`succinct_check_input` with `s`), while the new input
+stays no-zk.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \
-      python python/accumulation_zorch/testing/ipa_as_fold_zk_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_as_fold_zk_test
 """
 
 import json
@@ -29,7 +28,7 @@ from typing import Any, NamedTuple
 
 from absl.testing import absltest
 
-from accumulation_zorch import curve, ipa_pc, ipa_pc_as, sponge
+from accumulation_zorch import curve, ipa_challenger, ipa_pc_as, sponge
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
@@ -98,9 +97,10 @@ class IpaAsFoldZkTest(absltest.TestCase):
             hiding_poly = [_fr(h) for h in d["hiding_polynomial"]]
             hiding_rand = _fr(d["hiding_rand"])
 
-            acc = ipa_pc_as.prove_zk_fold(
-                cv, params, svk_h, s, generators, [new_input], [acc_prev],
-                rlp_coeffs, rlp_commitment, commitment_randomness, hiding_poly, hiding_rand)
+            acc = ipa_pc_as.prove_fold(
+                cv, params, svk_h, generators, [new_input], [acc_prev],
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s,
+                hiding_poly, hiding_rand)
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:
@@ -108,7 +108,7 @@ class IpaAsFoldZkTest(absltest.TestCase):
 
             self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
             self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(cv.fr(acc.evaluation).tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
                 self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}")
@@ -133,7 +133,7 @@ class IpaAsFoldZkTest(absltest.TestCase):
             s = _point(cv, d["s"])
             acc = _parse_input(cv, d["accumulator"])
 
-            final_key = ipa_pc_as.decide_final_key_zk(cv, params, generators, acc, s)
+            final_key = ipa_pc_as.decide_final_key(cv, params, generators, acc, s)
             got = curve.point_to_bytes(cv, final_key).hex()
             want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
             self.assertEqual(got, want, f"[{cv.name}] folded zk decider size-d MSM != final_comm_key: {got} != {want}")
@@ -148,11 +148,11 @@ class IpaAsFoldZkTest(absltest.TestCase):
             s = _point(cv, d["s"])
             acc = _parse_input(cv, d["accumulator"])
 
-            check_poly = ipa_pc.succinct_check_challenges_zk(
+            check_poly = ipa_challenger.succinct_check_challenges_zk(
                 cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec,
                 s, acc.hiding_comm, acc.rand)
-            coeffs = ipa_pc.compute_coeffs(cv, check_poly)
-            got = [cv.fr(c).tobytes().hex() for c in coeffs]
+            coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
+            got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
             self.assertEqual(got, want, f"[{cv.name}] zk decider_coeffs: port != fixture")
             print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's zk "

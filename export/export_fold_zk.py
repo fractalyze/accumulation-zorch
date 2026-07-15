@@ -20,11 +20,10 @@ direction, which also picks the off-tree fold fixture + the Poseidon sponge
 fixture over that direction's constraint field. The ``M·z`` is reduced on-device
 from the **sparse** COO (densifying the recursion R1CS is ~15 GB).
 
-Run with the Pasta jax-fork venv (CPU is enough — lowering needs no GPU):
+Run under Bazel (CPU is enough — lowering needs no GPU):
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch \\
-      ACCUMULATION_ZORCH_ARTIFACTS=<dir> PROVE_CURVE=vesta \\
-      <venv>/bin/python export/export_fold_zk.py
+    ACCUMULATION_ZORCH_ARTIFACTS=<dir> PROVE_CURVE=vesta \\
+      bazel run //export:export_fold_zk
 """
 import json
 import os

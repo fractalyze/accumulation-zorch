@@ -1,0 +1,64 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
+load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
+
+# Each export lowers a jax prove/decide core to a StableHLO .mlirbc that the Rust
+# GPU byte-match / bench (Cargo, hardware-gated) runs. Lowering is CPU-only.
+# `imports = ["."]` puts export/ on the path so the shared
+# `from export_prove import write_bytecode` resolves.
+#
+#   bazel run //export:export_prove -- [no-zk]
+#
+_EXPORT_DEPS = [
+    "//python:accumulation_zorch",
+    requirement("jax"),
+    requirement("numpy"),
+]
+
+# export_prove owns write_bytecode; the others import it from here.
+py_binary(
+    name = "export_prove",
+    srcs = ["export_prove.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+    deps = _EXPORT_DEPS,
+)
+
+# These reuse export_prove.write_bytecode, so carry export_prove.py as a helper
+# module (its __main__ stays dormant when imported).
+[
+    py_binary(
+        name = n,
+        srcs = [n + ".py", "export_prove.py"],
+        main = n + ".py",
+        imports = ["."],
+        visibility = ["//visibility:public"],
+        deps = _EXPORT_DEPS,
+    )
+    for n in [
+        "export_fold_zk",
+        "export_nark",
+        "export_nark_zk",
+        "export_ipa",
+        "export_ipa_fold",
+        "export_as_decide",
+    ]
+]
+
+# CPU lowering smoke test: lower every committed-fixture exporter's core so a
+# dangling reference (a runtime attribute access invisible to the build) fails
+# CI, not just the hardware-gated GPU byte-match. Carries the exporter srcs it
+# imports; fixtures come from //python/testdata.
+py_test(
+    name = "export_lowering_smoke_test",
+    size = "small",
+    srcs = [
+        "export_lowering_smoke_test.py",
+        "export_prove.py",
+        "export_ipa.py",
+        "export_ipa_fold.py",
+        "export_as_decide.py",
+    ],
+    imports = ["."],
+    data = ["//python/testdata:fixtures"],
+    deps = _EXPORT_DEPS + [requirement("absl_py")],
+)

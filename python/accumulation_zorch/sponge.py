@@ -8,7 +8,10 @@ width=3. The 117 round constants are arkworks' (drawn from
 so there is no encoding ambiguity.
 """
 
+import jax
+import jax.numpy as jnp
 import numpy as np
+from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 from zorch.hash.poseidon.params import PoseidonParams
 from zorch.hash.poseidon.poseidon import Poseidon
@@ -91,5 +94,67 @@ def squeeze_nonnative(
 def squeeze_challenges(
     sp: DuplexSponge, k: int, size: int = CHALLENGE_SIZE
 ) -> tuple[DuplexSponge, list[int]]:
-    """`k` truncated challenges as Fr-valued ints (each `min(size, FR_CAPACITY)` bits)."""
+    """`k` truncated challenges as Fr-valued ints (each `min(size, FR_CAPACITY)` bits).
+
+    The host (eager, Python-loop) squeeze — used by the host Fiat-Shamir combines
+    that produce constants baked into the fused cores (`ipa_pc`, `ipa_pc_as`). It
+    handles arbitrary bit widths, including the 184-bit AS opening point that
+    :func:`squeeze_challenges_jax` cannot (see below)."""
     return squeeze_nonnative(sp, [min(size, FR_CAPACITY)] * k)
+
+
+# --- jit-able / device squeeze -------------------------------------------------
+# The same ark-sponge bit math as `squeeze_bits`/`squeeze_nonnative`, but as jax
+# array ops returning an `fr` array — so the challenge derivation composes under
+# the fused prove cores' outermost `@jax.jit` and lowers to GPU. NOT a superset of
+# the host squeeze: `challenges_from_fq` only handles `size` a multiple of the
+# 32-bit limb width (the prover's 128 is), so the arbitrary-width host squeeze
+# stays for e.g. the 184-bit AS opening point.
+_FE_BYTES = 32  # BigInteger256 field repr
+_LIMB_BITS = 32
+
+
+def challenges_from_fq(fq_elems: jax.Array, k: int, size: int, cv: Curve) -> jax.Array:
+    """`k` truncated challenges as an `(k,)` ``cv.fr`` array, from the squeezed
+    ``cv.fq`` elements `fq_elems`.
+
+    Faithful to ark-sponge `squeeze_nonnative_field_elements_with_sizes` for the
+    uniform-`size` case the accumulation prover uses (`squeeze_challenges_jax`): the
+    bit stream is the low `FQ_CAPACITY` bits of each Fq element concatenated, and
+    each challenge is the next `size` bits packed LE (`size <= fr_capacity`, so no
+    reduction). `fq_elems` must hold `ceil(k*size / FQ_CAPACITY)` elements, and
+    `size` is a multiple of the 32-bit limb width (the prover's 128 is). `cv` is
+    captured as a trace constant when this leaf inlines into the boundary jit, so
+    its `fr`/`fr_modulus` are trace constants.
+    """
+    # (n, 32) canonical LE bytes -> (n, 256) LE bits -> low FQ_CAPACITY per element.
+    byts = lax.bitcast_convert_type(fq_elems, jnp.uint8)
+    bit_pos = jnp.arange(8, dtype=jnp.uint8)
+    bits = ((byts[:, :, None] >> bit_pos) & 1).astype(jnp.uint8)
+    bits = bits.reshape(byts.shape[0], 8 * _FE_BYTES)[:, :FQ_CAPACITY]
+    stream = bits.reshape(-1)[: k * size]
+
+    # Window into k challenges and pack each `size`-bit LE window into uint32
+    # limbs, then recombine in fr by place value: `Σ_i limb_i · (2^32)^i`. (The
+    # field dtype has no limbs->field bitcast, so the lift is field arithmetic;
+    # each limb < 2^32 < r is canonical.)
+    used = size // _LIMB_BITS
+    limb_pos = jnp.arange(_LIMB_BITS, dtype=jnp.uint32)
+    limb_val = jnp.sum(
+        stream.reshape(k, used, _LIMB_BITS).astype(jnp.uint32) << limb_pos, axis=2
+    )
+    place = jnp.asarray(
+        np.array([pow(1 << _LIMB_BITS, i, cv.fr_modulus) for i in range(used)], dtype=cv.fr)
+    )
+    return jnp.sum(limb_val.astype(cv.fr) * place[jnp.newaxis, :], axis=1)
+
+
+def squeeze_challenges_jax(sp, k, size, cv):  # type: ignore[no-untyped-def]
+    """ark-sponge `squeeze_challenges` as jax: squeeze the `ceil(k*size / FQ_CAPACITY)`
+    Fq elements the bit stream needs, extract `k` `size`-bit challenges as an
+    `(k,)` ``cv.fr`` array. Returns `(sponge, challenges)` (the sponge squeeze is
+    the already-jax `DuplexSponge.squeeze`). The device twin of
+    :func:`squeeze_challenges`, for the in-trace prover challenges (all 128-bit)."""
+    n_elems = (k * size + FQ_CAPACITY - 1) // FQ_CAPACITY
+    sp, elems = sp.squeeze(n_elems)
+    return sp, challenges_from_fq(jnp.asarray(elems), k, size, cv)

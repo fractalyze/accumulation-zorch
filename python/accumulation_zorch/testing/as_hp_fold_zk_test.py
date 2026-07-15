@@ -20,10 +20,9 @@ The new input's HP instance/witness are re-derived in jax from input₂'s NARK
 does for the single-input AS prove. The fold's fresh HP hiding randomness
 (`hp_hiding_a/b`, `hp_rand_1/2/3`) is replayed from the dump.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/as_hp_fold_zk_test.py
+    bazel test //python/accumulation_zorch/testing:as_hp_fold_zk_test
 """
 
 import json
@@ -34,8 +33,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
+from jax import lax
 
-from accumulation_zorch import absorbable, curve, hp_as, jcurve, jfield, nark, sponge
+from accumulation_zorch import absorbable, curve, field, hp_as, nark, sponge
 
 cv = curve.PALLAS
 
@@ -91,9 +91,9 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
     old_rand = jnp.asarray(np.array(
         [_fr(accw["hp_rand_1"]), _fr(accw["hp_rand_2"]), _fr(accw["hp_rand_3"])], dtype=cv.fr))
 
-    bases_h = jcurve.stack_affine(cv, list(generators[:rows]) + [hiding])
-    id_pt = jcurve.stack_affine(cv, [cv.g1((0, 0))])
-    old_hp_comms = jcurve.stack_affine(
+    bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
+    id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])
+    old_hp_comms = curve.stack_affine(
         cv, [_point(acc["hp_comm_1"]), _point(acc["hp_comm_2"]), _point(acc["hp_comm_3"])])
 
     @jax.jit
@@ -107,15 +107,15 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
         # input₂'s HP instance: the gamma-blinded NARK commitments
         # (comm_prod folds comm_1, comm_2 at gamma, gamma²).
         one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = jcurve.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = jcurve.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        comm_prod = jcurve.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
+        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
+        comm_prod = lax.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
                                jnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
 
         # input₂'s HP opening: M·z over z = r1cs_input ‖ blinded_witness; the HP
         # input randomness is the NARK (sigma_a, sigma_b, sigma_o).
         def _mz(matrix: nark.Matrix, zv: jax.Array) -> jax.Array:
-            return jfield.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
+            return field.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
         zw = jnp.concatenate([jnp.asarray(np.array(input2, dtype=cv.fr)), nk.blinded_witness])
         new_rand = jnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o])
 

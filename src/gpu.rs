@@ -18,7 +18,18 @@
 use std::cell::Cell;
 
 use ark_ec::models::SWModelParameters;
-use zkx_pjrt::Session;
+use xla_pjrt::Session;
+
+// The shared xla-pjrt crate is curve-agnostic and exports no curve tags, so name
+// the plugin's Pasta `PJRT_Buffer_Type` enum variants directly. (xla-pjrt's
+// build.rs sets `prepend_enum_name(false)`, so the `sys` const is the
+// header-faithful single-prefixed tag, not the bindgen-doubled name.)
+const PALLAS_SF: xla_pjrt::sys::PJRT_Buffer_Type = xla_pjrt::sys::PJRT_Buffer_Type_PALLAS_SF;
+const PALLAS_G1_AFFINE: xla_pjrt::sys::PJRT_Buffer_Type =
+    xla_pjrt::sys::PJRT_Buffer_Type_PALLAS_G1_AFFINE;
+const VESTA_SF: xla_pjrt::sys::PJRT_Buffer_Type = xla_pjrt::sys::PJRT_Buffer_Type_VESTA_SF;
+const VESTA_G1_AFFINE: xla_pjrt::sys::PJRT_Buffer_Type =
+    xla_pjrt::sys::PJRT_Buffer_Type_VESTA_G1_AFFINE;
 
 /// A Pasta cycle curve, bundling what differs between Pallas and Vesta at the PJRT
 /// plugin boundary: the short-Weierstrass parameters and the buffer-type tags the
@@ -29,38 +40,38 @@ pub trait PastaCurve {
     /// The PJRT buffer-type tag for this curve's affine G1 points — what a fused
     /// core's affine inputs (`crate::fused`) carry so the plugin routes them to
     /// the curve's MSM thunk.
-    const G1_AFFINE: zkx_pjrt::sys::PJRT_Buffer_Type;
+    const G1_AFFINE: xla_pjrt::sys::PJRT_Buffer_Type;
     /// The PJRT buffer-type tag for this curve's scalar field (`fr`) — what a
     /// general fused core's `fr` runtime inputs (the witness / public input /
     /// randomness lifted to runtime in the general prover) carry so the plugin types them.
-    const SF: zkx_pjrt::sys::PJRT_Buffer_Type;
+    const SF: xla_pjrt::sys::PJRT_Buffer_Type;
     /// The PJRT buffer-type tag for this curve's **base** field (`fq`, the
     /// Poseidon / Fiat-Shamir sponge field) — what the zk general core's
     /// pre-encoded `u8_batch` runtime inputs carry. On the Pasta cycle
     /// `Pallas.fq == Vesta.fr`, so this is the *opposite* curve's `SF` tag.
-    const BF: zkx_pjrt::sys::PJRT_Buffer_Type;
+    const BF: xla_pjrt::sys::PJRT_Buffer_Type;
 }
 
 /// Pallas.
 pub struct Pallas;
 impl PastaCurve for Pallas {
     type Params = ark_pallas::PallasParameters;
-    const G1_AFFINE: zkx_pjrt::sys::PJRT_Buffer_Type = zkx_pjrt::PALLAS_G1_AFFINE;
-    const SF: zkx_pjrt::sys::PJRT_Buffer_Type = zkx_pjrt::PALLAS_SF;
+    const G1_AFFINE: xla_pjrt::sys::PJRT_Buffer_Type = PALLAS_G1_AFFINE;
+    const SF: xla_pjrt::sys::PJRT_Buffer_Type = PALLAS_SF;
     // Pallas's base field fq == Vesta's scalar field, so its sponge-field buffers
     // carry the VESTA_SF tag.
-    const BF: zkx_pjrt::sys::PJRT_Buffer_Type = zkx_pjrt::VESTA_SF;
+    const BF: xla_pjrt::sys::PJRT_Buffer_Type = VESTA_SF;
 }
 
 /// Vesta.
 pub struct Vesta;
 impl PastaCurve for Vesta {
     type Params = ark_vesta::VestaParameters;
-    const G1_AFFINE: zkx_pjrt::sys::PJRT_Buffer_Type = zkx_pjrt::VESTA_G1_AFFINE;
-    const SF: zkx_pjrt::sys::PJRT_Buffer_Type = zkx_pjrt::VESTA_SF;
+    const G1_AFFINE: xla_pjrt::sys::PJRT_Buffer_Type = VESTA_G1_AFFINE;
+    const SF: xla_pjrt::sys::PJRT_Buffer_Type = VESTA_SF;
     // Vesta's base field fq == Pallas's scalar field, so its sponge-field buffers
     // carry the PALLAS_SF tag.
-    const BF: zkx_pjrt::sys::PJRT_Buffer_Type = zkx_pjrt::PALLAS_SF;
+    const BF: xla_pjrt::sys::PJRT_Buffer_Type = PALLAS_SF;
 }
 
 thread_local! {

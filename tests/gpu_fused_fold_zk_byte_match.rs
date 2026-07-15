@@ -5,7 +5,7 @@
 //! folded `acc.instance ‖ acc.witness ‖ proof` arkworks produces — the same golden
 //! the CPU byte-match (`recursion_fold_zk_test.py`) already hits, but with a single
 //! fused dispatch whose `M·z` is reduced on-device from the sparse COO
-//! (`jfield.sparse_matvec` → `stablehlo.scatter`) instead of the per-MSM
+//! (`field.sparse_matvec` → `stablehlo.scatter`) instead of the per-MSM
 //! `GpuBackend` fold dispatch.
 //!
 //! This is the GPU half of the IVC fold gate, and the bar acceptance-criterion
@@ -29,10 +29,8 @@
 //!       --test recursion_step vesta::dump::dump_recursion_fold_zk   # forward
 //!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> cargo test --features recursion \
 //!       --test recursion_step pallas::dump::dump_recursion_fold_zk  # reverse
-//!     JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
-//!       PROVE_CURVE=vesta  <venv>/bin/python export/export_fold_zk.py
-//!     JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
-//!       PROVE_CURVE=pallas <venv>/bin/python export/export_fold_zk.py
+//!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> PROVE_CURVE=vesta  bazel run //export:export_fold_zk
+//!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> PROVE_CURVE=pallas bazel run //export:export_fold_zk
 //!
 //! Hardware-gated; run only when the GPU is idle:
 //!

@@ -6,10 +6,9 @@ field/curve serializers reproduce arkworks `CanonicalSerialize` byte-for-byte,
 that `pallas_g1_affine` is `ark_pallas::Affine`, and that zk_dtypes' CPU group
 ops match the Rust-computed points.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/substrate_test.py
+    bazel test //python/accumulation_zorch/testing:substrate_test
 """
 
 import json
@@ -19,7 +18,7 @@ from typing import Any
 import numpy as np
 from absl.testing import absltest
 
-from accumulation_zorch import curve, field
+from accumulation_zorch import curve
 
 cv = curve.PALLAS
 
@@ -49,8 +48,9 @@ class SubstrateTest(absltest.TestCase):
                 self.assertEqual(got, entry["canonical_hex"], (
                     f"{which}/{entry['label']}: {got} != {entry['canonical_hex']}"
                 ))
-                # round-trip: rebuilding from the canonical bytes is stable
-                v2 = field.fe_value(dtype(value))
+                # round-trip: the canonical (non-Montgomery) bytes decode back to
+                # the value via a plain LE read
+                v2 = int.from_bytes(dtype(value).tobytes(), "little")
                 self.assertEqual(v2, value, f"{which}/{entry['label']} value round-trip: {v2} != {value}")
         # hard sanity anchors independent of the dump
         self.assertEqual(cv.fq(1).tobytes().hex(), "01" + "00" * 31)

@@ -29,7 +29,7 @@ import numpy as np
 from jax import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
-from . import curve, jcurve
+from . import curve
 from .curve import Curve
 
 # ark-ff `[u8]::to_field_elements` chunk size = CAPACITY / 8 (both Pasta fq are
@@ -55,6 +55,26 @@ def u8_batch_field_array(cv: Curve, data: bytes) -> np.ndarray:
     return bytes_to_field_array(cv, struct.pack("<Q", len(data)) + data)
 
 
+def u8_batch_field_array_jax(cv: Curve, data_u8: jax.Array) -> jax.Array:
+    """In-trace twin of :func:`u8_batch_field_array`: prepend `(len as u64).LE`, then
+    pack into 31-byte LE `fq` chunks (each zero-padded to the 32-byte repr). `data_u8`
+    is a **static-length** `(N,)` `uint8` array; returns `(ceil((8+N)/31),)` `fq`.
+
+    The jit-able path the fused open core's on-device Fiat-Shamir seed uses instead of
+    the host `bytes` path — byte-identical (canonical-LE `fq` chunks), via the same
+    `bitcast_convert_type(..32 uint8.., fq)` idiom as `ipa_challenger._absorb_prev`."""
+    prefix = jnp.asarray(np.frombuffer(struct.pack("<Q", data_u8.shape[0]), dtype=np.uint8).copy())
+    full = jnp.concatenate([prefix, data_u8])
+    m = full.shape[0]
+    n_fe = (m + _BYTES_PER_FE - 1) // _BYTES_PER_FE
+    # Pad to a whole number of 31-byte chunks, reshape, then a zero column to the
+    # 32-byte repr — the vectorized (no per-chunk Python loop) form of the chunking.
+    padded = jnp.concatenate([full, jnp.zeros((n_fe * _BYTES_PER_FE - m,), jnp.uint8)])
+    chunks = padded.reshape(n_fe, _BYTES_PER_FE)
+    pad_col = jnp.zeros((n_fe, _FE_REPR_BYTES - _BYTES_PER_FE), jnp.uint8)
+    return lax.bitcast_convert_type(jnp.concatenate([chunks, pad_col], axis=-1), cv.fq)
+
+
 def absorb_bytes(cv: Curve, sp: DuplexSponge, data: bytes) -> DuplexSponge:
     """Absorb a `&[u8]` / `Vec<u8>` Absorbable into the sponge."""
     return sp.absorb(jnp.asarray(u8_batch_field_array(cv, data)))
@@ -73,7 +93,7 @@ def point_to_field_array(cv: Curve, point: np.ndarray) -> np.ndarray:
 
 def absorb_point(cv: Curve, sp: DuplexSponge, point: np.ndarray) -> DuplexSponge:
     """Absorb an SW-affine point Absorbable into the sponge (packed in-jit)."""
-    return sp.absorb(point_to_field_array_jax(cv, jcurve.stack_affine(cv, [point])))
+    return sp.absorb(point_to_field_array_jax(cv, curve.stack_affine(cv, [point])))
 
 
 def fork(cv: Curve, sp: DuplexSponge, domain: bytes) -> DuplexSponge:
@@ -154,7 +174,7 @@ def absorb_option_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) 
     `Some` case: a single `F::from(true)` flag, then each point's `[x, y,
     infinity]` — all in one absorb (e.g. `Some(ProofHidingCommitments)`)."""
     arr = jnp.concatenate([jnp.asarray(option_flag(cv, True)),
-                           point_to_field_array_jax(cv, jcurve.stack_affine(cv, points))])
+                           point_to_field_array_jax(cv, curve.stack_affine(cv, points))])
     return sp.absorb(arr)
 
 
@@ -164,7 +184,7 @@ def absorb_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) -> Dupl
     the concatenation of each point's `[x, y, infinity]`."""
     if not points:
         return sp
-    return sp.absorb(point_to_field_array_jax(cv, jcurve.stack_affine(cv, points)))
+    return sp.absorb(point_to_field_array_jax(cv, curve.stack_affine(cv, points)))
 
 
 def absorb_points_jax(cv: Curve, sp: DuplexSponge, points: jax.Array) -> DuplexSponge:

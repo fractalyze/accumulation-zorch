@@ -2,7 +2,7 @@
 
 The CPU port's `sponge.squeeze_challenges` decodes each squeezed Fq element to a
 Python bigint and slices bits in a Python loop (`squeeze_bits` /
-`squeeze_nonnative`) — not jit-able. `jsponge.challenges_from_fq` does the same
+`squeeze_nonnative`) — not jit-able. `sponge.challenges_from_fq` does the same
 ark-sponge bit math (low `CAPACITY=254` bits per element, concatenate, window
 into `size`-bit challenges, repack LE into Fr) entirely in jax, returning the
 challenges as an Fr field-element array (the on-device form the fused core
@@ -11,14 +11,14 @@ keeps).
 Two gates:
 - the arkworks-pinned NARK `gamma` challenge (`absorb_fixtures.json`), the k=1
   / 128-bit path the prover actually squeezes;
-- a cross-check vs the CPU `sponge.squeeze_challenges` at k=1,2,3 — k≥2 squeezes
-  two Fq elements (256 > 254), so the challenge stream crosses the 254-bit
-  element boundary, the case a byte-level (not bit-level) extraction gets wrong.
+- the arkworks-pinned truncated-128 squeeze at k=1,2,4 (`sponge_fixtures.json`
+  `nonnative_squeeze`) — k≥2 squeezes multiple Fq elements, so the challenge
+  stream crosses the 254-bit element boundary (the `four_challenges_cross_element`
+  case), what a byte-level (not bit-level) extraction gets wrong.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/jsponge_test.py
+    bazel test //python/accumulation_zorch/testing:sponge_jax_test
 """
 
 import json
@@ -29,7 +29,7 @@ import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
-from accumulation_zorch import absorbable, curve, jsponge, nark, sponge
+from accumulation_zorch import absorbable, curve, nark, sponge
 
 cv = curve.PALLAS
 
@@ -75,29 +75,32 @@ def _n_elems(k: int) -> int:
     return (num_bits + sponge.FQ_CAPACITY - 1) // sponge.FQ_CAPACITY
 
 
-class JspongeTest(absltest.TestCase):
+class SpongeJaxTest(absltest.TestCase):
     def test_gamma_challenge_matches_arkworks(self) -> None:
         g = json.loads(_ABSORB.read_text())["gamma"]
         self.assertIsNone(g["randomness"])
         sp = _gamma_sponge(_params(), g)
         _, elems = sp.squeeze(_n_elems(1))
-        fr = jsponge.challenges_from_fq(jnp.asarray(elems), 1, _SIZE, cv)
+        fr = sponge.challenges_from_fq(jnp.asarray(elems), 1, _SIZE, cv)
         got = np.asarray(fr)[0].tobytes().hex()
         self.assertEqual(got, g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}")
         print("  jit gamma challenge byte-matches R1CSNark::compute_challenge OK")
 
-    def test_matches_cpu_squeeze_across_element_boundary(self) -> None:
-        """k=1,2,3 vs the CPU `squeeze_challenges`; k≥2 crosses the 254-bit Fq
-        element boundary."""
+    def test_truncated_squeeze_matches_arkworks(self) -> None:
+        """jax `challenges_from_fq` byte-matches the arkworks-pinned truncated-128
+        squeeze fixtures (`nonnative_squeeze`) at k=1,2,4 — k≥2 crosses the 254-bit
+        Fq element boundary (`four_challenges_cross_element`)."""
         params = _params()
-        for k in (1, 2, 3):
-            base = absorbable.absorb_bytes(cv, sponge.new_sponge(params), bytes([k, 7, 9]))
-            _, want = sponge.squeeze_challenges(base, k)  # CPU Python-loop ints
-            _, elems = base.squeeze(_n_elems(k))
-            fr = jsponge.challenges_from_fq(jnp.asarray(elems), k, _SIZE, cv)
-            got = [int.from_bytes(np.asarray(fr)[i].tobytes(), "little") for i in range(k)]
-            self.assertEqual(got, want, f"k={k}: {got} != {want}")
-            print(f"  k={k} ({_n_elems(k)} Fq elems) matches CPU squeeze_challenges OK")
+        for case in json.loads(_SPONGE.read_text())["nonnative_squeeze"]:
+            sp = sponge.new_sponge(params)
+            for v in case["absorb"]:
+                sp = sp.absorb(jnp.asarray(np.array([v], dtype=cv.fq)))
+            k = case["k"]
+            _, elems = sp.squeeze(_n_elems(k))
+            fr = sponge.challenges_from_fq(jnp.asarray(elems), k, _SIZE, cv)
+            got = [row.tobytes().hex() for row in np.asarray(fr)]
+            self.assertEqual(got, case["challenges"], case["name"])
+            print(f"  {case['name']} (k={k}) byte-matches ark-sponge OK")
 
 
 if __name__ == "__main__":

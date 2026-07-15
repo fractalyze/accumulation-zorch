@@ -12,10 +12,9 @@ The old accumulator (`acc_prev`) is fed as its parsed instance/witness component
 every sampled randomness value (input's NARK, the fold's AS + HP) is replayed from
 the dump.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/as_fold_zk_e2e_test.py
+    bazel test //python/accumulation_zorch/testing:as_fold_zk_e2e_test
 """
 
 import json

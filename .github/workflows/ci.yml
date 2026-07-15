@@ -36,13 +36,12 @@ jobs:
         with:
           workspaces: accumulation-zorch
 
-      # Scope to the main package: the `crates/zkx-pjrt` workspace member is the
-      # GPU PJRT shim whose build runs bindgen (needs libclang + a vendored
-      # header), so it is excluded here. With default features the `gpu` feature
-      # and every `#![cfg(feature = "gpu")]` byte-match test stay off, so no
-      # CUDA / PJRT plugin / libclang is needed. `--cap-lints=warn` keeps the
-      # older arkworks oracle's lints from failing the build.
-      - name: Build + test (CPU; GPU shim + GPU tests excluded)
+      # Default features only: the `gpu` feature (which pulls the xla-pjrt git
+      # dep — bindgen + libclang) and every `#![cfg(feature = "gpu")]` byte-match
+      # test stay off, so this CPU job needs no CUDA / PJRT plugin / libclang.
+      # `--cap-lints=warn` keeps the older arkworks oracle's lints from failing
+      # the build.
+      - name: Build + test (CPU; gpu feature + GPU tests off)
         working-directory: accumulation-zorch
         env:
           RUSTFLAGS: "--cap-lints=warn"
@@ -50,61 +49,27 @@ jobs:
         run: cargo test -p accumulation-zorch --verbose
 
   python:
-    # The byte-match scripts are absltest cases; each is a jax CPU trace+prove
-    # (the heavy fused-prove ones run ~30-60s), so they are split into a handful
-    # of parallel shards — wall time is the slowest shard, not the sum, without
-    # one GitHub check per file. Shards are balanced so the slow fused-prove
-    # tests are spread across them. recursion_fold_zk_test.py is omitted (the full
+    # The byte-match tests build + run under Bazel. `bazel test //python/...`
+    # runs every absltest byte-match case in parallel (each sandboxed), so wall
+    # time is the slowest test, not the sum — no manual sharding. zorch (the
+    # IPA-PC prover/verifier + Poseidon sponge) and the zkx Pasta jax fork come
+    # from Bazel — the git_override pin + the pip hub — so there is no venv /
+    # PYTHONPATH. recursion_fold_zk_test is tagged `manual` and excluded (the full
     # recursion-circuit IVC fold is minutes-slow on CPU; its fold math is covered
     # by as_fold_zk*, its recursion circuit by recursion_nark*).
-    name: Python (${{ matrix.shard.name }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard:
-          - name: accumulation
-            tests: "as_test.py as_zk_test.py as_decide_test.py absorb_test.py"
-          - name: folding
-            tests: "as_fold_zk_test.py as_fold_zk_e2e_test.py sponge_test.py jsponge_test.py"
-          - name: hp
-            tests: "as_hp_fold_zk_test.py hp_zk_test.py hp_test.py substrate_test.py"
-          - name: nark
-            tests: "nark_test.py nark_zk_test.py recursion_nark_test.py"
-          - name: ipa
-            tests: "ipa_test.py ipa_zk_test.py ipa_as_test.py ipa_as_zk_test.py jcurve_test.py recursion_nark_zk_test.py"
+    name: Python (bazel byte-match)
+    # Self-hosted (same as zorch / sp1-zorch): the zorch git_override fetches the
+    # private fractalyze/zorch repo, which needs the box's git credentials —
+    # GitHub-hosted runners have none. These boxes also already have Bazel + warm
+    # bazel/repository caches, so no setup-bazel / cache action (they would clobber
+    # the box's ~/.bazelrc).
+    runs-on: [self-hosted, cpu]
     steps:
       - uses: actions/checkout@v4
 
-      # enable-cache makes the large jax-fork wheels a warm restore on later
-      # runs, so the repeated per-shard install is cheap after the first run.
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      # The zkx Pasta jax fork registers the Pasta curve dtypes; the CPU backend
-      # needs no GPU plugin (so `jax-cuda12-pjrt`/`jax-cuda12-plugin` are omitted
-      # vs the README's GPU setup). Pins match README.md.
-      - name: Create venv + install the zkx Pasta jax fork (CPU)
-        run: |
-          uv venv --python 3.11 .venv
-          uv pip install --python .venv --index-strategy unsafe-best-match \
-            --index-url https://fractalyze.github.io/pypi/simple/ \
-            --extra-index-url https://pypi.org/simple/ \
-            jax==0.10.0.dev20260701084712 jaxlib==0.10.0.dev20260701084712 \
-            zk-dtypes==0.0.7 numpy absl-py
-
-      # Each absltest case exits non-zero on a byte-match failure. CPU-forced; the
-      # GPU byte-match tests are separate (Rust, hardware-gated) and not run here.
-      # `||` short-circuit fails the shard on the first failing test.
-      - name: ${{ matrix.shard.name }}
-        env:
-          JAX_PLATFORMS: cpu
-          PYTHONPATH: python
-        run: |
-          for t in ${{ matrix.shard.tests }}; do
-            echo "::group::$t"
-            .venv/bin/python "python/accumulation_zorch/testing/$t" || exit 1
-            echo "::endgroup::"
-          done
+      # .bazelrc pins JAX_PLATFORMS=cpu; each test exits non-zero on a byte-match
+      # failure. `//python/...` excludes the manual recursion_fold_zk_test;
+      # `//export/...` adds the exporter lowering smoke test (the GPU byte-match
+      # that exercises the exporters is separate — Rust, hardware-gated).
+      - name: bazel test //python/... //export/...
+        run: bazel test //python/... //export/...

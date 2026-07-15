@@ -6,10 +6,9 @@ crate's serialized accumulator instance + witness + `Proof` (with hiding
 commitments) byte-for-byte. The prover's sampled hiding randomness is replayed
 from `examples/dump_hp_zk.rs`.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=.:<pasta-zorch>/zorch \
-      python accumulation_zorch/testing/hp_zk_test.py
+    bazel test //python/accumulation_zorch/testing:hp_zk_test
 """
 
 import json

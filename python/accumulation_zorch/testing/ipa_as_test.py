@@ -14,10 +14,9 @@ per-curve sponge fixture, as in the other byte-match tests.
 Running the SAME curve-generic port against the Vesta fixture is the
 curve-generic gate.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/ipa_as_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_as_test
 """
 
 import json
@@ -26,7 +25,7 @@ from typing import Any, NamedTuple
 
 from absl.testing import absltest
 
-from accumulation_zorch import curve, ipa_pc, ipa_pc_as, sponge
+from accumulation_zorch import curve, ipa_challenger, ipa_pc_as, sponge
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
@@ -78,7 +77,7 @@ class IpaAsTest(absltest.TestCase):
             inputs = [_parse_input(cv, inp) for inp in d["inputs"]]
 
             succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
-            got = ipa_pc_as.prove_no_zk_instance(cv, params, succinct_checks)
+            got = ipa_pc_as.prove_instance(cv, params, succinct_checks)
 
             acc = d["accumulator"]
             got_comm = curve.point_to_bytes(cv, got.commitment).hex()
@@ -88,7 +87,7 @@ class IpaAsTest(absltest.TestCase):
             got_point = cv.fr(got.point).tobytes().hex()
             self.assertEqual(got_point, acc["point"], f"[{cv.name}] new point: {got_point} != {acc['point']}")
 
-            got_eval = cv.fr(got.evaluation).tobytes().hex()
+            got_eval = got.evaluation.tobytes().hex()
             self.assertEqual(got_eval, acc["evaluation"], (
                 f"[{cv.name}] combined evaluation: {got_eval} != {acc['evaluation']}"))
 
@@ -107,7 +106,7 @@ class IpaAsTest(absltest.TestCase):
             generators = [_point(cv, g) for g in d["generators"]]
 
             succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
-            acc = ipa_pc_as.prove_no_zk_accumulator(cv, params, svk_h, generators, succinct_checks)
+            acc = ipa_pc_as.prove_accumulator(cv, params, svk_h, generators, succinct_checks)
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:
@@ -115,7 +114,7 @@ class IpaAsTest(absltest.TestCase):
 
             self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
             self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(cv.fr(acc.evaluation).tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
 
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
@@ -161,10 +160,10 @@ class IpaAsTest(absltest.TestCase):
             d = json.loads(as_fixture.read_text())
             acc = _parse_input(cv, d["accumulator"])
 
-            check_poly = ipa_pc.succinct_check_challenges(
+            check_poly = ipa_challenger.succinct_check_challenges(
                 cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec)
-            coeffs = ipa_pc.compute_coeffs(cv, check_poly)
-            got = [cv.fr(c).tobytes().hex() for c in coeffs]
+            coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
+            got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
             self.assertEqual(got, want, f"[{cv.name}] decider_coeffs: port {got} != fixture {want}")
             print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's "

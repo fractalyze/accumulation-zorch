@@ -9,7 +9,7 @@ The R1CS-NARK-AS decider's GPU-value work is the **six size-`n` MSMs** it runs
     test_comm_1 = commit(A·z, ρ₁)   test_comm_2 = commit(B·z, ρ₂)   test_comm_3 = commit(A·z∘B·z, ρ₃)
 
 and the decider accepts iff these equal the accumulator's stored commitments.
-This lowers exactly that — the three `M·z` reduces (`commit_dense` = matvec +
+This lowers exactly that — the three `M·z` reduces (`field.matvec` +
 `lax.msm`) and the HP Hadamard product, then the six `commit_hiding` MSMs over
 `generators ‖ hiding` — to a single PJRT call. The committer key (`bases_h`), the
 assignment (`z`), and the six randomizers (`rand6`, all 0 on the no-zk path,
@@ -21,15 +21,13 @@ challenge/randomness derivation that yields `z` / `rand6` stays host-side (alrea
 byte-matched on CPU by ``testing/as_decide_test.py``). The MSM dispatches on the
 bases' element type, so each curve lowers a distinct module.
 
-Run with the Pasta jax-fork venv — CPU is enough, lowering needs no GPU:
+Run under Bazel — CPU is enough, lowering needs no GPU:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \\
-      <venv>/bin/python export/export_as_decide.py [pallas|vesta]
+    bazel run //export:export_as_decide [-- pallas|vesta]
 
     # bench core (a size-`n` pure 6-MSM decider load, for the scale benchmark):
-    AS_DECIDE_SIZE=65536 PROVE_CURVE=pallas <venv>/bin/python export/export_as_decide.py
+    AS_DECIDE_SIZE=65536 PROVE_CURVE=pallas bazel run //export:export_as_decide
 """
-import io
 import os
 import sys
 import time
@@ -40,8 +38,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from accumulation_zorch import curve, jcurve, jfield, nark
+from accumulation_zorch import curve, field, nark
 from accumulation_zorch.curve import Curve
+
+from export_prove import write_bytecode
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
 _FIXTURE = {
@@ -71,22 +71,6 @@ def _matrix(rows: Any) -> nark.Matrix:
     return [[(_fr(coeff), idx) for coeff, idx in row] for row in rows]
 
 
-def write_bytecode(lowered: Any, path: Path) -> int:
-    """Serialize a lowered module to StableHLO bytecode (mirrors
-    ``export_ipa.write_bytecode``)."""
-    m = lowered.compiler_ir(dialect="stablehlo")
-    try:
-        from jax._src.interpreters import mlir as _jmlir
-
-        data = _jmlir.module_to_bytecode(m)
-    except Exception:
-        buf = io.BytesIO()
-        m.operation.write_bytecode(buf)
-        data = buf.getvalue()
-    path.write_bytes(data)
-    return len(data)
-
-
 def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
                        num_vars: int) -> Any:
     """The general decider core: `_core(bases_h, z, hp_a, hp_b, rand6)` recomputes
@@ -108,17 +92,17 @@ def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix
     @jax.jit
     def _core(bases_h: jax.Array, z: jax.Array, hp_a: jax.Array, hp_b: jax.Array,
               rand6: jax.Array) -> tuple:
-        av = jfield.matvec(a_dense, z)
-        bv = jfield.matvec(b_dense, z)
-        cv_vec = jfield.matvec(c_dense, z)
+        av = field.matvec(a_dense, z)
+        bv = field.matvec(b_dense, z)
+        cv_vec = field.matvec(c_dense, z)
         product = hp_a * hp_b  # Hadamard a_vec ∘ b_vec (fr element-wise)
         return (
-            jcurve.commit_hiding(cv, av, rand6[0], bases_h),
-            jcurve.commit_hiding(cv, bv, rand6[1], bases_h),
-            jcurve.commit_hiding(cv, cv_vec, rand6[2], bases_h),
-            jcurve.commit_hiding(cv, hp_a, rand6[3], bases_h),
-            jcurve.commit_hiding(cv, hp_b, rand6[4], bases_h),
-            jcurve.commit_hiding(cv, product, rand6[5], bases_h),
+            curve.commit_hiding(cv, av, rand6[0], bases_h),
+            curve.commit_hiding(cv, bv, rand6[1], bases_h),
+            curve.commit_hiding(cv, cv_vec, rand6[2], bases_h),
+            curve.commit_hiding(cv, hp_a, rand6[3], bases_h),
+            curve.commit_hiding(cv, hp_b, rand6[4], bases_h),
+            curve.commit_hiding(cv, product, rand6[5], bases_h),
         )
 
     return _core
@@ -138,7 +122,7 @@ def export_decider(cv: Curve) -> Path:
     num_vars = len(d["seeds"][0]["r1cs_input"]) + len(d["seeds"][0]["blinded_witness"])
 
     core = build_decider_core(cv, a, b, c, num_vars)
-    bases_h = jcurve.stack_affine(cv, generators[:rows] + [hiding])
+    bases_h = curve.stack_affine(cv, generators[:rows] + [hiding])
     z = jnp.asarray(np.zeros(num_vars, dtype=cv.fr))
     hp_vec = jnp.asarray(np.zeros(rows, dtype=cv.fr))
     rand6 = jnp.asarray(np.zeros(6, dtype=cv.fr))
@@ -166,12 +150,12 @@ def build_decider_bench_core(cv: Curve) -> Any:
               rand6: jax.Array) -> tuple:
         product = av * bv
         return (
-            jcurve.commit_hiding(cv, av, rand6[0], bases_h),
-            jcurve.commit_hiding(cv, bv, rand6[1], bases_h),
-            jcurve.commit_hiding(cv, cv_vec, rand6[2], bases_h),
-            jcurve.commit_hiding(cv, av, rand6[3], bases_h),
-            jcurve.commit_hiding(cv, bv, rand6[4], bases_h),
-            jcurve.commit_hiding(cv, product, rand6[5], bases_h),
+            curve.commit_hiding(cv, av, rand6[0], bases_h),
+            curve.commit_hiding(cv, bv, rand6[1], bases_h),
+            curve.commit_hiding(cv, cv_vec, rand6[2], bases_h),
+            curve.commit_hiding(cv, av, rand6[3], bases_h),
+            curve.commit_hiding(cv, bv, rand6[4], bases_h),
+            curve.commit_hiding(cv, product, rand6[5], bases_h),
         )
 
     return _core
@@ -188,7 +172,7 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     d = json.loads(_FIXTURE[cv.name].read_text())
     g0 = _point(cv, d["generators"][0])
     core = build_decider_bench_core(cv)
-    bases_h = jcurve.stack_affine(cv, [g0] * (n + 1))
+    bases_h = curve.stack_affine(cv, [g0] * (n + 1))
     zeros_n = jnp.asarray(np.zeros(n, dtype=cv.fr))
     rand6 = jnp.asarray(np.zeros(6, dtype=cv.fr))
 

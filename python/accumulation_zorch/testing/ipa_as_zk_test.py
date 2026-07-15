@@ -15,10 +15,9 @@ and the random poly's `rlp(point)` term in the combined evaluation. The
 accumulator's hiding IPA opening proof (the IPA open's replayed hiding polynomial)
 is a later sub-step and not checked here.
 
-Run (from the repo's `python/` dir, in the accumulation-zorch venv):
+Run under Bazel:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=. \
-      python accumulation_zorch/testing/ipa_as_zk_test.py
+    bazel test //python/accumulation_zorch/testing:ipa_as_zk_test
 """
 
 import json
@@ -87,8 +86,9 @@ class IpaAsZkTest(absltest.TestCase):
 
             # No-zk inputs ⇒ no-zk succinct check; the AS layer is the zk part.
             succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
-            got = ipa_pc_as.prove_zk_instance(
-                cv, params, succinct_checks, rlp_coeffs, rlp_commitment, s, commitment_randomness)
+            got = ipa_pc_as.prove_instance(
+                cv, params, succinct_checks,
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s)
 
             acc = d["accumulator"]
             got_comm = curve.point_to_bytes(cv, got.commitment).hex()
@@ -98,7 +98,7 @@ class IpaAsZkTest(absltest.TestCase):
             got_point = cv.fr(got.point).tobytes().hex()
             self.assertEqual(got_point, acc["point"], f"[{cv.name}] new point: {got_point} != {acc['point']}")
 
-            got_eval = cv.fr(got.evaluation).tobytes().hex()
+            got_eval = got.evaluation.tobytes().hex()
             self.assertEqual(got_eval, acc["evaluation"], f"[{cv.name}] combined evaluation: {got_eval} != {acc['evaluation']}")
 
             print(f"  [{cv.name}] zk AS accumulator instance (randomized commitment, point, evaluation) "
@@ -124,9 +124,10 @@ class IpaAsZkTest(absltest.TestCase):
             hiding_rand = _fr(d["hiding_rand"])
 
             succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
-            acc = ipa_pc_as.prove_zk_accumulator(
-                cv, params, svk_h, s, generators, succinct_checks, rlp_coeffs, rlp_commitment,
-                commitment_randomness, hiding_poly, hiding_rand)
+            acc = ipa_pc_as.prove_accumulator(
+                cv, params, svk_h, generators, succinct_checks,
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s,
+                hiding_poly, hiding_rand)
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:
@@ -134,7 +135,7 @@ class IpaAsZkTest(absltest.TestCase):
 
             self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
             self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(cv.fr(acc.evaluation).tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
                 self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}")
@@ -160,7 +161,7 @@ class IpaAsZkTest(absltest.TestCase):
             s = _point(cv, d["s"])
             acc = _parse_input(cv, d["accumulator"])
 
-            final_key = ipa_pc_as.decide_final_key_zk(cv, params, generators, acc, s)
+            final_key = ipa_pc_as.decide_final_key(cv, params, generators, acc, s)
             got = curve.point_to_bytes(cv, final_key).hex()
             want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
             self.assertEqual(got, want, f"[{cv.name}] zk decider size-d MSM != final_comm_key: {got} != {want}")
@@ -172,18 +173,18 @@ class IpaAsZkTest(absltest.TestCase):
         Slice-5e fused GPU decider MSM — are exactly the port's
         `compute_coeffs(zk_succinct_check(accumulator))`, tying the GPU core's runtime
         input to the byte-matched CPU port."""
-        from accumulation_zorch import ipa_pc
+        from accumulation_zorch import ipa_challenger
         for cv, as_fixture, sponge_fixture in _CURVES:
             params = _params(cv, sponge_fixture)
             d = json.loads(as_fixture.read_text())
             s = _point(cv, d["s"])
             acc = _parse_input(cv, d["accumulator"])
 
-            check_poly = ipa_pc.succinct_check_challenges_zk(
+            check_poly = ipa_challenger.succinct_check_challenges_zk(
                 cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec,
                 s, acc.hiding_comm, acc.rand)
-            coeffs = ipa_pc.compute_coeffs(cv, check_poly)
-            got = [cv.fr(c).tobytes().hex() for c in coeffs]
+            coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
+            got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
             self.assertEqual(got, want, f"[{cv.name}] zk decider_coeffs: port != fixture")
             print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's zk "

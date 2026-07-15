@@ -5,7 +5,7 @@
 //! proof the per-MSM `GpuBackend` byte-match (`recursion_step::vesta::on_gpu::
 //! recursion_step_proves_on_vesta`, make_zk=true) hits, but with a single fused
 //! dispatch whose `M·z` is reduced on-device from the sparse COO
-//! (`jfield.sparse_matvec` → `stablehlo.scatter`) instead of eight per-MSM commit
+//! (`field.sparse_matvec` → `stablehlo.scatter`) instead of eight per-MSM commit
 //! dispatches.
 //!
 //! This is the GPU half of the half-step zk gate: the CPU side
@@ -21,8 +21,7 @@
 //!
 //!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> \
 //!       cargo test --features recursion --test recursion_step dump_recursion_nark_zk
-//!     JAX_PLATFORMS=cpu PYTHONPATH=python:<pasta-zorch>/zorch \
-//!       ACCUMULATION_ZORCH_ARTIFACTS=<dir> <venv>/bin/python export/export_nark_zk.py
+//!     ACCUMULATION_ZORCH_ARTIFACTS=<dir> bazel run //export:export_nark_zk
 //!
 //! Hardware-gated; run only when the GPU is idle:
 //!
