@@ -1,5 +1,5 @@
 {
-  "note": "arkworks ark_pallas CanonicalSerialize fixtures for zorch#303 slice 1",
+  "note": "arkworks ark_pallas CanonicalSerialize fixtures",
   "fq_modulus_minus_one": "40000000000000000000000000000000224698FC094CF91B992D30ED00000000",
   "fr_modulus_minus_one": "40000000000000000000000000000000224698FC0994A8DD8C46EB2100000000",
   "fields": {

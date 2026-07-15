@@ -1,5 +1,5 @@
 {
-  "note": "HP-AS zk prove fixtures (zorch#303 slice 6b)",
+  "note": "HP-AS zk prove fixtures",
   "hp_vec_len": 4,
   "supported_num_elems": 4,
   "generators": [{"x_le_hex":"7ce8f4fc25b80433b47b76d07cf3520e9561030f443c858a82fe6537053dd01f","y_le_hex":"0ee066236d4638384dd6988d5c62e2157b67d3ff5fc37695189a91235ea75410"},{"x_le_hex":"6edd25a5b0db64d913f0f2bbe27126cbaa3285a4f2844c7baef02088d36b2a13","y_le_hex":"2dd0902b2730edfe09effc4942c6ac7517d09e4e575775a7b17e2527f561f000"},{"x_le_hex":"b39ce2c4cb1889e8d124882516329ba88db0b8249e4faf8f018fb3f0f7928616","y_le_hex":"34134199506c8667b0f9500ee3f631d30d7dcabad7efc942507e32abab780203"},{"x_le_hex":"ae7c546fb687bc80e6c16f0f227709990e74e0e8b147a033ce04bf4a37bfa52c","y_le_hex":"ea5346341232a77a5b3cf4280651fe897463b9cf069004865bcfdb0e17e9191f"}],

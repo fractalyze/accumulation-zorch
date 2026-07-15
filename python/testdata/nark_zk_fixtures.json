@@ -1,5 +1,5 @@
 {
-  "note": "NARK zk prove fixtures (zorch#303 slice 6a)",
+  "note": "NARK zk prove fixtures",
   "num_inputs": 6,
   "num_constraints": 10,
   "nark_matrices_hash_hex": "262d881ef8b12fd369d085c11098c7e5ce3f0c16aae8eb987bd3611eec1ce341",

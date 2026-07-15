@@ -1,5 +1,5 @@
 {
-  "note": "NARK no-zk prove fixtures (pallas curve, zorch#303 slice 3)",
+  "note": "NARK no-zk prove fixtures (pallas curve)",
   "curve": "pallas",
   "num_inputs": 6,
   "num_constraints": 10,

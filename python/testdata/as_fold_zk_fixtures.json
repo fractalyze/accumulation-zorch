@@ -1,5 +1,5 @@
 {
-  "note": "R1CS-NARK-AS multi-addend fold (num_addends=3) fixtures (zorch#326 slice 4)",
+  "note": "R1CS-NARK-AS multi-addend fold (num_addends=3) fixtures",
   "num_inputs": 5,
   "num_constraints": 10,
   "supported_num_elems": 10,
