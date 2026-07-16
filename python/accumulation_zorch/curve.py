@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 import zk_dtypes as zk
 from frx import lax
@@ -194,7 +194,7 @@ def stack_affine(cv: Curve, points: list[np.ndarray]) -> frx.Array:
     `cv.g1((x, y))` scalar, or a jacobian from a CPU group op) to the affine form
     before the byte concat."""
     raw = b"".join(np.asarray(p, dtype=cv.g1).tobytes() for p in points)
-    return jnp.asarray(np.frombuffer(raw, dtype=cv.g1).copy())
+    return fnp.asarray(np.frombuffer(raw, dtype=cv.g1).copy())
 
 
 def commit_hiding(cv: Curve, scalars: frx.Array, randomizer: int | frx.Array,
@@ -211,8 +211,8 @@ def commit_hiding(cv: Curve, scalars: frx.Array, randomizer: int | frx.Array,
     device scalar (the general prover, where the randomness is a runtime
     input); either rides as the trailing MSM term, byte-identically."""
     if isinstance(randomizer, (int, np.integer)):
-        rand = jnp.asarray(np.array([randomizer], dtype=cv.fr))
+        rand = fnp.asarray(np.array([randomizer], dtype=cv.fr))
     else:
-        rand = jnp.asarray(randomizer).reshape(1)
-    full = jnp.concatenate([scalars, rand])
+        rand = fnp.asarray(randomizer).reshape(1)
+    full = fnp.concatenate([scalars, rand])
     return lax.msm(full, bases_h)

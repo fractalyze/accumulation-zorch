@@ -32,7 +32,7 @@ import functools
 from typing import Any, NamedTuple
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from frx import lax
 
@@ -95,13 +95,13 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
     rows = len(a)  # num_constraints; a/b/c share the row count
     n = len(r1cs_input) + len(blinded_witness)  # z length = the circuit's num_vars (static)
     bases = curve.stack_affine(cv, generators[:rows])
-    a_dense, b_dense, c_dense = (jnp.asarray(nark.to_dense(cv, m, n)) for m in (a, b, c))
-    r1cs_input_arr = jnp.asarray(np.array(list(r1cs_input), dtype=cv.fr))
-    blinded_witness_arr = jnp.asarray(np.array(list(blinded_witness), dtype=cv.fr))
+    a_dense, b_dense, c_dense = (fnp.asarray(nark.to_dense(cv, m, n)) for m in (a, b, c))
+    r1cs_input_arr = fnp.asarray(np.array(list(r1cs_input), dtype=cv.fr))
+    blinded_witness_arr = fnp.asarray(np.array(list(blinded_witness), dtype=cv.fr))
 
     @frx.jit
     def _core(bases: frx.Array, r1cs_input: frx.Array, blinded_witness: frx.Array) -> tuple:
-        z = jnp.concatenate([r1cs_input, blinded_witness])
+        z = fnp.concatenate([r1cs_input, blinded_witness])
         a_arr = field.matvec(a_dense, z)
         b_arr = field.matvec(b_dense, z)
         c_arr = field.matvec(c_dense, z)
@@ -109,7 +109,7 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
                                   lax.msm(c_arr, bases))
         # HP input: instance (comm_a, comm_b, comm_prod=comm_c) + opening (A·z, B·z).
         hp_sponge = absorbable.fork(cv, sponge.new_sponge(params), HP_AS_PROTOCOL_NAME)
-        hp = hp_as.prove_no_zk_core(cv, jnp.stack([comm_a, comm_b, comm_c]), a_arr, b_arr,
+        hp = hp_as.prove_no_zk_core(cv, fnp.stack([comm_a, comm_b, comm_c]), a_arr, b_arr,
                                     supported_num_elems, params, base_sponge=hp_sponge)
         return comm_a, comm_b, comm_c, hp
 
@@ -168,8 +168,8 @@ def _acc_instance_fe(cv: Curve, r1cs_input_bytes: bytes, comms: frx.Array) -> fr
     `comm_1, comm_2, comm_3` — and **no option flag** (unlike the input instance's
     `Some`-flagged 5 randomness commitments). `comms` is a pre-stacked `(6,)` affine
     array `[comm_a, comm_b, comm_c, hp_1, hp_2, hp_3]`."""
-    return jnp.concatenate([
-        jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_input_bytes)),
+    return fnp.concatenate([
+        fnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_input_bytes)),
         absorbable.point_to_field_array_frx(cv, comms),
     ])
 
@@ -188,7 +188,7 @@ def _beta_challenges_frx(cv: Curve, params: Any, as_matrices_hash: bytes, input_
     (`_acc_instance_fe`), absorbed **before** the input — `None` (the default, with
     `num_challenges=1`) is the single-input init path (num_addends=2); the IVC fold
     passes one accumulator and `num_challenges=2` (num_addends=3)."""
-    fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
+    fr_one = fnp.asarray(np.array([1], dtype=cv.fr))
     sp = absorbable.fork(cv, sponge.new_sponge(params), AS_PROTOCOL_NAME)
     sp = absorbable.absorb_bytes(cv, sp, as_matrices_hash)
     if acc_inst_fe is not None:
@@ -196,7 +196,7 @@ def _beta_challenges_frx(cv: Curve, params: Any, as_matrices_hash: bytes, input_
     sp = sp.absorb(input_inst_fe)
     sp = sp.absorb(proof_rand_fe)
     sp, ch = sponge.squeeze_challenges_frx(sp, num_challenges, _CHALLENGE_BITS, cv)
-    return jnp.concatenate([fr_one, ch])
+    return fnp.concatenate([fr_one, ch])
 
 
 def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
@@ -243,7 +243,7 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
     # needs host-constant row bounds — which a runtime vector doesn't give. A dense
     # matvec (constant matrix · runtime vector) sidesteps that (the no-zk general
     # core's approach); densifying is affordable at the general prover's scale.
-    a_dense, b_dense, c_dense = (jnp.asarray(nark.to_dense(cv, m, n)) for m in (a, b, c))
+    a_dense, b_dense, c_dense = (fnp.asarray(nark.to_dense(cv, m, n)) for m in (a, b, c))
     bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
     id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])
 
@@ -251,23 +251,23 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
     # lowering (`in`/`wit`/`r` fr; `blinders` (8,); `r_in`/`r_wit` fr; `as_rand`
     # (3,); `hp_rand` (5,) = [hiding_a, hiding_b, hr1, hr2, hr3]; the two fq
     # `u8_batch` packings). The lowered core is seed-independent.
-    ex_in = jnp.asarray(np.array(r1cs_input, dtype=cv.fr))
-    ex_wit = jnp.asarray(np.array(witness, dtype=cv.fr))
-    ex_r = jnp.asarray(np.array(nark_r, dtype=cv.fr))
-    ex_blinders = jnp.asarray(np.array(list(nark_blinders), dtype=cv.fr))
-    ex_r_in = jnp.asarray(np.array(r1cs_r_input, dtype=cv.fr))
-    ex_r_wit = jnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))
-    ex_as_rand = jnp.asarray(np.array(list(as_rand), dtype=cv.fr))
-    ex_hp_rand = jnp.asarray(np.array([hp_hiding_a, hp_hiding_b, *hp_rand], dtype=cv.fr))
-    ex_in_u8b = jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_input_bytes))
-    ex_r_in_u8b = jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes))
+    ex_in = fnp.asarray(np.array(r1cs_input, dtype=cv.fr))
+    ex_wit = fnp.asarray(np.array(witness, dtype=cv.fr))
+    ex_r = fnp.asarray(np.array(nark_r, dtype=cv.fr))
+    ex_blinders = fnp.asarray(np.array(list(nark_blinders), dtype=cv.fr))
+    ex_r_in = fnp.asarray(np.array(r1cs_r_input, dtype=cv.fr))
+    ex_r_wit = fnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))
+    ex_as_rand = fnp.asarray(np.array(list(as_rand), dtype=cv.fr))
+    ex_hp_rand = fnp.asarray(np.array([hp_hiding_a, hp_hiding_b, *hp_rand], dtype=cv.fr))
+    ex_in_u8b = fnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_input_bytes))
+    ex_r_in_u8b = fnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes))
 
     @frx.jit
     def _core(bases_h: frx.Array, id_pt: frx.Array, in_arr: frx.Array, wit_arr: frx.Array,
               r_arr: frx.Array, blinders_arr: frx.Array, r_in_arr: frx.Array, r_wit_arr: frx.Array,
               as_rand_arr: frx.Array, hp_rand_arr: frx.Array, in_u8b: frx.Array,
               r_in_u8b: frx.Array) -> tuple:
-        fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
+        fr_one = fnp.asarray(np.array([1], dtype=cv.fr))
         # The assignment + NARK randomness ride in as runtime arrays via `rt`; the
         # host `r1cs_input`/`witness`/`nark_*` args (closed over) are the unused
         # example values, overridden here so one lowered core proves any prove.
@@ -284,28 +284,28 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
             return field.matvec(dense_m, vec)
 
         # comm_r_M = commit(M·(r1cs_r_input ‖ r1cs_r_witness)).
-        zr = jnp.concatenate([r_in_arr, r_wit_arr])
+        zr = fnp.concatenate([r_in_arr, r_wit_arr])
         comm_r_a = curve.commit_hiding(cv, _mz(a_dense, zr), as_rand_arr[0], bases_h)
         comm_r_b = curve.commit_hiding(cv, _mz(b_dense, zr), as_rand_arr[1], bases_h)
         comm_r_c = curve.commit_hiding(cv, _mz(c_dense, zr), as_rand_arr[2], bases_h)
 
         # Blinded commitments: fold the NARK first-round randomness in, scaled by
         # gamma (each `comm + coeff·comm_r` is one lax.msm fold).
-        one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        blinded_comm_c = lax.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
-        comm_prod = lax.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
-                               jnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
+        one_gamma = fnp.concatenate([fr_one, gamma])
+        blinded_comm_a = lax.msm(one_gamma, fnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, fnp.stack([nk.comm_b, nk.comm_r_b]))
+        blinded_comm_c = lax.msm(one_gamma, fnp.stack([nk.comm_c, nk.comm_r_c]))
+        comm_prod = lax.msm(fnp.concatenate([fr_one, gamma, gamma * gamma]),
+                               fnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
 
         # HP input from the blinded commitments + the NARK opening; the HP zk core
         # builds its own `AS-FOR-HP-2020` fork in-trace. `hp_rand_arr` lifts the HP
         # hiding values + randomizers to runtime (the host hp_* args are unused).
-        zw = jnp.concatenate([in_arr, nk.blinded_witness])
+        zw = fnp.concatenate([in_arr, nk.blinded_witness])
         hp_sponge = absorbable.fork(cv, sponge.new_sponge(params), HP_AS_PROTOCOL_NAME)
         hp_core = hp_as.prove_zk_core(
-            cv, bases_h, id_pt, jnp.stack([blinded_comm_a, blinded_comm_b, comm_prod]),
-            _mz(a_dense, zw), _mz(b_dense, zw), jnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o]),
+            cv, bases_h, id_pt, fnp.stack([blinded_comm_a, blinded_comm_b, comm_prod]),
+            _mz(a_dense, zw), _mz(b_dense, zw), fnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o]),
             supported_num_elems, params, hp_hiding_a, hp_hiding_b, hp_rand[0], hp_rand[1],
             hp_rand[2], base_sponge=hp_sponge, hp_rand=hp_rand_arr)
 
@@ -313,27 +313,27 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
         # instance + proof randomness, packed straight from the frx commitments.
         # The two `u8_batch` packings (`r1cs_input` / `r1cs_r_input`) are runtime
         # fq inputs (pre-encoded consumer-side, not rechunked in-trace).
-        inst_fe = jnp.concatenate([
+        inst_fe = fnp.concatenate([
             in_u8b,
-            absorbable.point_to_field_array_frx(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
-            jnp.asarray(absorbable.option_flag(cv, True)),
+            absorbable.point_to_field_array_frx(cv, fnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
+            fnp.asarray(absorbable.option_flag(cv, True)),
             absorbable.point_to_field_array_frx(
-                cv, jnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
+                cv, fnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
         ])
-        pr_fe = jnp.concatenate([
-            jnp.asarray(absorbable.option_flag(cv, True)),
+        pr_fe = fnp.concatenate([
+            fnp.asarray(absorbable.option_flag(cv, True)),
             r_in_u8b,
-            absorbable.point_to_field_array_frx(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
+            absorbable.point_to_field_array_frx(cv, fnp.stack([comm_r_a, comm_r_b, comm_r_c])),
         ])
         beta = _beta_challenges_frx(cv, params, as_matrices_hash, inst_fe, pr_fe)  # (2,) = [1, c]
 
         # Fold the input + proof randomness under beta, all on-device.
-        combined_input = field.combine_vectors(jnp.stack([in_arr, r_in_arr]), beta)
-        combined_comm_a = lax.msm(beta, jnp.stack([blinded_comm_a, comm_r_a]))
-        combined_comm_b = lax.msm(beta, jnp.stack([blinded_comm_b, comm_r_b]))
-        combined_comm_c = lax.msm(beta, jnp.stack([blinded_comm_c, comm_r_c]))
+        combined_input = field.combine_vectors(fnp.stack([in_arr, r_in_arr]), beta)
+        combined_comm_a = lax.msm(beta, fnp.stack([blinded_comm_a, comm_r_a]))
+        combined_comm_b = lax.msm(beta, fnp.stack([blinded_comm_b, comm_r_b]))
+        combined_comm_c = lax.msm(beta, fnp.stack([blinded_comm_c, comm_r_c]))
         combined_blinded_witness = field.combine_vectors(
-            jnp.stack([nk.blinded_witness, r_wit_arr]), beta)
+            fnp.stack([nk.blinded_witness, r_wit_arr]), beta)
         # combined sigma_M = sigma_M·beta[0] + as_r_M·beta[1] (both addends Some).
         combined_sigmas = nk.sigma_abc * beta[0] + as_rand_arr * beta[1]
 
@@ -478,7 +478,7 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     # not a scatter workaround; the on-device sparse matvec is exercised both by the
     # standalone NARK half-step and by those NARK-internal fold reduces.
     def _host_mz(m: nark.Matrix, inp: list[int], wit: list[int]) -> frx.Array:
-        return jnp.asarray(nark.matrix_vec_mul(cv, m, inp, wit))
+        return fnp.asarray(nark.matrix_vec_mul(cv, m, inp, wit))
 
     # comm_r = commit(M·(r1cs_r_input ‖ r1cs_r_witness)); the AS proof-randomness reduce.
     mz_r = [_host_mz(m, r1cs_r_input, r1cs_r_witness) for m in (a, b, c)]
@@ -493,7 +493,7 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     # lowered core has 2 args, mismatching the consumer's 3 (bases_h, id_pt, acc_comms).
     @functools.partial(frx.jit, keep_unused=True)
     def _core(bases_h: frx.Array, id_pt: frx.Array, acc_comms: frx.Array) -> tuple:
-        fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
+        fr_one = fnp.asarray(np.array([1], dtype=cv.fr))
         nk = nark.prove_zk_core(cv, a, b, c, r1cs_input, witness, bases_h, params,
                                 nark_matrices_hash, nark_r, *nark_blinders)
         gamma = nk.gamma
@@ -505,12 +505,12 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
         comm_r_c = curve.commit_hiding(cv, mz_r[2], as_r3, bases_h)
 
         # input's gamma-blinded NARK commitments + the HP comm_prod (gamma² term).
-        one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        blinded_comm_c = lax.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
-        comm_prod = lax.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
-                               jnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
+        one_gamma = fnp.concatenate([fr_one, gamma])
+        blinded_comm_a = lax.msm(one_gamma, fnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, fnp.stack([nk.comm_b, nk.comm_r_b]))
+        blinded_comm_c = lax.msm(one_gamma, fnp.stack([nk.comm_c, nk.comm_r_c]))
+        comm_prod = lax.msm(fnp.concatenate([fr_one, gamma, gamma * gamma]),
+                               fnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
 
         # HP-level fold: input's HP input (blinded comms + M·z openings, NARK
         # randomness) folded INTO the old accumulator's HP input. The HP openings are
@@ -520,49 +520,49 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
         # pre-baked reduces and gamma the only runtime term.
         hp_a_open = hp_mz[0] + gamma * hp_mzr[0]
         hp_b_open = hp_mz[1] + gamma * hp_mzr[1]
-        new_hp_rand = jnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o])
+        new_hp_rand = fnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o])
         old_hp_comms = acc_comms[3:6]
-        old_hp_rand = jnp.asarray(np.array(list(acc_hp_rand), dtype=cv.fr))
+        old_hp_rand = fnp.asarray(np.array(list(acc_hp_rand), dtype=cv.fr))
         hp_sponge = absorbable.fork(cv, sponge.new_sponge(params), HP_AS_PROTOCOL_NAME)
         hp_core = hp_as.prove_zk_core(
-            cv, bases_h, id_pt, jnp.stack([blinded_comm_a, blinded_comm_b, comm_prod]),
+            cv, bases_h, id_pt, fnp.stack([blinded_comm_a, blinded_comm_b, comm_prod]),
             hp_a_open, hp_b_open, new_hp_rand, supported_num_elems, params,
             hp_hiding_a, hp_hiding_b, hp_rand[0], hp_rand[1], hp_rand[2],
             old_inst=old_hp_comms,
-            old_a=jnp.asarray(np.array(acc_hp_a_vec, dtype=cv.fr)),
-            old_b=jnp.asarray(np.array(acc_hp_b_vec, dtype=cv.fr)),
+            old_a=fnp.asarray(np.array(acc_hp_a_vec, dtype=cv.fr)),
+            old_b=fnp.asarray(np.array(acc_hp_b_vec, dtype=cv.fr)),
             old_rand=old_hp_rand, base_sponge=hp_sponge)
 
         # beta over num_addends=3: as_sponge absorbs the accumulator instance, then
         # the input instance, then the proof randomness; squeeze 2 challenges.
         acc_inst_fe = _acc_instance_fe(cv, acc_input_bytes, acc_comms)
-        inst_fe = jnp.concatenate([
-            jnp.asarray(absorbable.u8_batch_field_array(cv, input_bytes)),
-            absorbable.point_to_field_array_frx(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
-            jnp.asarray(absorbable.option_flag(cv, True)),
+        inst_fe = fnp.concatenate([
+            fnp.asarray(absorbable.u8_batch_field_array(cv, input_bytes)),
+            absorbable.point_to_field_array_frx(cv, fnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
+            fnp.asarray(absorbable.option_flag(cv, True)),
             absorbable.point_to_field_array_frx(
-                cv, jnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
+                cv, fnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
         ])
-        pr_fe = jnp.concatenate([
-            jnp.asarray(absorbable.option_flag(cv, True)),
-            jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes)),
-            absorbable.point_to_field_array_frx(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
+        pr_fe = fnp.concatenate([
+            fnp.asarray(absorbable.option_flag(cv, True)),
+            fnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes)),
+            absorbable.point_to_field_array_frx(cv, fnp.stack([comm_r_a, comm_r_b, comm_r_c])),
         ])
         beta = _beta_challenges_frx(
             cv, params, as_matrices_hash, inst_fe, pr_fe, acc_inst_fe=acc_inst_fe, num_challenges=2)
 
         # AS-level fold under beta, order [acc, input, proof_randomness].
         combined_input = field.combine_vectors(
-            jnp.asarray(np.array([acc_r1cs_input, r1cs_input, r1cs_r_input], dtype=cv.fr)), beta)
-        cca = lax.msm(beta, jnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
-        ccb = lax.msm(beta, jnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
-        ccc = lax.msm(beta, jnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
-        combined_blinded_witness = field.combine_vectors(jnp.stack([
-            jnp.asarray(np.array(acc_blinded_witness, dtype=cv.fr)), nk.blinded_witness,
-            jnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))]), beta)
-        combined_sigmas = (jnp.asarray(np.array(list(acc_sigma_abc), dtype=cv.fr)) * beta[0]
+            fnp.asarray(np.array([acc_r1cs_input, r1cs_input, r1cs_r_input], dtype=cv.fr)), beta)
+        cca = lax.msm(beta, fnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
+        ccb = lax.msm(beta, fnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
+        ccc = lax.msm(beta, fnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
+        combined_blinded_witness = field.combine_vectors(fnp.stack([
+            fnp.asarray(np.array(acc_blinded_witness, dtype=cv.fr)), nk.blinded_witness,
+            fnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))]), beta)
+        combined_sigmas = (fnp.asarray(np.array(list(acc_sigma_abc), dtype=cv.fr)) * beta[0]
                            + nk.sigma_abc * beta[1]
-                           + jnp.asarray(np.array([as_r1, as_r2, as_r3], dtype=cv.fr)) * beta[2])
+                           + fnp.asarray(np.array([as_r1, as_r2, as_r3], dtype=cv.fr)) * beta[2])
 
         return (combined_input, cca, ccb, ccc, combined_blinded_witness, combined_sigmas,
                 comm_r_a, comm_r_b, comm_r_c, hp_core)

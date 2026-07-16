@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from frx import lax
 
@@ -74,7 +74,7 @@ def build_decider_core(cv: Curve) -> tuple:
     generators = [_point(cv, g) for g in d["generators"]]
     coeffs = [_fr(h) for h in d["decider_coeffs"]]
     bases = curve.stack_affine(cv, generators)
-    scalars = jnp.asarray(np.array(coeffs, dtype=cv.fr))
+    scalars = fnp.asarray(np.array(coeffs, dtype=cv.fr))
     return scalars, bases
 
 
@@ -106,7 +106,7 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     dispatches on its element type)."""
     d = json.loads(_FIXTURE[cv.name].read_text())
     bases = curve.stack_affine(cv, [_point(cv, d["generators"][0])] * n)
-    scalars = jnp.asarray(np.zeros(n, dtype=cv.fr))
+    scalars = fnp.asarray(np.zeros(n, dtype=cv.fr))
     t0 = time.perf_counter()
     lowered = frx.jit(lax.msm).lower(scalars, bases)
     t_lower = time.perf_counter() - t0

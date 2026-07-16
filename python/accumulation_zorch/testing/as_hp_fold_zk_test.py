@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from absl.testing import absltest
 from frx import lax
@@ -86,9 +86,9 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
     # randomness, read straight from acc_prev (the second HP input of the fold).
     acc = s["acc_prev_instance"]
     accw = s["acc_prev_witness"]
-    old_a = jnp.asarray(np.array([_fr(h) for h in accw["hp_a_vec"]], dtype=cv.fr))
-    old_b = jnp.asarray(np.array([_fr(h) for h in accw["hp_b_vec"]], dtype=cv.fr))
-    old_rand = jnp.asarray(np.array(
+    old_a = fnp.asarray(np.array([_fr(h) for h in accw["hp_a_vec"]], dtype=cv.fr))
+    old_b = fnp.asarray(np.array([_fr(h) for h in accw["hp_b_vec"]], dtype=cv.fr))
+    old_rand = fnp.asarray(np.array(
         [_fr(accw["hp_rand_1"]), _fr(accw["hp_rand_2"]), _fr(accw["hp_rand_3"])], dtype=cv.fr))
 
     bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
@@ -99,29 +99,29 @@ def _hp_fold(d: Any, s: Any, params: Any) -> tuple:
     @frx.jit
     def core(bases_h: frx.Array, id_pt: frx.Array, old_hp_comms: frx.Array,
              old_a: frx.Array, old_b: frx.Array, old_rand: frx.Array) -> tuple:
-        fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
+        fr_one = fnp.asarray(np.array([1], dtype=cv.fr))
         nk = nark.prove_zk_core(cv, a, b, c, input2, witness2, bases_h, params,
                                 nark_matrices_hash, nark_r, *nark_blinders)
         gamma = nk.gamma
 
         # input₂'s HP instance: the gamma-blinded NARK commitments
         # (comm_prod folds comm_1, comm_2 at gamma, gamma²).
-        one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        comm_prod = lax.msm(jnp.concatenate([fr_one, gamma, gamma * gamma]),
-                               jnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
+        one_gamma = fnp.concatenate([fr_one, gamma])
+        blinded_comm_a = lax.msm(one_gamma, fnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, fnp.stack([nk.comm_b, nk.comm_r_b]))
+        comm_prod = lax.msm(fnp.concatenate([fr_one, gamma, gamma * gamma]),
+                               fnp.stack([nk.comm_c, nk.comm_1, nk.comm_2]))
 
         # input₂'s HP opening: M·z over z = r1cs_input ‖ blinded_witness; the HP
         # input randomness is the NARK (sigma_a, sigma_b, sigma_o).
         def _mz(matrix: nark.Matrix, zv: frx.Array) -> frx.Array:
-            return field.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
-        zw = jnp.concatenate([jnp.asarray(np.array(input2, dtype=cv.fr)), nk.blinded_witness])
-        new_rand = jnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o])
+            return field.matvec(fnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
+        zw = fnp.concatenate([fnp.asarray(np.array(input2, dtype=cv.fr)), nk.blinded_witness])
+        new_rand = fnp.stack([nk.sigma_abc[0], nk.sigma_abc[1], nk.sigma_o])
 
         hp_sponge = absorbable.fork(cv, sponge.new_sponge(params), HP_AS_PROTOCOL_NAME)
         hp = hp_as.prove_zk_core(
-            cv, bases_h, id_pt, jnp.stack([blinded_comm_a, blinded_comm_b, comm_prod]),
+            cv, bases_h, id_pt, fnp.stack([blinded_comm_a, blinded_comm_b, comm_prod]),
             _mz(a, zw), _mz(b, zw), new_rand, supported_num_elems, params,
             hp_hiding_a, hp_hiding_b, hp_rand[0], hp_rand[1], hp_rand[2],
             old_inst=old_hp_comms, old_a=old_a, old_b=old_b, old_rand=old_rand,

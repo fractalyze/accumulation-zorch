@@ -25,7 +25,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from absl.testing import absltest
 
@@ -65,7 +65,7 @@ def _gamma_sponge(params: Any, g: Any) -> Any:
     sp = absorbable.absorb_bytes(cv, sp, b"".join(int(s).to_bytes(32, "little") for s in inputs))
     arrs = [absorbable.point_to_field_array(cv, c) for c in comms]
     arrs.append(absorbable.option_flag(cv, False))  # randomness = None
-    return sp.absorb(jnp.asarray(np.concatenate(arrs)))
+    return sp.absorb(fnp.asarray(np.concatenate(arrs)))
 
 
 def _n_elems(k: int) -> int:
@@ -81,7 +81,7 @@ class SpongeFrxTest(absltest.TestCase):
         self.assertIsNone(g["randomness"])
         sp = _gamma_sponge(_params(), g)
         _, elems = sp.squeeze(_n_elems(1))
-        fr = sponge.challenges_from_fq(jnp.asarray(elems), 1, _SIZE, cv)
+        fr = sponge.challenges_from_fq(fnp.asarray(elems), 1, _SIZE, cv)
         got = np.asarray(fr)[0].tobytes().hex()
         self.assertEqual(got, g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}")
         print("  jit gamma challenge byte-matches R1CSNark::compute_challenge OK")
@@ -94,10 +94,10 @@ class SpongeFrxTest(absltest.TestCase):
         for case in json.loads(_SPONGE.read_text())["nonnative_squeeze"]:
             sp = sponge.new_sponge(params)
             for v in case["absorb"]:
-                sp = sp.absorb(jnp.asarray(np.array([v], dtype=cv.fq)))
+                sp = sp.absorb(fnp.asarray(np.array([v], dtype=cv.fq)))
             k = case["k"]
             _, elems = sp.squeeze(_n_elems(k))
-            fr = sponge.challenges_from_fq(jnp.asarray(elems), k, _SIZE, cv)
+            fr = sponge.challenges_from_fq(fnp.asarray(elems), k, _SIZE, cv)
             got = [row.tobytes().hex() for row in np.asarray(fr)]
             self.assertEqual(got, case["challenges"], case["name"])
             print(f"  {case['name']} (k={k}) byte-matches ark-sponge OK")

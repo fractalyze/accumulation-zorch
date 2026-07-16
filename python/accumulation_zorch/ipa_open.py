@@ -34,7 +34,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from frx import Array, lax
 
@@ -68,19 +68,19 @@ def _basis(cv: Curve, generators: list[np.ndarray], n: int) -> Array:
     """Stack the first `n` generators into zorch's `IpaKey.basis` (`generators`
     matches `coeffs` in length in the working path, so this slice is a no-op there;
     kept per the mapping `basis = generators[:len(coeffs)]`)."""
-    return jnp.asarray(np.stack([_affine(cv, g) for g in generators[:n]]))
+    return fnp.asarray(np.stack([_affine(cv, g) for g in generators[:n]]))
 
 
 def _fr_scalar(cv: Curve, value: Any) -> Array:
     """A host scalar (int or `fr` value) as a 0-d `cv.fr` frx array."""
-    return jnp.asarray(np.array([int(value)], dtype=cv.fr))[0]
+    return fnp.asarray(np.array([int(value)], dtype=cv.fr))[0]
 
 
 def _fr_vec(cv: Curve, values: FrVec) -> Array:
     """`fr` scalars as a 1-d `cv.fr` frx array — an `fr` array (the combined check
     polynomial) or an int list; `np.asarray(_, dtype=cv.fr)` normalizes both, so no
     `fr` value round-trips through a python int."""
-    return jnp.asarray(np.asarray(values, dtype=cv.fr))
+    return fnp.asarray(np.asarray(values, dtype=cv.fr))
 
 
 def _c_int(cv: Curve, a: Array) -> int:
@@ -108,10 +108,10 @@ def open_no_zk(
     `generators` the committer key `comm_key`, `combined_commitment` seeds the
     Fiat-Shamir, `svk_h` the inner-product generator."""
     n = len(coeffs)
-    key = IpaKey(basis=_basis(cv, generators, n), u=jnp.asarray(_affine(cv, svk_h)), s=None)
+    key = IpaKey(basis=_basis(cv, generators, n), u=fnp.asarray(_affine(cv, svk_h)), s=None)
     coeffs_arr = _fr_vec(cv, coeffs)
     x = _fr_scalar(cv, point)
-    commitment = jnp.asarray(_affine(cv, combined_commitment))
+    commitment = fnp.asarray(_affine(cv, combined_commitment))
 
     fs = ipa_challenger.ark_challenger(cv, params)
     _fs, _value, proof, final_comm_key = _open_one(key, commitment, coeffs_arr, x, fs)
@@ -144,10 +144,10 @@ def build_open_no_zk_core(
     decider core feeds host-computed `decider_coeffs`; the export bakes them per
     fixture (mirroring `r1cs_nark_as._build_zk_fold_core`). Its CPU byte-match gate
     is `ipa_as_fold_test`, which this reproduces on GPU."""
-    u = jnp.asarray(_affine(cv, svk_h))
+    u = fnp.asarray(_affine(cv, svk_h))
     coeffs_arr = _fr_vec(cv, coeffs)
     x = _fr_scalar(cv, point)
-    commitment = jnp.asarray(_affine(cv, combined_commitment))
+    commitment = fnp.asarray(_affine(cv, combined_commitment))
 
     @frx.jit
     def _core(basis: Array) -> tuple[Array, Array, Array, Array]:
@@ -178,11 +178,11 @@ def build_open_zk_core(
     randomized commitment, the rlp-seeded check polynomial) stays host-side; the
     export bakes them per fixture. CPU byte-match gate: `ipa_as_fold_zk_test`."""
     n = len(coeffs)
-    u = jnp.asarray(_affine(cv, svk_h))
-    s_pt = jnp.asarray(_affine(cv, s))
+    u = fnp.asarray(_affine(cv, svk_h))
+    s_pt = fnp.asarray(_affine(cv, s))
     coeffs_arr = _fr_vec(cv, coeffs)
     x = _fr_scalar(cv, point)
-    commitment = jnp.asarray(_affine(cv, combined_commitment))
+    commitment = fnp.asarray(_affine(cv, combined_commitment))
     hiding_poly = _pad_hiding_poly(cv, hiding_poly_raw, n)
     hiding_rand_s = _fr_scalar(cv, hiding_rand)
     commitment_randomness_s = _fr_scalar(cv, commitment_randomness)
@@ -216,11 +216,11 @@ def open_zk(
     blinders. The blinding polynomial is padded to length `d+1` (arkworks resizes it
     to `d+1` before the vanish-at-`point` shift)."""
     n = len(coeffs)
-    s_pt = jnp.asarray(_affine(cv, s))
-    key = IpaKey(basis=_basis(cv, generators, n), u=jnp.asarray(_affine(cv, svk_h)), s=s_pt)
+    s_pt = fnp.asarray(_affine(cv, s))
+    key = IpaKey(basis=_basis(cv, generators, n), u=fnp.asarray(_affine(cv, svk_h)), s=s_pt)
     coeffs_arr = _fr_vec(cv, coeffs)
     x = _fr_scalar(cv, point)
-    commitment = jnp.asarray(_affine(cv, combined_commitment))
+    commitment = fnp.asarray(_affine(cv, combined_commitment))
 
     hiding_poly = _pad_hiding_poly(cv, hiding_poly_raw, n)
     hiding_rand_s = _fr_scalar(cv, hiding_rand)
