@@ -4,23 +4,6 @@
 #   pip install -r requirements.in \
 #     --extra-index-url https://fractalyze.github.io/pypi/simple/
 #
-# zorch itself arrives as a Bazel module (see MODULE.bazel), not a pip dep.
-#
-# LOCKSTEP with the zorch git_override pin in MODULE.bazel: accumulation-zorch's
-# py_tests depend on BOTH this repo's pip hub and zorch's, so both must resolve
-# frx to the identical wheel — otherwise the runfiles carry two frx builds and
-# the arkworks byte-match silently skews. zorch @ 33f2837 pins this exact set;
-# bump both together. The frx Pasta build (0.10 line) registers the Pasta curve
-# dtypes; zk-dtypes 0.0.10 carries them, and frx requires that floor anyway.
-# CPU wheels only — the GPU byte-match is on the Rust side.
-#
-# This floor is load-bearing beyond the usual "stay current": it carries frx's
-# FRX_* -> JAX_* env alias (2026-07-16), which the FRX_PLATFORMS spellings in
-# .bazelrc / bench.sh / README depend on. The dev20260715051143 line this
-# replaced predates the alias and ignores those names outright, so the backend
-# would fall back to the default instead of the pinned CPU — green on a
-# CPU-only box, quietly on CUDA elsewhere. Do not drop below a 2026-07-16
-# build without respelling those vars JAX_*.
 absl-py
 numpy
 frx==0.10.0.dev20260716113241
