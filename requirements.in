@@ -4,17 +4,8 @@
 #   pip install -r requirements.in \
 #     --extra-index-url https://fractalyze.github.io/pypi/simple/
 #
-# zorch itself arrives as a Bazel module (see MODULE.bazel), not a pip dep.
-#
-# LOCKSTEP with the zorch git_override pin in MODULE.bazel: accumulation-zorch's
-# py_tests depend on BOTH this repo's pip hub and zorch's, so both must resolve
-# frx to the identical wheel — otherwise the runfiles carry two frx builds and
-# the arkworks byte-match silently skews. zorch @ 1a1be49 pins this exact set;
-# bump both together. The frx Pasta build (0.10 line) registers the Pasta curve
-# dtypes; zk-dtypes 0.0.10 carries them, and frx requires that floor anyway.
-# CPU wheels only — the GPU byte-match is on the Rust side.
 absl-py
 numpy
-frx==0.10.0.dev20260715051143
-frxlib==0.10.0.dev20260715051143
+frx==0.10.0.dev20260716113241
+frxlib==0.10.0.dev20260716113241
 zk-dtypes==0.0.10

@@ -4,13 +4,13 @@ All Fr arithmetic on the prove path runs here; there is no host `zk_dtypes`
 field-math counterpart (the old int-decode `field.py` was dropped once `fr`
 values started riding the prove path as `cv.fr` arrays).
 
-Each kernel takes Fr `jnp` arrays and returns Fr `jnp` arrays; the orchestration
+Each kernel takes Fr `fnp` arrays and returns Fr `fnp` arrays; the orchestration
 (the AS / NARK prove cores) keeps the challenge / opening values as int lists and
 rebuilds the arrays at the kernel boundary (data movement, not arithmetic).
 """
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 
 
 def matvec(coeffs: frx.Array, z: frx.Array) -> frx.Array:
@@ -19,7 +19,7 @@ def matvec(coeffs: frx.Array, z: frx.Array) -> frx.Array:
     (`coeffs @ z` / `einsum` also lower over the field dtype — a body-once
     `scf.for` — so this explicit reduction is an idiom choice matching zorch's i256
     inner products, not a lowering workaround.)"""
-    return jnp.sum(coeffs * z[jnp.newaxis, :], axis=1)
+    return fnp.sum(coeffs * z[fnp.newaxis, :], axis=1)
 
 
 def sparse_matvec(vals: frx.Array, col_idx: frx.Array, indptr: frx.Array,
@@ -45,25 +45,25 @@ def sparse_matvec(vals: frx.Array, col_idx: frx.Array, indptr: frx.Array,
     The prefix sum is parallel over the same data.
     """
     prod = vals * z[col_idx]
-    prefix0 = jnp.concatenate([jnp.zeros((1,), dtype=prod.dtype), jnp.cumsum(prod)])
+    prefix0 = fnp.concatenate([fnp.zeros((1,), dtype=prod.dtype), fnp.cumsum(prod)])
     return prefix0[indptr[1:]] - prefix0[indptr[:num_rows]]
 
 
 def combine_vectors(vectors: frx.Array, challenges: frx.Array) -> frx.Array:
     """`combine_vectors`: `output[li] = Σ_ni challenges[ni]·vectors[ni][li]`.
     `vectors` is `(m, L)` Fr, `challenges` `(m,)` Fr → `(L,)` Fr."""
-    return jnp.sum(challenges[:, jnp.newaxis] * vectors, axis=0)
+    return fnp.sum(challenges[:, fnp.newaxis] * vectors, axis=0)
 
 
 def powers(nu: frx.Array, count: int) -> frx.Array:
     """`[nu^0, …, nu^{count-1}]` as a `(count,)` Fr array. `nu` is `(1,)` Fr; the
     powers are built by repeated Fr multiply (no `lax.pow` over the field dtype)."""
-    out = [jnp.ones_like(nu)]
+    out = [fnp.ones_like(nu)]
     cur = out[0]
     for _ in range(count - 1):
         cur = cur * nu
         out.append(cur)
-    return jnp.concatenate(out)
+    return fnp.concatenate(out)
 
 
 def _conv(a_col: frx.Array, b_rev: frx.Array) -> frx.Array:
@@ -81,7 +81,7 @@ def _conv(a_col: frx.Array, b_rev: frx.Array) -> frx.Array:
                 acc = term if acc is None else acc + term
         assert acc is not None  # every k in [0, 2n-2] has ≥1 decomposition i+j=k
         cols.append(acc)
-    return jnp.stack(cols, axis=0)
+    return fnp.stack(cols, axis=0)
 
 
 def t_vecs_no_zk(a: frx.Array, b: frx.Array, mu: frx.Array) -> frx.Array:
@@ -91,7 +91,7 @@ def t_vecs_no_zk(a: frx.Array, b: frx.Array, mu: frx.Array) -> frx.Array:
     length `L`), `mu` is `(n,)` Fr. For each column, form `a(X,mu)` (coeff `ni` =
     `mu[ni]·a[ni,li]`) and the reversed `b(X)`, convolve, and stack the `2n-1`
     product coefficients → `(2n-1, L)` Fr."""
-    return _conv(mu[:, jnp.newaxis] * a, jnp.flip(b, axis=0))
+    return _conv(mu[:, fnp.newaxis] * a, fnp.flip(b, axis=0))
 
 
 def t_vecs_zk(a: frx.Array, b: frx.Array, mu: frx.Array, hiding_a: frx.Array,
@@ -108,8 +108,8 @@ def t_vecs_zk(a: frx.Array, b: frx.Array, mu: frx.Array, hiding_a: frx.Array,
     / `b` are the full constraint length, so this is the load-bearing difference vs
     the toy single-input prove. The value is identical: row 0 gains the hiding
     addend, the remaining rows are untouched."""
-    ma = mu[:, jnp.newaxis] * a
-    a_col = jnp.concatenate([(ma[0] + hiding_a * mu_n)[jnp.newaxis], ma[1:]], axis=0)
-    fb = jnp.flip(b, axis=0)
-    b_rev = jnp.concatenate([(fb[0] + hiding_b * mu_1)[jnp.newaxis], fb[1:]], axis=0)
+    ma = mu[:, fnp.newaxis] * a
+    a_col = fnp.concatenate([(ma[0] + hiding_a * mu_n)[fnp.newaxis], ma[1:]], axis=0)
+    fb = fnp.flip(b, axis=0)
+    b_rev = fnp.concatenate([(fb[0] + hiding_b * mu_1)[fnp.newaxis], fb[1:]], axis=0)
     return _conv(a_col, b_rev)

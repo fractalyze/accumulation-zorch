@@ -9,7 +9,7 @@ import struct
 from typing import Any, NamedTuple
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from frx import lax
 
@@ -132,7 +132,7 @@ def _csr_dev(csr: tuple[np.ndarray, np.ndarray, np.ndarray]) -> tuple[frx.Array,
     bounds `field.sparse_matvec` needs are already in `indptr` (`to_csr` built
     them on the host, where the indices are concrete numpy)."""
     indptr, col_idx, vals = csr
-    return jnp.asarray(indptr), jnp.asarray(col_idx), jnp.asarray(vals)
+    return fnp.asarray(indptr), fnp.asarray(col_idx), fnp.asarray(vals)
 
 
 def prove_no_zk_core(cv: Curve, csr_a: tuple, csr_b: tuple, csr_c: tuple, z: frx.Array,
@@ -160,7 +160,7 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     runs + serializes it) and `export/export_nark.py` (which lowers it to one
     StableHLO module). Mirrors `r1cs_nark_as._build_zk_core` for the no-zk NARK."""
     rows = len(a)
-    z = jnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
+    z = fnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
     bases = curve.stack_affine(cv, list(generators))
     csr_a, csr_b, csr_c = (_csr_dev(to_csr(cv, m)) for m in (a, b, c))
 
@@ -273,17 +273,17 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
         # GPU couldn't run — no longer holds; whether the general path can also go
         # sparse is a separate question (it would need runtime-derived row bounds).
         n = rt.r1cs_input.shape[0] + rt.witness.shape[0]
-        dense = tuple(jnp.asarray(to_dense(cv, m, n)) for m in (a, b, c))
-        z = jnp.concatenate([rt.r1cs_input, rt.witness])
-        zr = jnp.concatenate([jnp.zeros_like(rt.r1cs_input), rt.r])
+        dense = tuple(fnp.asarray(to_dense(cv, m, n)) for m in (a, b, c))
+        z = fnp.concatenate([rt.r1cs_input, rt.witness])
+        zr = fnp.concatenate([fnp.zeros_like(rt.r1cs_input), rt.r])
         return (csr_a, csr_b, csr_c, z, zr, rt.blinders, rt.witness, rt.r, dense)
-    z = jnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
-    zr = jnp.asarray(np.array([0] * len(input) + list(r), dtype=cv.fr))
-    blinders = jnp.asarray(np.array(
+    z = fnp.asarray(np.array(list(input) + list(witness), dtype=cv.fr))
+    zr = fnp.asarray(np.array([0] * len(input) + list(r), dtype=cv.fr))
+    blinders = fnp.asarray(np.array(
         [a_blinder, b_blinder, c_blinder, r_a_blinder, r_b_blinder, r_c_blinder, blinder_1, blinder_2],
         dtype=cv.fr))
-    witness_arr = jnp.asarray(np.array(witness, dtype=cv.fr))
-    r_arr = jnp.asarray(np.array(r, dtype=cv.fr))
+    witness_arr = fnp.asarray(np.array(witness, dtype=cv.fr))
+    r_arr = fnp.asarray(np.array(r, dtype=cv.fr))
     return (csr_a, csr_b, csr_c, z, zr, blinders, witness_arr, r_arr, None)
 
 
@@ -308,7 +308,7 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     challenge (its `FirstRoundMessage` point absorb), and the gamma-blinded
     responses are all one trace."""
     def commit(scalars: frx.Array, rand: frx.Array) -> frx.Array:
-        return lax.msm(jnp.concatenate([scalars, rand.reshape(1)]), bases_h)
+        return lax.msm(fnp.concatenate([scalars, rand.reshape(1)]), bases_h)
 
     # `dense` (the runtime/general path) reduces `M·v` as a dense matvec (constant
     # matrix · runtime vector); otherwise the sparse CSR path (the baked half-step
@@ -332,8 +332,8 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
     comm_2 = commit(r_a * r_b, blinders[7])
 
     sp = _gamma_pre_sponge(cv, params, matrices_hash, input, fork, input_u8b=input_u8b)
-    gamma = _gamma_finish(cv, sp, jnp.stack([comm_a, comm_b, comm_c]),
-                          jnp.stack([comm_r_a, comm_r_b, comm_r_c, comm_1, comm_2]))
+    gamma = _gamma_finish(cv, sp, fnp.stack([comm_a, comm_b, comm_c]),
+                          fnp.stack([comm_r_a, comm_r_b, comm_r_c, comm_1, comm_2]))
 
     blinded_witness = witness_arr + gamma * r_arr
     # sigma_{a,b,c} = blinder_M + gamma·r_blinder_M; sigma_o = c + gamma·1 + gamma²·2.
@@ -471,15 +471,15 @@ def _gamma_finish(cv: Curve, pre_sponge: DuplexSponge, comms: frx.Array,
                   randomness: frx.Array | None) -> frx.Array:
     """Absorb the `FirstRoundMessage` (comm packs ++ `Option` flag ++ randomness
     packs) into the pre-sponge and squeeze gamma. `comms` / `randomness` are
-    pre-stacked `(N,)` affine arrays (`stack_affine` for host points, `jnp.stack`
+    pre-stacked `(N,)` affine arrays (`stack_affine` for host points, `fnp.stack`
     for the in-jit `lax.msm` outputs); `randomness` is None on the no-zk path. The
     point packing runs in-jit. Plain so it inlines into the `@jit`
     prove. Returns the `(1,)` truncated-128 fr challenge."""
     parts = [absorbable.point_to_field_array_frx(cv, comms),
-             jnp.asarray(absorbable.option_flag(cv, randomness is not None))]
+             fnp.asarray(absorbable.option_flag(cv, randomness is not None))]
     if randomness is not None:
         parts.append(absorbable.point_to_field_array_frx(cv, randomness))
-    sp = pre_sponge.absorb(jnp.concatenate(parts))
+    sp = pre_sponge.absorb(fnp.concatenate(parts))
     _, ch = sponge.squeeze_challenges_frx(sp, 1, _CHALLENGE_BITS, cv)
     return ch
 

@@ -32,7 +32,7 @@ The per-input check polynomials and `final_comm_key`s come from
 
 from typing import Any, NamedTuple
 
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 
 from . import absorbable, curve, ipa_challenger, ipa_open, sponge
@@ -160,10 +160,10 @@ def _combined_evaluation_fr(
     `rlp(point) = c0 + c1·point` is added on top; `rlp_coeffs is None` ⇒ the no-zk
     path (arkworks `random_polynomial = None`). Stays a numpy `fr` scalar — the new
     accumulator's `evaluation` — never decoded to a python int."""
-    lc = jnp.asarray(np.array([lc_challenge for lc_challenge, _ in addends], dtype=cv.fr))
-    h = jnp.concatenate(
+    lc = fnp.asarray(np.array([lc_challenge for lc_challenge, _ in addends], dtype=cv.fr))
+    h = fnp.concatenate(
         [ipa_challenger.evaluate_fr(cv, check_poly, point).reshape(1) for _, check_poly in addends])
-    eval_fr = np.asarray(jnp.sum(lc * h), dtype=cv.fr)
+    eval_fr = np.asarray(fnp.sum(lc * h), dtype=cv.fr)
     if rlp_coeffs is not None:
         c0, c1 = _rlp_pair(rlp_coeffs)
         eval_fr = eval_fr + (cv.fr(c0) + cv.fr(c1) * cv.fr(point))

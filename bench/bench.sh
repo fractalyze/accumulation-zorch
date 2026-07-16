@@ -86,7 +86,7 @@ bench_prove() {
     cpu_tok=$(sed -n 's/.*seed 0 .*= \(.*\) (CPU arkworks).*/\1/p' "$derr" | head -1)
     require "CPU timing (n=$n)" "$cpu_tok"
     step "lower… "
-    AS_ZK_FIXTURE="$fix" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
+    AS_ZK_FIXTURE="$fix" ACCUMULATION_ZORCH_ARTIFACTS="$ART" FRX_PLATFORMS=cpu \
       bazel run //export:export_prove >"$ART/export_$n.log" 2>&1
     step "GPU… "
     gpu_tok=$(AS_ZK_FIXTURE="$fix" FUSED_MLIRBC="$ART/prove_zk_general.mlirbc" \
@@ -114,7 +114,7 @@ bench_fold() {
   ACCUMULATION_ZORCH_ARTIFACTS="$ART" cargo test --quiet --release --features "$feats" \
     --test recursion_step vesta::dump::dump_recursion_fold_zk -- --nocapture >"$ART/fold_dump.log" 2>&1
   step "lower… "
-  ACCUMULATION_ZORCH_ARTIFACTS="$ART" PROVE_CURVE=vesta JAX_PLATFORMS=cpu \
+  ACCUMULATION_ZORCH_ARTIFACTS="$ART" PROVE_CURVE=vesta FRX_PLATFORMS=cpu \
     bazel run //export:export_fold_zk >"$ART/fold_export.log" 2>&1
   step "GPU fold… "
   gpu_ms=$(XLA_PJRT_PLUGIN="$XLA_PJRT_PLUGIN" ACCUMULATION_ZORCH_ARTIFACTS="$ART" \
@@ -144,7 +144,7 @@ bench_decide() {
   echo '| --------: | ---------------------: | ----------------------------: | ------: |'
   for n in "${sizes[@]}"; do
     step "  d=$n lower… "
-    IPA_DECIDER_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
+    IPA_DECIDER_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" FRX_PLATFORMS=cpu \
       bazel run //export:export_ipa >"$ART/decide_export_$n.log" 2>&1
     step "GPU MSM… "
     local line cpu_ms gpu_ms
@@ -175,7 +175,7 @@ bench_r1cs_decide() {
   echo '| --------: | --------------------: | ----------------------------: | ------: |'
   for n in "${sizes[@]}"; do
     step "  n=$n lower… "
-    AS_DECIDE_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" JAX_PLATFORMS=cpu \
+    AS_DECIDE_SIZE="$n" ACCUMULATION_ZORCH_ARTIFACTS="$ART" FRX_PLATFORMS=cpu \
       bazel run //export:export_as_decide >"$ART/r1cs_decide_export_$n.log" 2>&1
     step "GPU MSMs… "
     local line cpu_ms gpu_ms

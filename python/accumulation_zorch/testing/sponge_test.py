@@ -21,7 +21,7 @@ Run under Bazel:
 import json
 from pathlib import Path
 
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from absl.testing import absltest
 
@@ -49,7 +49,7 @@ class SpongeTest(absltest.TestCase):
                 sp = sponge.new_sponge(params)
                 for op in sched["ops"]:
                     if op["op"] == "absorb":
-                        arr = jnp.asarray(np.array(op["vals"], dtype=cv.fq))
+                        arr = fnp.asarray(np.array(op["vals"], dtype=cv.fq))
                         sp = sp.absorb(arr)
                     else:
                         sp, out = sp.squeeze(op["n"])
@@ -74,7 +74,7 @@ class SpongeTest(absltest.TestCase):
             for case in data["nonnative_squeeze"]:
                 sp = sponge.new_sponge(params)
                 for v in case["absorb"]:
-                    sp = sp.absorb(jnp.asarray(np.array([v], dtype=cv.fq)))
+                    sp = sp.absorb(fnp.asarray(np.array([v], dtype=cv.fq)))
                 sp, challenges = sponge.squeeze_challenges(sp, case["k"])
                 self.assertEqual(len(challenges), len(case["challenges"]))
                 for i, want_hex in enumerate(case["challenges"]):

@@ -70,7 +70,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from frx import Array, lax
 from frx.tree_util import register_dataclass
@@ -101,8 +101,8 @@ def _as_fr(cv: Curve, x: Array | int) -> Array:
     `squeeze` enforces the 0-d contract for a `(1,)`-shaped array input (bitcasting a
     rank-1 scalar would give a `(1, 32)` byte array and skew the u8-batch packing)."""
     if isinstance(x, (int, np.integer)):
-        return jnp.asarray(np.array([int(x)], dtype=cv.fr))[0]
-    return jnp.squeeze(jnp.asarray(x, dtype=cv.fr))
+        return fnp.asarray(np.array([int(x)], dtype=cv.fr))[0]
+    return fnp.squeeze(fnp.asarray(x, dtype=cv.fr))
 
 
 def _seed_pv_fq(cv: Curve, point: Array | int, value: Array | int) -> Array:
@@ -112,9 +112,9 @@ def _seed_pv_fq(cv: Curve, point: Array | int, value: Array | int) -> Array:
     ``u8_batch_field_array``: bitcast each scalar to its 32 LE bytes (canonical, as in
     ``_absorb_prev``), concatenate, and pack in-trace so the seed rides the fused open
     core's ``@jit`` boundary. Byte-identical eagerly, so the CPU port is unchanged."""
-    pb = lax.bitcast_convert_type(_as_fr(cv, point), jnp.uint8)  # (32,) LE
-    vb = lax.bitcast_convert_type(_as_fr(cv, value), jnp.uint8)  # (32,) LE
-    return absorbable.u8_batch_field_array_frx(cv, jnp.concatenate([pb, vb]))
+    pb = lax.bitcast_convert_type(_as_fr(cv, point), fnp.uint8)  # (32,) LE
+    vb = lax.bitcast_convert_type(_as_fr(cv, value), fnp.uint8)  # (32,) LE
+    return absorbable.u8_batch_field_array_frx(cv, fnp.concatenate([pb, vb]))
 
 
 @partial(
@@ -165,12 +165,12 @@ class ArkIpaChallenger:
         value 16 in the low bytes, then the 16-byte challenge). `prev` (< 2**128) is
         reinterpreted `fr → fq` via its canonical LE bytes."""
         cv = self.cv
-        prev_bytes = lax.bitcast_convert_type(self.prev, jnp.uint8)  # (32,) LE bytes
+        prev_bytes = lax.bitcast_convert_type(self.prev, fnp.uint8)  # (32,) LE bytes
         prev_fq = lax.bitcast_convert_type(prev_bytes, cv.fq)  # fq(prev)
-        length = jnp.asarray(np.array([_CHALLENGE_BYTES], dtype=cv.fq))[0]
-        shift = jnp.asarray(np.array([_U64_SHIFT], dtype=cv.fq))[0]
+        length = fnp.asarray(np.array([_CHALLENGE_BYTES], dtype=cv.fq))[0]
+        shift = fnp.asarray(np.array([_U64_SHIFT], dtype=cv.fq))[0]
         fe = length + prev_fq * shift
-        return sp.absorb(fe[jnp.newaxis])
+        return sp.absorb(fe[fnp.newaxis])
 
     def seed(
         self, commitment: Array, point: Array, value: Array
@@ -182,7 +182,7 @@ class ArkIpaChallenger:
         the rounds)."""
         cv = self.cv
         sp = self._sponge()
-        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(commitment).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, fnp.asarray(commitment).reshape(1))
         sp = sp.absorb(_seed_pv_fq(cv, point, value))
         xi0 = self._squeeze(sp)
         return ArkIpaChallenger(self.state, xi0, cv, self.params, self.mode, self.pos), xi0
@@ -195,8 +195,8 @@ class ArkIpaChallenger:
         cv = self.cv
         sp = self._sponge()
         sp = self._absorb_prev(sp)
-        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(l).reshape(1))
-        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(r).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, fnp.asarray(l).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, fnp.asarray(r).reshape(1))
         u = self._squeeze(sp)
         return ArkIpaChallenger(self.state, u, cv, self.params, self.mode, self.pos), u
 
@@ -214,8 +214,8 @@ class ArkIpaChallenger:
         `state` is unchanged (the fold's subsequent `seed` starts fresh)."""
         cv = self.cv
         sp = self._sponge()
-        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(commitment).reshape(1))
-        sp = absorbable.absorb_points_frx(cv, sp, jnp.asarray(hiding_comm).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, fnp.asarray(commitment).reshape(1))
+        sp = absorbable.absorb_points_frx(cv, sp, fnp.asarray(hiding_comm).reshape(1))
         sp = sp.absorb(_seed_pv_fq(cv, point, value))
         hc = self._squeeze(sp)
         return ArkIpaChallenger(self.state, hc, cv, self.params, self.mode, self.pos), hc
@@ -226,7 +226,7 @@ def ark_challenger(cv: Curve, params: Any) -> ArkIpaChallenger:
     `params`. Forks the `"IPA-PC-2020"` domain once; the carried `prev` is a
     placeholder ``fr(0)`` until `seed` binds the statement."""
     base = absorbable.fork(cv, sponge.new_sponge(params), IPA_PC_DOMAIN)
-    zero = jnp.asarray(np.array([0], dtype=cv.fr))[0]
+    zero = fnp.asarray(np.array([0], dtype=cv.fr))[0]
     return ArkIpaChallenger(base._state, zero, cv, params, base._mode, base._pos)
 
 
@@ -312,7 +312,7 @@ def compute_coeffs(cv: Curve, challenges: list[int]) -> np.ndarray:
     descending index order), pinned against this same arkworks oracle in zorch.
     Materialized to a host `cv.fr` array at the boundary (fed straight to
     `pedersen_commit` / the combined check polynomial), never decoded to ints."""
-    u = jnp.asarray(np.array(challenges, dtype=cv.fr))
+    u = fnp.asarray(np.array(challenges, dtype=cv.fr))
     return np.asarray(challenge_vector(u), dtype=cv.fr)
 
 
@@ -323,6 +323,6 @@ def evaluate_fr(cv: Curve, challenges: list[int], point: int) -> Array:
     `compute_coeffs`, `point^{2^m}` by repeated squaring). For callers that keep
     working in the field — e.g. the AS combined evaluation's `Σ lc·h` weighted sum — so
     the per-input `h_j` never round-trips through a canonical int."""
-    u = jnp.asarray(np.array(challenges, dtype=cv.fr))
-    x = jnp.asarray(cv.fr(point))
+    u = fnp.asarray(np.array(challenges, dtype=cv.fr))
+    x = fnp.asarray(cv.fr(point))
     return eval_challenge_poly(u, x)

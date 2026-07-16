@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from absl.testing import absltest
 from frx import lax
@@ -86,11 +86,11 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
     r1cs_r_witness = [as_r1cs_r_witness] * witness_len
 
     accw = s["acc_prev_witness"]
-    acc_blinded_witness = jnp.asarray(np.array([_fr(h) for h in accw["r1cs_blinded_witness"]], dtype=cv.fr))
-    acc_sigma_abc = jnp.asarray(np.array(
+    acc_blinded_witness = fnp.asarray(np.array([_fr(h) for h in accw["r1cs_blinded_witness"]], dtype=cv.fr))
+    acc_sigma_abc = fnp.asarray(np.array(
         [_fr(accw["sigma_a"]), _fr(accw["sigma_b"]), _fr(accw["sigma_c"])], dtype=cv.fr))
-    r1cs_r_witness_arr = jnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))
-    as_rand_arr = jnp.asarray(np.array(list(as_rand), dtype=cv.fr))
+    r1cs_r_witness_arr = fnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))
+    as_rand_arr = fnp.asarray(np.array(list(as_rand), dtype=cv.fr))
 
     input2_bytes = _fr_bytes(input2)
     acc_bytes = _fr_bytes(acc_r1cs_input)
@@ -103,56 +103,56 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
 
     @frx.jit
     def core(bases_h: frx.Array, acc_comms: frx.Array) -> tuple:
-        fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
+        fr_one = fnp.asarray(np.array([1], dtype=cv.fr))
         nk = nark.prove_zk_core(cv, a, b, c, input2, witness2, bases_h, params,
                                 nark_matrices_hash, nark_r, *nark_blinders)
         gamma = nk.gamma
 
         # The fold's AS proof-randomness commitments comm_r_M = commit(M·z_r, as_r_M).
         def _mz(matrix: nark.Matrix, zv: frx.Array) -> frx.Array:
-            return field.matvec(jnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
-        zr = jnp.asarray(np.array(r1cs_r_input + [as_r1cs_r_witness] * witness_len, dtype=cv.fr))
+            return field.matvec(fnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
+        zr = fnp.asarray(np.array(r1cs_r_input + [as_r1cs_r_witness] * witness_len, dtype=cv.fr))
         comm_r_a = curve.commit_hiding(cv, _mz(a, zr), as_rand[0], bases_h)
         comm_r_b = curve.commit_hiding(cv, _mz(b, zr), as_rand[1], bases_h)
         comm_r_c = curve.commit_hiding(cv, _mz(c, zr), as_rand[2], bases_h)
 
         # input₂'s gamma-blinded NARK commitments (the addend the input contributes).
-        one_gamma = jnp.concatenate([fr_one, gamma])
-        blinded_comm_a = lax.msm(one_gamma, jnp.stack([nk.comm_a, nk.comm_r_a]))
-        blinded_comm_b = lax.msm(one_gamma, jnp.stack([nk.comm_b, nk.comm_r_b]))
-        blinded_comm_c = lax.msm(one_gamma, jnp.stack([nk.comm_c, nk.comm_r_c]))
+        one_gamma = fnp.concatenate([fr_one, gamma])
+        blinded_comm_a = lax.msm(one_gamma, fnp.stack([nk.comm_a, nk.comm_r_a]))
+        blinded_comm_b = lax.msm(one_gamma, fnp.stack([nk.comm_b, nk.comm_r_b]))
+        blinded_comm_c = lax.msm(one_gamma, fnp.stack([nk.comm_c, nk.comm_r_c]))
 
         # beta over num_addends=3: as_sponge absorbs the accumulator instance, then
         # the input instance, then the proof randomness; squeeze 2 challenges.
         acc_inst_fe = r1cs_nark_as._acc_instance_fe(cv, acc_bytes, acc_comms)
-        inst_fe = jnp.concatenate([
-            jnp.asarray(absorbable.u8_batch_field_array(cv, input2_bytes)),
-            absorbable.point_to_field_array_frx(cv, jnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
-            jnp.asarray(absorbable.option_flag(cv, True)),
+        inst_fe = fnp.concatenate([
+            fnp.asarray(absorbable.u8_batch_field_array(cv, input2_bytes)),
+            absorbable.point_to_field_array_frx(cv, fnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
+            fnp.asarray(absorbable.option_flag(cv, True)),
             absorbable.point_to_field_array_frx(
-                cv, jnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
+                cv, fnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
         ])
-        pr_fe = jnp.concatenate([
-            jnp.asarray(absorbable.option_flag(cv, True)),
-            jnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes)),
-            absorbable.point_to_field_array_frx(cv, jnp.stack([comm_r_a, comm_r_b, comm_r_c])),
+        pr_fe = fnp.concatenate([
+            fnp.asarray(absorbable.option_flag(cv, True)),
+            fnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes)),
+            absorbable.point_to_field_array_frx(cv, fnp.stack([comm_r_a, comm_r_b, comm_r_c])),
         ])
         beta = r1cs_nark_as._beta_challenges_frx(  # (3,) = [1, c₁, c₂]
             cv, params, as_matrices_hash, inst_fe, pr_fe, acc_inst_fe=acc_inst_fe, num_challenges=2)
 
         # Fold under beta, in the order [acc, input, proof_randomness].
         combined_input = field.combine_vectors(
-            jnp.asarray(np.array([acc_r1cs_input, input2, r1cs_r_input], dtype=cv.fr)), beta)
-        combined_comm_a = lax.msm(beta, jnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
-        combined_comm_b = lax.msm(beta, jnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
-        combined_comm_c = lax.msm(beta, jnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
+            fnp.asarray(np.array([acc_r1cs_input, input2, r1cs_r_input], dtype=cv.fr)), beta)
+        combined_comm_a = lax.msm(beta, fnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
+        combined_comm_b = lax.msm(beta, fnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
+        combined_comm_c = lax.msm(beta, fnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
 
         # Witness combine (no sponge — reuses beta): blinded witness + sigma_{a,b,c}
         # over the same [acc, input, proof_randomness] order. The fold's proof
         # randomness contributes the AS sigmas (as_rand_1/2/3); the input contributes
         # the NARK sigma_{a,b,c}; sigma_o is NARK-only and does not enter the AS fold.
         combined_blinded_witness = field.combine_vectors(
-            jnp.stack([acc_blinded_witness, nk.blinded_witness, r1cs_r_witness_arr]), beta)
+            fnp.stack([acc_blinded_witness, nk.blinded_witness, r1cs_r_witness_arr]), beta)
         combined_sigmas = acc_sigma_abc * beta[0] + nk.sigma_abc * beta[1] + as_rand_arr * beta[2]
         return (combined_input, combined_comm_a, combined_comm_b, combined_comm_c,
                 combined_blinded_witness, combined_sigmas)

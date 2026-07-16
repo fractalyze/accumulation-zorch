@@ -10,11 +10,11 @@ absl-py==2.4.0 \
     --hash=sha256:88476fd881ca8aab94ffa78b7b6c632a782ab3ba1cd19c9bd423abc4fb4cd28d \
     --hash=sha256:8c6af82722b35cf71e0f4d1d47dcaebfff286e27110a99fc359349b247dfb5d4
     # via -r requirements.in
-frx==0.10.0.dev20260715051143 \
-    --hash=sha256:90052730034ceefa568461b978bc32d944540acddb5067f9a52c67c84614b2ce
+frx==0.10.0.dev20260716113241 \
+    --hash=sha256:63806e9b165be11baa36be1706e61219223eaec997b14246c1ab93a17e8f5063
     # via -r requirements.in
-frxlib==0.10.0.dev20260715051143 \
-    --hash=sha256:30c28a2f74973626b57de86bc9c49610418dae7551f1fe6afe7d55755bf0db98
+frxlib==0.10.0.dev20260716113241 \
+    --hash=sha256:521b0ad4fed69831400d1ce5874f5af9f0f4740478650e251f81291da4a8fd19
     # via
     #   -r requirements.in
     #   frx

@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 
 from accumulation_zorch import curve, field, nark
@@ -87,7 +87,7 @@ def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix
     arkworks `ASForHadamardProducts::decide`). On the no-zk path they coincide with
     `A·z`/`B·z`. Output leaves: `comm_a, comm_b, comm_c, test_comm_1, test_comm_2,
     test_comm_3`."""
-    a_dense, b_dense, c_dense = (jnp.asarray(nark.to_dense(cv, m, num_vars)) for m in (a, b, c))
+    a_dense, b_dense, c_dense = (fnp.asarray(nark.to_dense(cv, m, num_vars)) for m in (a, b, c))
 
     @frx.jit
     def _core(bases_h: frx.Array, z: frx.Array, hp_a: frx.Array, hp_b: frx.Array,
@@ -123,9 +123,9 @@ def export_decider(cv: Curve) -> Path:
 
     core = build_decider_core(cv, a, b, c, num_vars)
     bases_h = curve.stack_affine(cv, generators[:rows] + [hiding])
-    z = jnp.asarray(np.zeros(num_vars, dtype=cv.fr))
-    hp_vec = jnp.asarray(np.zeros(rows, dtype=cv.fr))
-    rand6 = jnp.asarray(np.zeros(6, dtype=cv.fr))
+    z = fnp.asarray(np.zeros(num_vars, dtype=cv.fr))
+    hp_vec = fnp.asarray(np.zeros(rows, dtype=cv.fr))
+    rand6 = fnp.asarray(np.zeros(6, dtype=cv.fr))
 
     t0 = time.perf_counter()
     lowered = core.lower(bases_h, z, hp_vec, hp_vec, rand6)
@@ -173,8 +173,8 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     g0 = _point(cv, d["generators"][0])
     core = build_decider_bench_core(cv)
     bases_h = curve.stack_affine(cv, [g0] * (n + 1))
-    zeros_n = jnp.asarray(np.zeros(n, dtype=cv.fr))
-    rand6 = jnp.asarray(np.zeros(6, dtype=cv.fr))
+    zeros_n = fnp.asarray(np.zeros(n, dtype=cv.fr))
+    rand6 = fnp.asarray(np.zeros(6, dtype=cv.fr))
 
     t0 = time.perf_counter()
     lowered = core.lower(bases_h, zeros_n, zeros_n, zeros_n, rand6)

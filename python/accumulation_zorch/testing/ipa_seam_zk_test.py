@@ -31,13 +31,13 @@ Both gates run on either backend. The prover gate folds EC points affine<->jacob
 fractalyze/xla#195 (frxlib >= 0.10.0.dev20260705083732), so it no longer needs the
 Pasta GPU plugin. On CPU:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \
+    FRX_PLATFORMS=cpu PYTHONPATH=python \
       python python/accumulation_zorch/testing/ipa_seam_zk_test.py
 
 On GPU (Pasta plugin):
 
     SO=$HOME/Workspace/envs/pasta-zorch/xla/bazel-bin/xla/pjrt/c/pjrt_c_api_gpu_plugin.so
-    XLA_PYTHON_CLIENT_PREALLOCATE=false JAX_PLATFORMS=cuda \
+    XLA_PYTHON_CLIENT_PREALLOCATE=false FRX_PLATFORMS=cuda \
       PJRT_NAMES_AND_LIBRARY_PATHS="cuda:$SO" PYTHONPATH=python \
       python python/accumulation_zorch/testing/ipa_seam_zk_test.py
 """
@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Any
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from absl.testing import absltest
 from frx import lax
@@ -84,7 +84,7 @@ def _np_point(cv: Curve, p: dict) -> np.ndarray:
 
 
 def _frx_point(cv: Curve, p: dict) -> frx.Array:
-    return jnp.asarray(_np_point(cv, p))
+    return fnp.asarray(_np_point(cv, p))
 
 
 def _params(cv: Curve, sponge_fixture: str) -> Any:
@@ -120,19 +120,19 @@ class IpaSeamZkTest(absltest.TestCase):
             z = json.loads((_TESTDATA / ipa_zk_f).read_text())
             a = json.loads((_TESTDATA / ipa_as_zk_f).read_text())
             params = _params(cv, sponge_f)
-            basis = jnp.stack([_frx_point(cv, g) for g in a["generators"]])
+            basis = fnp.stack([_frx_point(cv, g) for g in a["generators"]])
             key = setup(basis, _frx_point(cv, z["h"]), _frx_point(cv, z["s"]))
 
             proof = IpaZkProof(
-                jnp.stack([_frx_point(cv, p) for p in z["l_vec"]]),
-                jnp.stack([_frx_point(cv, p) for p in z["r_vec"]]),
-                jnp.asarray(np.array(_fr(z["c"]), dtype=cv.fr)),
+                fnp.stack([_frx_point(cv, p) for p in z["l_vec"]]),
+                fnp.stack([_frx_point(cv, p) for p in z["r_vec"]]),
+                fnp.asarray(np.array(_fr(z["c"]), dtype=cv.fr)),
                 _frx_point(cv, z["hiding_comm"]),
-                jnp.asarray(np.array(_fr(z["rand"]), dtype=cv.fr)),
+                fnp.asarray(np.array(_fr(z["rand"]), dtype=cv.fr)),
             )
             commitment = _frx_point(cv, z["commitment"])
-            point = jnp.asarray(np.array(_fr(z["point"]), dtype=cv.fr))
-            value = jnp.asarray(np.array(_fr(z["evaluation"]), dtype=cv.fr))
+            point = fnp.asarray(np.array(_fr(z["point"]), dtype=cv.fr))
+            value = fnp.asarray(np.array(_fr(z["evaluation"]), dtype=cv.fr))
 
             _, claim = reduce_opening_zk(
                 key, commitment, point, value, proof,
@@ -165,15 +165,15 @@ class IpaSeamZkTest(absltest.TestCase):
             params = _params(cv, sponge_f)
             # IPA-PC committer generators are hash-derived (deterministic), so the
             # ipa-as fixture's `generators` are the same set this zk proof used.
-            basis = jnp.stack([_frx_point(cv, g) for g in a["generators"]])
+            basis = fnp.stack([_frx_point(cv, g) for g in a["generators"]])
             key = setup(basis, _frx_point(cv, z["h"]), _frx_point(cv, z["s"]))
 
-            coeffs = jnp.asarray(np.array([_fr(c) for c in z["polynomial"]], dtype=cv.fr))
-            crand_j = jnp.asarray(np.array(_fr(z["commitment_randomness"]), dtype=cv.fr))
-            point = jnp.asarray(np.array(_fr(z["point"]), dtype=cv.fr))
-            hiding_j = jnp.asarray(
+            coeffs = fnp.asarray(np.array([_fr(c) for c in z["polynomial"]], dtype=cv.fr))
+            crand_j = fnp.asarray(np.array(_fr(z["commitment_randomness"]), dtype=cv.fr))
+            point = fnp.asarray(np.array(_fr(z["point"]), dtype=cv.fr))
+            hiding_j = fnp.asarray(
                 np.array([_fr(h) for h in z["hiding_polynomial"]], dtype=cv.fr))
-            hrand_j = jnp.asarray(np.array(_fr(z["hiding_rand"]), dtype=cv.fr))
+            hrand_j = fnp.asarray(np.array(_fr(z["hiding_rand"]), dtype=cv.fr))
 
             # `commit_zk` reproduces the golden (hiding) commitment.
             commitment_z, _ = IpaProver(key).commit_zk([coeffs], [crand_j])

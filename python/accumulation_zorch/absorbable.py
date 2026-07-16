@@ -24,7 +24,7 @@ sets which `fq` dtype the bytes are read as.
 import struct
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from frx import lax
 from zorch.hash.duplex_sponge import DuplexSponge
@@ -63,21 +63,21 @@ def u8_batch_field_array_frx(cv: Curve, data_u8: frx.Array) -> frx.Array:
     The jit-able path the fused open core's on-device Fiat-Shamir seed uses instead of
     the host `bytes` path — byte-identical (canonical-LE `fq` chunks), via the same
     `bitcast_convert_type(..32 uint8.., fq)` idiom as `ipa_challenger._absorb_prev`."""
-    prefix = jnp.asarray(np.frombuffer(struct.pack("<Q", data_u8.shape[0]), dtype=np.uint8).copy())
-    full = jnp.concatenate([prefix, data_u8])
+    prefix = fnp.asarray(np.frombuffer(struct.pack("<Q", data_u8.shape[0]), dtype=np.uint8).copy())
+    full = fnp.concatenate([prefix, data_u8])
     m = full.shape[0]
     n_fe = (m + _BYTES_PER_FE - 1) // _BYTES_PER_FE
     # Pad to a whole number of 31-byte chunks, reshape, then a zero column to the
     # 32-byte repr — the vectorized (no per-chunk Python loop) form of the chunking.
-    padded = jnp.concatenate([full, jnp.zeros((n_fe * _BYTES_PER_FE - m,), jnp.uint8)])
+    padded = fnp.concatenate([full, fnp.zeros((n_fe * _BYTES_PER_FE - m,), fnp.uint8)])
     chunks = padded.reshape(n_fe, _BYTES_PER_FE)
-    pad_col = jnp.zeros((n_fe, _FE_REPR_BYTES - _BYTES_PER_FE), jnp.uint8)
-    return lax.bitcast_convert_type(jnp.concatenate([chunks, pad_col], axis=-1), cv.fq)
+    pad_col = fnp.zeros((n_fe, _FE_REPR_BYTES - _BYTES_PER_FE), fnp.uint8)
+    return lax.bitcast_convert_type(fnp.concatenate([chunks, pad_col], axis=-1), cv.fq)
 
 
 def absorb_bytes(cv: Curve, sp: DuplexSponge, data: bytes) -> DuplexSponge:
     """Absorb a `&[u8]` / `Vec<u8>` Absorbable into the sponge."""
-    return sp.absorb(jnp.asarray(u8_batch_field_array(cv, data)))
+    return sp.absorb(fnp.asarray(u8_batch_field_array(cv, data)))
 
 
 def point_to_field_array(cv: Curve, point: np.ndarray) -> np.ndarray:
@@ -131,24 +131,24 @@ def point_to_field_array_frx(cv: Curve, points: frx.Array) -> frx.Array:
     whereas the field comparison lowers cleanly on both CPU and GPU and is
     byte-identical (``fq(0)`` is the all-zero canonical encoding).
     """
-    fq_zero = jnp.asarray(np.array([0], dtype=cv.fq))[0]
-    fq_one = jnp.asarray(np.array([1], dtype=cv.fq))[0]
+    fq_zero = fnp.asarray(np.array([0], dtype=cv.fq))[0]
+    fq_one = fnp.asarray(np.array([1], dtype=cv.fq))[0]
     coords = lax.bitcast_convert_type(points, cv.fq)  # (N, 2): [x, y]
-    inf = jnp.all(coords == fq_zero, axis=-1)  # (N,): both coords zero ⇒ identity
-    x = jnp.where(inf, fq_zero, coords[:, 0])
-    y = jnp.where(inf, fq_one, coords[:, 1])
-    flag = jnp.where(inf, fq_one, fq_zero)
-    return jnp.stack([x, y, flag], axis=-1).reshape(-1)  # (3N,)
+    inf = fnp.all(coords == fq_zero, axis=-1)  # (N,): both coords zero ⇒ identity
+    x = fnp.where(inf, fq_zero, coords[:, 0])
+    y = fnp.where(inf, fq_one, coords[:, 1])
+    flag = fnp.where(inf, fq_one, fq_zero)
+    return fnp.stack([x, y, flag], axis=-1).reshape(-1)  # (3N,)
 
 
 def absorb_u64(cv: Curve, sp: DuplexSponge, value: int) -> DuplexSponge:
     """Absorb a `u64` Absorbable: `to_sponge_field_elements` = `[F::from(v)]`."""
-    return sp.absorb(jnp.asarray(_fe_array(cv, [value])))
+    return sp.absorb(fnp.asarray(_fe_array(cv, [value])))
 
 
 def absorb_none(cv: Curve, sp: DuplexSponge) -> DuplexSponge:
     """Absorb an `Option::None` Absorbable: `[F::from(false)]` = `[0]`."""
-    return sp.absorb(jnp.asarray(_fe_array(cv, [0])))
+    return sp.absorb(fnp.asarray(_fe_array(cv, [0])))
 
 
 def option_flag(cv: Curve, is_some: bool) -> np.ndarray:
@@ -164,8 +164,8 @@ def absorb_option_bytes(cv: Curve, sp: DuplexSponge, data: bytes) -> DuplexSpong
     flag, then the bytes' `u8::batch_to_sponge_field_elements` packing — all in one
     absorb (e.g. `compute_new_challenge`'s `Some(to_bytes![rlp_coeffs])`). The
     `None` case is :func:`absorb_none`."""
-    arr = jnp.concatenate([jnp.asarray(option_flag(cv, True)),
-                           jnp.asarray(u8_batch_field_array(cv, data))])
+    arr = fnp.concatenate([fnp.asarray(option_flag(cv, True)),
+                           fnp.asarray(u8_batch_field_array(cv, data))])
     return sp.absorb(arr)
 
 
@@ -173,7 +173,7 @@ def absorb_option_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) 
     """Absorb an `Option<_>` whose inner Absorbable is a batch of points, in the
     `Some` case: a single `F::from(true)` flag, then each point's `[x, y,
     infinity]` — all in one absorb (e.g. `Some(ProofHidingCommitments)`)."""
-    arr = jnp.concatenate([jnp.asarray(option_flag(cv, True)),
+    arr = fnp.concatenate([fnp.asarray(option_flag(cv, True)),
                            point_to_field_array_frx(cv, curve.stack_affine(cv, points))])
     return sp.absorb(arr)
 
@@ -198,5 +198,5 @@ def absorb_option_points_frx(cv: Curve, sp: DuplexSponge, points: frx.Array) -> 
     """`absorb_option_points` for a pre-stacked `(N,)` frx affine array (the `Some`
     case): the `F::from(true)` flag then each point's `[x, y, infinity]`, all in one
     absorb — the in-trace twin of `absorb_option_points`."""
-    return sp.absorb(jnp.concatenate([jnp.asarray(option_flag(cv, True)),
+    return sp.absorb(fnp.concatenate([fnp.asarray(option_flag(cv, True)),
                                       point_to_field_array_frx(cv, points)]))

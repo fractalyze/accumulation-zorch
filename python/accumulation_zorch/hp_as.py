@@ -11,7 +11,7 @@ import struct
 from typing import Any, NamedTuple
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from frx import lax
 from zorch.hash.duplex_sponge import DuplexSponge
@@ -103,12 +103,12 @@ def squeeze_mu_frx(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[Duplex
     """`squeeze_mu_challenges` (make_zk) as frx: `[1, c_1, …, c_{n-1}, mu_n]` where
     `mu_n = mu[1]·mu[n-1]` (the extra entry that folds the hiding terms). Returns
     the `(n+1,)` fr array."""
-    mu = jnp.asarray(np.array([1], dtype=cv.fr))
+    mu = fnp.asarray(np.array([1], dtype=cv.fr))
     if num_inputs > 1:
         sp, rest = sponge.squeeze_challenges_frx(sp, num_inputs - 1, _CHALLENGE_BITS, cv)
-        mu = jnp.concatenate([mu, rest])
+        mu = fnp.concatenate([mu, rest])
     mu_n = mu[1] * mu[num_inputs - 1]
-    return sp, jnp.concatenate([mu, mu_n.reshape(1)])
+    return sp, fnp.concatenate([mu, mu_n.reshape(1)])
 
 
 def squeeze_nu_frx(cv: Curve, sp: DuplexSponge, num_inputs: int) -> tuple[DuplexSponge, frx.Array]:
@@ -178,42 +178,42 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
     vectors, `old_rand` its `(3,)` randomness. All default to the inert zero
     placeholder (identity commitments, zero vectors / randomness), so the
     single-input path is byte-identical; the IVC fold passes the old accumulator."""
-    fr_one = jnp.asarray(np.array([1], dtype=cv.fr))
+    fr_one = fnp.asarray(np.array([1], dtype=cv.fr))
     num_inputs = 2  # one real input + (the old accumulator | the zero placeholder)
     L = a_real.shape[0]
     bases = bases_h[:L]  # generators without the trailing hiding base
     # Row 1 of the fold: the old accumulator (IVC fold) or the inert zero
     # placeholder (single-input init). Commitments default to the identity.
-    row1_a = jnp.zeros_like(a_real) if old_a is None else old_a
-    row1_b = jnp.zeros_like(b_real) if old_b is None else old_b
-    row1_comms = jnp.concatenate([id_pt, id_pt, id_pt]) if old_inst is None else old_inst
-    row1_rand = jnp.zeros_like(input_rand) if old_rand is None else old_rand
-    a = jnp.stack([a_real, row1_a])  # (n, L), row 1 = old accumulator / placeholder
-    b = jnp.stack([b_real, row1_b])
+    row1_a = fnp.zeros_like(a_real) if old_a is None else old_a
+    row1_b = fnp.zeros_like(b_real) if old_b is None else old_b
+    row1_comms = fnp.concatenate([id_pt, id_pt, id_pt]) if old_inst is None else old_inst
+    row1_rand = fnp.zeros_like(input_rand) if old_rand is None else old_rand
+    a = fnp.stack([a_real, row1_a])  # (n, L), row 1 = old accumulator / placeholder
+    b = fnp.stack([b_real, row1_b])
     # The hiding values + randomizers are host constants (baked half-step / fold)
     # or a runtime `(5,)` fr array `[hiding_a, hiding_b, hr1, hr2, hr3]` (the
     # general prover); the latter lets one lowered core prove any HP randomness.
     if hp_rand is not None:
-        hiding_a_vec = jnp.broadcast_to(hp_rand[0], (L,))
-        hiding_b_vec = jnp.broadcast_to(hp_rand[1], (L,))
+        hiding_a_vec = fnp.broadcast_to(hp_rand[0], (L,))
+        hiding_b_vec = fnp.broadcast_to(hp_rand[1], (L,))
         hr = hp_rand[2:5]
         hr1, hr2, hr3 = hr[0], hr[1], hr[2]
     else:
-        hiding_a_vec = jnp.asarray(np.array([hiding_a] * L, dtype=cv.fr))
-        hiding_b_vec = jnp.asarray(np.array([hiding_b] * L, dtype=cv.fr))
-        hr = jnp.asarray(np.array([hr1, hr2, hr3], dtype=cv.fr))
+        hiding_a_vec = fnp.asarray(np.array([hiding_a] * L, dtype=cv.fr))
+        hiding_b_vec = fnp.asarray(np.array([hiding_b] * L, dtype=cv.fr))
+        hr = fnp.asarray(np.array([hr1, hr2, hr3], dtype=cv.fr))
 
     # Hiding commitments (the cross term mixes input₀'s b-row with the row-1 a-row).
     comm_h1 = curve.commit_hiding(cv, hiding_a_vec, hr1, bases_h)
     comm_h2 = curve.commit_hiding(cv, hiding_b_vec, hr2, bases_h)
     rand_prods_sum = hiding_a_vec * b[0] + a[num_inputs - 1] * hiding_b_vec
     comm_h3 = curve.commit_hiding(cv, rand_prods_sum, hr3, bases_h)
-    hiding_comms = jnp.stack([comm_h1, comm_h2, comm_h3])  # (3,)
+    hiding_comms = fnp.stack([comm_h1, comm_h2, comm_h3])  # (3,)
 
     # Transcript: supported size, the input commitments (+ the row-1 commitments),
     # the hiding commitments — all threaded as frx, no host hop.
     sp = absorbable.absorb_u64(cv, sp, supported_num_elems)
-    sp = absorbable.absorb_points_frx(cv, sp, jnp.concatenate([real_inst, row1_comms]))
+    sp = absorbable.absorb_points_frx(cv, sp, fnp.concatenate([real_inst, row1_comms]))
     sp = absorbable.absorb_option_points_frx(cv, sp, hiding_comms)
 
     sp, mu = squeeze_mu_frx(cv, sp, num_inputs)  # (3,) = [1, c, mu_n]
@@ -221,7 +221,7 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
                               mu[num_inputs].reshape(1), mu[1].reshape(1))
     low, high = _product_poly_comm_frx(bases, t_vecs, num_inputs)
 
-    sp = absorbable.absorb_points_frx(cv, sp, jnp.stack(low + high))
+    sp = absorbable.absorb_points_frx(cv, sp, fnp.stack(low + high))
     sp, nu = squeeze_nu_frx(cv, sp, num_inputs)  # (2n-1,) powers of nu
 
     combined = mu[:num_inputs] * nu[:num_inputs]  # (n,)
@@ -229,32 +229,32 @@ def _prove_zk_segment(cv: Curve, params: Any, supported_num_elems: int, bases_h:
 
     # Combined instance — each commitment one fold (row 1 = old acc / identity),
     # plus the coeff·hiding addend appended as an extra lax.msm term.
-    comm_1s = jnp.concatenate([real_inst[0:1], row1_comms[0:1]])
-    comm_2s = jnp.concatenate([real_inst[1:2], row1_comms[1:2]])
-    comm_3s = jnp.concatenate([real_inst[2:3], row1_comms[2:3]])
-    cc1 = lax.msm(jnp.concatenate([combined, mu_n]),
-                     jnp.concatenate([comm_1s, hiding_comms[0:1]]))
-    cc2 = lax.msm(jnp.concatenate([nu[:num_inputs], mu[1:2]]),
-                     jnp.concatenate([jnp.flip(comm_2s, 0), hiding_comms[1:2]]))
-    comm3_combine = lax.msm(jnp.concatenate([mu[:num_inputs], mu_n]),
-                               jnp.concatenate([comm_3s, hiding_comms[2:3]]))
-    low_addend = lax.msm(nu[: len(low)], jnp.stack(low))
-    high_addend = lax.msm(nu[num_inputs:num_inputs + len(high)], jnp.stack(high))
-    cc3 = lax.msm(jnp.concatenate([nu[num_inputs - 1:num_inputs], fr_one, fr_one]),
-                     jnp.stack([comm3_combine, low_addend, high_addend]))
-    instance = jnp.stack([cc1, cc2, cc3])
+    comm_1s = fnp.concatenate([real_inst[0:1], row1_comms[0:1]])
+    comm_2s = fnp.concatenate([real_inst[1:2], row1_comms[1:2]])
+    comm_3s = fnp.concatenate([real_inst[2:3], row1_comms[2:3]])
+    cc1 = lax.msm(fnp.concatenate([combined, mu_n]),
+                     fnp.concatenate([comm_1s, hiding_comms[0:1]]))
+    cc2 = lax.msm(fnp.concatenate([nu[:num_inputs], mu[1:2]]),
+                     fnp.concatenate([fnp.flip(comm_2s, 0), hiding_comms[1:2]]))
+    comm3_combine = lax.msm(fnp.concatenate([mu[:num_inputs], mu_n]),
+                               fnp.concatenate([comm_3s, hiding_comms[2:3]]))
+    low_addend = lax.msm(nu[: len(low)], fnp.stack(low))
+    high_addend = lax.msm(nu[num_inputs:num_inputs + len(high)], fnp.stack(high))
+    cc3 = lax.msm(fnp.concatenate([nu[num_inputs - 1:num_inputs], fr_one, fr_one]),
+                     fnp.stack([comm3_combine, low_addend, high_addend]))
+    instance = fnp.stack([cc1, cc2, cc3])
 
     # Combined openings + randomness over both rows (placeholder row → inert).
     a_open = field.combine_vectors(a, combined) + mu[num_inputs] * hiding_a_vec
-    b_open = field.combine_vectors(jnp.flip(b, 0), nu[:num_inputs]) + mu[1] * hiding_b_vec
+    b_open = field.combine_vectors(fnp.flip(b, 0), nu[:num_inputs]) + mu[1] * hiding_b_vec
     a_rand = (input_rand[0] * combined[0] + row1_rand[0] * combined[1]
               + hr[0] * mu[num_inputs])
     b_rand = row1_rand[1] * nu[0] + input_rand[1] * nu[1] + hr[1] * mu[1]
     prod_rand = (input_rand[2] * mu[0] + row1_rand[2] * mu[1]
                  + hr[2] * mu[num_inputs]) * nu[num_inputs - 1]
-    rand = jnp.stack([a_rand, b_rand, prod_rand])
+    rand = fnp.stack([a_rand, b_rand, prod_rand])
 
-    return HpZkCore(instance, a_open, b_open, rand, jnp.stack(low), jnp.stack(high), hiding_comms)
+    return HpZkCore(instance, a_open, b_open, rand, fnp.stack(low), fnp.stack(high), hiding_comms)
 
 
 def prove_zk_core(cv: Curve, bases_h: frx.Array, id_pt: frx.Array, real_inst: frx.Array,
@@ -301,11 +301,11 @@ def prove_zk(cv: Curve, generators: list[np.ndarray], hiding: np.ndarray, instan
     bases_h = curve.stack_affine(cv, list(generators[:L]) + [hiding])
     real_inst = curve.stack_affine(cv, list(instances[0]))
     id_pt = curve.stack_affine(cv, [cv.g1((0, 0))])  # (1,) identity affine
-    a_real = jnp.asarray(np.array(a_vecs[0], dtype=cv.fr))
-    b_real = jnp.asarray(np.array(b_vecs[0], dtype=cv.fr))
+    a_real = fnp.asarray(np.array(a_vecs[0], dtype=cv.fr))
+    b_real = fnp.asarray(np.array(b_vecs[0], dtype=cv.fr))
     ir = input_rands[0]
     assert ir is not None
-    input_rand = jnp.asarray(np.array(list(ir), dtype=cv.fr))
+    input_rand = fnp.asarray(np.array(list(ir), dtype=cv.fr))
 
     core = prove_zk_core(cv, bases_h, id_pt, real_inst, a_real, b_real, input_rand,
                          supported_num_elems, params, hiding_a, hiding_b,

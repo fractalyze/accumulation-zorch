@@ -9,7 +9,7 @@ so there is no encoding ambiguity.
 """
 
 import frx
-import frx.numpy as jnp
+import frx.numpy as fnp
 import numpy as np
 from frx import lax
 from zorch.hash.duplex_sponge import DuplexSponge
@@ -128,9 +128,9 @@ def challenges_from_fq(fq_elems: frx.Array, k: int, size: int, cv: Curve) -> frx
     its `fr`/`fr_modulus` are trace constants.
     """
     # (n, 32) canonical LE bytes -> (n, 256) LE bits -> low FQ_CAPACITY per element.
-    byts = lax.bitcast_convert_type(fq_elems, jnp.uint8)
-    bit_pos = jnp.arange(8, dtype=jnp.uint8)
-    bits = ((byts[:, :, None] >> bit_pos) & 1).astype(jnp.uint8)
+    byts = lax.bitcast_convert_type(fq_elems, fnp.uint8)
+    bit_pos = fnp.arange(8, dtype=fnp.uint8)
+    bits = ((byts[:, :, None] >> bit_pos) & 1).astype(fnp.uint8)
     bits = bits.reshape(byts.shape[0], 8 * _FE_BYTES)[:, :FQ_CAPACITY]
     stream = bits.reshape(-1)[: k * size]
 
@@ -139,14 +139,14 @@ def challenges_from_fq(fq_elems: frx.Array, k: int, size: int, cv: Curve) -> frx
     # field dtype has no limbs->field bitcast, so the lift is field arithmetic;
     # each limb < 2^32 < r is canonical.)
     used = size // _LIMB_BITS
-    limb_pos = jnp.arange(_LIMB_BITS, dtype=jnp.uint32)
-    limb_val = jnp.sum(
-        stream.reshape(k, used, _LIMB_BITS).astype(jnp.uint32) << limb_pos, axis=2
+    limb_pos = fnp.arange(_LIMB_BITS, dtype=fnp.uint32)
+    limb_val = fnp.sum(
+        stream.reshape(k, used, _LIMB_BITS).astype(fnp.uint32) << limb_pos, axis=2
     )
-    place = jnp.asarray(
+    place = fnp.asarray(
         np.array([pow(1 << _LIMB_BITS, i, cv.fr_modulus) for i in range(used)], dtype=cv.fr)
     )
-    return jnp.sum(limb_val.astype(cv.fr) * place[jnp.newaxis, :], axis=1)
+    return fnp.sum(limb_val.astype(cv.fr) * place[fnp.newaxis, :], axis=1)
 
 
 def squeeze_challenges_frx(sp, k, size, cv):  # type: ignore[no-untyped-def]
@@ -157,4 +157,4 @@ def squeeze_challenges_frx(sp, k, size, cv):  # type: ignore[no-untyped-def]
     :func:`squeeze_challenges`, for the in-trace prover challenges (all 128-bit)."""
     n_elems = (k * size + FQ_CAPACITY - 1) // FQ_CAPACITY
     sp, elems = sp.squeeze(n_elems)
-    return sp, challenges_from_fq(jnp.asarray(elems), k, size, cv)
+    return sp, challenges_from_fq(fnp.asarray(elems), k, size, cv)
