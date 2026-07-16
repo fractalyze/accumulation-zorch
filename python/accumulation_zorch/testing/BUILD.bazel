@@ -3,7 +3,7 @@ load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
 
 # Every byte-match test is an absltest case that traces + proves on CPU and
 # asserts the serialized bytes equal the golden arkworks fixtures
-# (//python/testdata:fixtures). `bazel test` forces JAX_PLATFORMS=cpu (.bazelrc);
+# (//python/testdata:fixtures). `bazel test` forces FRX_PLATFORMS=cpu (.bazelrc);
 # the GPU byte-match is separate (Rust, hardware-gated). All tests share one dep
 # set: the frx port plus the pip runtime.
 _TEST_DEPS = [
@@ -74,7 +74,7 @@ py_library(
 #
 # `env_inherit` passes $ACCUMULATION_ZORCH_ARTIFACTS (which names the fixture directory —
 # see recursion_artifacts.py) through from the invoking shell, the way .bazelrc does for
-# JAX_PLATFORMS. Without it every caller would have to remember
+# FRX_PLATFORMS. Without it every caller would have to remember
 # `--test_env=ACCUMULATION_ZORCH_ARTIFACTS`, and forgetting it reports the variable unset
 # while their shell plainly has it set. So, runnable on demand:
 #

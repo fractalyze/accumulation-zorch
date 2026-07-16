@@ -88,7 +88,7 @@ via [bazelisk](https://github.com/bazelbuild/bazelisk) (`.bazelversion` pins the
 version), then:
 
 ```bash
-bazel test //python/...   # the full CPU byte-match suite (JAX_PLATFORMS=cpu, set in .bazelrc)
+bazel test //python/...   # the full CPU byte-match suite (FRX_PLATFORMS=cpu, set in .bazelrc)
 ```
 
 > The pinned xla Pasta frx build registers the Pasta curve dtypes and `zk-dtypes`
@@ -161,9 +161,9 @@ bazel test //python/...                                      # the full 20-test 
 ```bash
 # 1. Lower the ONE general fused core (CPU; no GPU needed for lowering). Bazel
 #    supplies zorch + the frx fork; ACCUMULATION_ZORCH_ARTIFACTS picks the out dir.
-ACCUMULATION_ZORCH_ARTIFACTS=artifacts JAX_PLATFORMS=cpu \
+ACCUMULATION_ZORCH_ARTIFACTS=artifacts FRX_PLATFORMS=cpu \
   bazel run //export:export_prove              # -> artifacts/prove_zk_general.mlirbc
-ACCUMULATION_ZORCH_ARTIFACTS=artifacts JAX_PLATFORMS=cpu \
+ACCUMULATION_ZORCH_ARTIFACTS=artifacts FRX_PLATFORMS=cpu \
   bazel run //export:export_prove -- no-zk     # -> artifacts/prove_no_zk_general.mlirbc
 
 # 2. GPU byte-match: the one core, fed each seed's witness/randomness at run time.

@@ -29,7 +29,7 @@ git_override(
     # this commit: accumulation-zorch's py_tests put BOTH this repo's pip hub and
     # zorch's on the runfiles, so a frx skew between the two silently breaks the
     # arkworks byte-match.
-    commit = "1a1be4937a13180f5d460d5f8a529a773e998eb1",
+    commit = "33f2837e6aa308d2af740a0854736df4f0837aad",
 )
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")

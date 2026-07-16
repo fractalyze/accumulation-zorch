@@ -31,13 +31,13 @@ Both gates run on either backend. The prover gate folds EC points affine<->jacob
 fractalyze/xla#195 (frxlib >= 0.10.0.dev20260705083732), so it no longer needs the
 Pasta GPU plugin. On CPU:
 
-    JAX_PLATFORMS=cpu PYTHONPATH=python \
+    FRX_PLATFORMS=cpu PYTHONPATH=python \
       python python/accumulation_zorch/testing/ipa_seam_zk_test.py
 
 On GPU (Pasta plugin):
 
     SO=$HOME/Workspace/envs/pasta-zorch/xla/bazel-bin/xla/pjrt/c/pjrt_c_api_gpu_plugin.so
-    XLA_PYTHON_CLIENT_PREALLOCATE=false JAX_PLATFORMS=cuda \
+    XLA_PYTHON_CLIENT_PREALLOCATE=false FRX_PLATFORMS=cuda \
       PJRT_NAMES_AND_LIBRARY_PATHS="cuda:$SO" PYTHONPATH=python \
       python python/accumulation_zorch/testing/ipa_seam_zk_test.py
 """

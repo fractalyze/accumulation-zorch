@@ -94,7 +94,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # .bazelrc pins JAX_PLATFORMS=cpu; each test exits non-zero on a byte-match
+      # .bazelrc pins FRX_PLATFORMS=cpu; each test exits non-zero on a byte-match
       # failure. `//python/...` excludes the manual recursion_fold_zk_test;
       # `//export/...` adds the exporter lowering smoke test (the GPU byte-match
       # that exercises the exporters is separate — Rust, hardware-gated).
