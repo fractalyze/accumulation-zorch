@@ -18,6 +18,7 @@ _TEST_DEPS = [
 # parallel (each sandboxed), so wall time is the slowest test, not the sum.
 _TESTS = [
     "absorb_test",
+    "as_chain_test",
     "as_decide_test",
     "as_fold_zk_e2e_test",
     "as_fold_zk_test",

@@ -161,6 +161,20 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
 
 
 class AsFoldZkTest(absltest.TestCase):
+    def test_matrices_hashes_match_arkworks(self) -> None:
+        """The user-facing `accumulate`/`fold` derive both `hash_matrices` digests
+        from the circuit via `_matrices_hashes` (the replay path reads them from
+        this fixture instead). A wrong domain would move gamma/beta but leave the
+        decider — which recomputes the commitments — accepting, so the chain test
+        cannot catch it; only this golden gate can."""
+        d = json.loads(_FIXTURE.read_text())
+        a, b, c = (_matrix(d[k]) for k in ("a", "b", "c"))
+        nark_h, as_h = r1cs_nark_as._matrices_hashes(cv, a, b, c)
+        self.assertEqual(nark_h.hex(), d["nark_matrices_hash_hex"],
+                         "nark.PROTOCOL_NAME domain diverged from arkworks")
+        self.assertEqual(as_h.hex(), d["as_matrices_hash_hex"],
+                         "AS_PROTOCOL_NAME domain diverged from arkworks")
+
     def test_as_fold_instance_matches_arkworks(self) -> None:
         d = json.loads(_FIXTURE.read_text())
         params = _params()

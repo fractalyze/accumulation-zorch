@@ -37,6 +37,21 @@ _CURVES = [
 
 
 class SpongeTest(absltest.TestCase):
+    def test_default_params_ark_matches_the_arkworks_fixture(self) -> None:
+        """The in-package ARK constants (`poseidon_ark`) are what every fixture-free
+        prove Fiat-Shamirs with, so they are only safe while they equal the set
+        arkworks dumped. A silent drift here would not fail loudly — it would move
+        every squeezed challenge and surface as an unrelated byte-match diff."""
+        for cv, fixture in _CURVES:
+            ark_le = b"".join(
+                bytes.fromhex(h) for h in json.loads(fixture.read_text())["ark_le_hex"])
+            self.assertTrue(
+                np.array_equal(
+                    np.asarray(sponge.default_params(cv).round_constants),
+                    np.asarray(sponge.poseidon_params(cv, ark_le).round_constants)),
+                f"[{cv.name}] in-package ARK diverged from the arkworks fixture")
+            print(f"  [{cv.name}] in-package ARK byte-matches the arkworks fixture")
+
     def test_sponge_schedules_match_arkworks(self) -> None:
         for cv, fixture in _CURVES:
             data = json.loads(fixture.read_text())

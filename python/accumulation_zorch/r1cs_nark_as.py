@@ -49,6 +49,106 @@ HP_AS_PROTOCOL_NAME = b"AS-FOR-HP-2020"
 AS_PROTOCOL_NAME = b"AS-FOR-R1CS-NARK-2020"
 
 
+# --- the accumulate / fold seam (structured, for callers proving their own) ---
+
+
+class Randomness(NamedTuple):
+    """Every value arkworks' zk prover samples for one accumulate or fold.
+
+    The prove entry points take these explicitly because the byte-match replays
+    arkworks' draws rather than re-deriving its RNG; :func:`sample_randomness` is
+    the counterpart for a caller proving its own statement, where the values only
+    have to be uniform."""
+
+    nark_r: list[int]                    # witness-blinding vector, one per witness wire
+    nark_blinders: tuple[int, int, int, int, int, int, int, int]
+    as_r1cs_r_input: int
+    as_r1cs_r_witness: int
+    as_rand: tuple[int, int, int]        # sigma_a, sigma_b, sigma_c
+    hp_hiding_a: int
+    hp_hiding_b: int
+    hp_rand: tuple[int, int, int]        # rand_1, rand_2, rand_3
+
+
+def sample_randomness(cv: Curve, rng: np.random.Generator, num_witness: int) -> Randomness:
+    """Draw a :class:`Randomness` uniformly over `fr`.
+
+    Not arkworks' RNG — a fold's soundness rests on the Fiat-Shamir challenges
+    (squeezed from the transcript, never sampled here), so these only need to be
+    uniform. A byte-match against arkworks must pass its draws in instead."""
+    def fr() -> int:
+        # Reduce a 512-bit draw rather than reject: `fr` is 255-bit, so the modulo
+        # bias is ~2^-257, and `rng.integers` cannot express a range this wide.
+        return int.from_bytes(rng.bytes(64), "little") % cv.fr_modulus
+
+    return Randomness(
+        nark_r=[fr() for _ in range(num_witness)],
+        nark_blinders=tuple(fr() for _ in range(8)),  # type: ignore[arg-type]
+        as_r1cs_r_input=fr(),
+        as_r1cs_r_witness=fr(),
+        as_rand=(fr(), fr(), fr()),
+        hp_hiding_a=fr(),
+        hp_hiding_b=fr(),
+        hp_rand=(fr(), fr(), fr()),
+    )
+
+
+class FoldedAccumulator(NamedTuple):
+    """An accumulator as the *fold* consumes it — what `prove`/`fold` emit and what
+    the next fold takes back, so a chain needs no deserializer.
+
+    Distinct from :class:`Accumulator` (the decider's view) by `comms`: the fold
+    folds the stored commitments, the decider recomputes them. Serialized bytes stay
+    the arkworks-facing form; this is the in-process one.
+
+    `comms` is `comm_{a,b,c}` followed by the embedded HP instance's
+    `hp_comm_{1,2,3}` — all six, in that order, because the fold slices the HP
+    triple straight back out of it (`acc_comms[3:6]`)."""
+
+    r1cs_input: FrVec
+    comms: tuple[np.ndarray, ...]
+    blinded_witness: FrVec
+    sigma_abc: tuple[int, int, int]
+    hp_a_vec: FrVec
+    hp_b_vec: FrVec
+    hp_rand: tuple[int, int, int]
+
+    def to_decide(self) -> "Accumulator":
+        """The decider's view of this accumulator."""
+        return Accumulator(
+            r1cs_input=list(self.r1cs_input), blinded_witness=list(self.blinded_witness),
+            hp_a_vec=list(self.hp_a_vec), hp_b_vec=list(self.hp_b_vec),
+            sigmas=self.sigma_abc, hp_rand=self.hp_rand)
+
+
+def _fr_triple(arr: Any) -> tuple[int, int, int]:
+    v = np.asarray(arr).reshape(-1)
+    return (int(v[0]), int(v[1]), int(v[2]))
+
+
+def _materialize_zk(cv: Curve, core_out: tuple, r1cs_r_input: list[int]
+                    ) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
+    """The serialize seam shared by the zk prove and the zk fold — their cores emit
+    the same ten leaves. Returns the structured accumulator alongside the bytes so a
+    caller can fold or decide the result without parsing what was just written."""
+    (combined_input, cca, ccb, ccc, cbw, csig, comm_r_a, comm_r_b, comm_r_c, hp_core) = core_out
+    hp_instance, hp_witness, low, high, hiding_comms = hp_as.materialize_zk(hp_core)
+    r1cs_comms = (np.asarray(cca), np.asarray(ccb), np.asarray(ccc))
+    acc_instance = _serialize_acc_instance(cv, combined_input, *r1cs_comms, hp_instance)
+    acc_witness = _serialize_acc_witness_zk(cv, cbw, hp_witness, csig)
+    proof = _serialize_proof_zk(cv, low, high, hiding_comms, r1cs_r_input,
+                                (np.asarray(comm_r_a), np.asarray(comm_r_b),
+                                 np.asarray(comm_r_c)))
+    acc = FoldedAccumulator(
+        r1cs_input=np.asarray(combined_input, dtype=cv.fr),
+        comms=r1cs_comms + tuple(np.asarray(p, dtype=cv.g1) for p in hp_instance),
+        blinded_witness=np.asarray(cbw, dtype=cv.fr), sigma_abc=_fr_triple(csig),
+        hp_a_vec=np.asarray(hp_witness[0], dtype=cv.fr),
+        hp_b_vec=np.asarray(hp_witness[1], dtype=cv.fr),
+        hp_rand=_fr_triple(hp_witness[2]))
+    return acc, acc_instance, acc_witness, proof
+
+
 def _serialize_acc_instance(cv: Curve, r1cs_input: FrVec, comm_a: np.ndarray,
                             comm_b: np.ndarray, comm_c: np.ndarray,
                             hp_instance: hp_as.Instance) -> bytes:
@@ -356,24 +456,29 @@ def prove_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_inp
     rather than re-deriving arkworks' RNG. The whole prove is one fused `@frx.jit`
     core (`_build_zk_core`); materialization (`np.asarray` to host `fr` arrays) is
     the serialize seam below."""
-    r1cs_r_input = [as_r1cs_r_input] * len(r1cs_input)
+    return _accumulate(
+        cv, a, b, c, r1cs_input, witness, generators, hiding, params, nark_matrices_hash,
+        as_matrices_hash, supported_num_elems,
+        Randomness(nark_r, nark_blinders, as_r1cs_r_input, as_r1cs_r_witness, as_rand,
+                   hp_hiding_a, hp_hiding_b, hp_rand))[1:]
+
+
+def _accumulate(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
+                r1cs_input: list[int], witness: list[int], generators: list[np.ndarray],
+                hiding: np.ndarray, params: Any, nark_matrices_hash: bytes,
+                as_matrices_hash: bytes, supported_num_elems: int, rnd: Randomness
+                ) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
+    """The zk single-input prove, structured + serialized. `prove_zk` is this with
+    the randomness spelled out (the arkworks replay) and the accumulator dropped;
+    `accumulate` is this with the hashes derived and the randomness sampled."""
+    r1cs_r_input = [rnd.as_r1cs_r_input] * len(r1cs_input)
     (core_fn, bases_h, id_pt, ex_in, ex_wit, ex_r, ex_blinders, ex_r_in, ex_r_wit,
      ex_as_rand, ex_hp_rand, ex_in_u8b, ex_r_in_u8b) = _build_zk_core(
         cv, a, b, c, r1cs_input, witness, generators, hiding, params, nark_matrices_hash,
-        as_matrices_hash, supported_num_elems, nark_r, nark_blinders, as_r1cs_r_input,
-        as_r1cs_r_witness, as_rand, hp_hiding_a, hp_hiding_b, hp_rand)
-    (combined_input, cca, ccb, ccc, cbw, csig, comm_r_a, comm_r_b, comm_r_c, hp_core) = \
-        core_fn(bases_h, id_pt, ex_in, ex_wit, ex_r, ex_blinders, ex_r_in, ex_r_wit,
-                ex_as_rand, ex_hp_rand, ex_in_u8b, ex_r_in_u8b)
-
-    # Materialize at the serialize seam.
-    hp_instance, hp_witness, low, high, hiding_comms = hp_as.materialize_zk(hp_core)
-    acc_instance = _serialize_acc_instance(cv, combined_input, np.asarray(cca),
-                                           np.asarray(ccb), np.asarray(ccc), hp_instance)
-    acc_witness = _serialize_acc_witness_zk(cv, cbw, hp_witness, csig)
-    proof = _serialize_proof_zk(cv, low, high, hiding_comms, r1cs_r_input,
-                                (np.asarray(comm_r_a), np.asarray(comm_r_b), np.asarray(comm_r_c)))
-    return acc_instance, acc_witness, proof
+        as_matrices_hash, supported_num_elems, *rnd)
+    core_out = core_fn(bases_h, id_pt, ex_in, ex_wit, ex_r, ex_blinders, ex_r_in, ex_r_wit,
+                       ex_as_rand, ex_hp_rand, ex_in_u8b, ex_r_in_u8b)
+    return _materialize_zk(cv, core_out, r1cs_r_input)
 
 
 # --- decide (the accumulation decider, no-zk + zk) ---------------------------
@@ -584,19 +689,62 @@ def prove_zk_fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1c
     core (`_build_zk_fold_core`) over its three affine inputs, then materializes +
     serializes the folded accumulator. Returns the serialized
     `(acc_instance, acc_witness, proof)`."""
-    r1cs_r_input = [as_r1cs_r_input] * len(r1cs_input)
+    return _fold(
+        cv, a, b, c, r1cs_input, witness, generators, hiding, params, nark_matrices_hash,
+        as_matrices_hash, supported_num_elems,
+        Randomness(nark_r, nark_blinders, as_r1cs_r_input, as_r1cs_r_witness, as_rand,
+                   hp_hiding_a, hp_hiding_b, hp_rand),
+        FoldedAccumulator(acc_r1cs_input, tuple(acc_comms), acc_blinded_witness,
+                          acc_sigma_abc, acc_hp_a_vec, acc_hp_b_vec, acc_hp_rand))[1:]
+
+
+def _fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
+          witness: list[int], generators: list[np.ndarray], hiding: np.ndarray, params: Any,
+          nark_matrices_hash: bytes, as_matrices_hash: bytes, supported_num_elems: int,
+          rnd: Randomness, acc: FoldedAccumulator
+          ) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
+    """The zk fold, structured + serialized — the `_accumulate` counterpart."""
+    r1cs_r_input = [rnd.as_r1cs_r_input] * len(r1cs_input)
     core_fn, bases_h, id_pt, acc_comms_arr = _build_zk_fold_core(
         cv, a, b, c, r1cs_input, witness, generators, hiding, params, nark_matrices_hash,
-        as_matrices_hash, supported_num_elems, nark_r, nark_blinders, as_r1cs_r_input,
-        as_r1cs_r_witness, as_rand, hp_hiding_a, hp_hiding_b, hp_rand, acc_r1cs_input,
-        acc_comms, acc_blinded_witness, acc_sigma_abc, acc_hp_a_vec, acc_hp_b_vec, acc_hp_rand)
-    (combined_input, cca, ccb, ccc, cbw, csig, comm_r_a, comm_r_b, comm_r_c, hp_core) = \
-        core_fn(bases_h, id_pt, acc_comms_arr)
+        as_matrices_hash, supported_num_elems, *rnd, acc.r1cs_input, list(acc.comms),
+        acc.blinded_witness, acc.sigma_abc, acc.hp_a_vec, acc.hp_b_vec, acc.hp_rand)
+    core_out = core_fn(bases_h, id_pt, acc_comms_arr)
+    return _materialize_zk(cv, core_out, r1cs_r_input)
 
-    hp_instance, hp_witness, low, high, hiding_comms = hp_as.materialize_zk(hp_core)
-    acc_instance = _serialize_acc_instance(cv, combined_input, np.asarray(cca),
-                                           np.asarray(ccb), np.asarray(ccc), hp_instance)
-    acc_witness = _serialize_acc_witness_zk(cv, cbw, hp_witness, csig)
-    proof = _serialize_proof_zk(cv, low, high, hiding_comms, r1cs_r_input,
-                                (np.asarray(comm_r_a), np.asarray(comm_r_b), np.asarray(comm_r_c)))
-    return acc_instance, acc_witness, proof
+
+# --- the user-facing pair: accumulate, then fold into what it returned --------
+
+
+def _matrices_hashes(cv: Curve, a: nark.Matrix, b: nark.Matrix,
+                     c: nark.Matrix) -> tuple[bytes, bytes]:
+    """The NARK and AS `hash_matrices` digests. Both are a pure function of the
+    circuit, so only a replay against a golden file needs to pass them in."""
+    return (nark.hash_matrices(cv, nark.PROTOCOL_NAME, a, b, c),
+            nark.hash_matrices(cv, AS_PROTOCOL_NAME, a, b, c))
+
+
+def accumulate(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
+               r1cs_input: list[int], witness: list[int], generators: list[np.ndarray],
+               hiding: np.ndarray, params: Any, supported_num_elems: int,
+               rnd: Randomness) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
+    """zk `ASForR1CSNark::prove` over one input with no prior accumulator — the
+    first step of a chain, returning an accumulator :func:`fold` takes back.
+
+    :func:`prove_zk` is the same prove for the arkworks replay: it spells the
+    matrices hashes out and hands back only the serialized form."""
+    nark_h, as_h = _matrices_hashes(cv, a, b, c)
+    return _accumulate(cv, a, b, c, r1cs_input, witness, generators, hiding, params,
+                       nark_h, as_h, supported_num_elems, rnd)
+
+
+def fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
+         witness: list[int], generators: list[np.ndarray], hiding: np.ndarray, params: Any,
+         supported_num_elems: int, acc: FoldedAccumulator, rnd: Randomness
+         ) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
+    """zk `ASForR1CSNark::prove` folding one input INTO `acc` — the IVC step
+    (`num_addends = 3`), returning an accumulator that can be folded again or
+    decided. :func:`prove_zk_fold` is the replay counterpart."""
+    nark_h, as_h = _matrices_hashes(cv, a, b, c)
+    return _fold(cv, a, b, c, r1cs_input, witness, generators, hiding, params,
+                 nark_h, as_h, supported_num_elems, rnd, acc)
