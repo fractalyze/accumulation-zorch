@@ -17,6 +17,7 @@ from zorch.hash.poseidon.params import PoseidonParams
 from zorch.hash.poseidon.poseidon import Poseidon
 
 from .curve import PALLAS, Curve
+from .poseidon_ark import ARK_LE_HEX
 
 WIDTH = 3
 ALPHA = 17
@@ -50,6 +51,16 @@ def poseidon_params(cv: Curve, ark_le: bytes) -> PoseidonParams:
         round_constants=rc,
         mds=mds,
     )
+
+
+def default_params(cv: Curve) -> PoseidonParams:
+    """The curve's default ark-sponge `PoseidonSponge<CF>` params — what every
+    prove path here Fiat-Shamirs with, with no fixture to supply.
+
+    :func:`poseidon_params` stays the seam for a caller that has its own ARK set
+    (the fixtures feed it that way, so the arkworks gate still reads its
+    constants from the golden file rather than from these)."""
+    return poseidon_params(cv, bytes.fromhex("".join(ARK_LE_HEX[cv.name])))
 
 
 def new_sponge(params: PoseidonParams) -> DuplexSponge:
