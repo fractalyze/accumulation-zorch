@@ -16,7 +16,7 @@ from frx import lax
 from zorch.hash.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, field, sponge
-from .curve import Curve, FrScalar
+from .curve import Curve, FrScalar, FrVec
 
 # ark `r1cs_nark::PROTOCOL_NAME` — the domain the NARK sponge is forked with.
 PROTOCOL_NAME = b"R1CS-NARK-2020"
@@ -86,7 +86,7 @@ def to_csr(cv: Curve, matrix: Matrix) -> tuple[np.ndarray, np.ndarray, np.ndarra
             np.array(vals, dtype=cv.fr))
 
 
-def matrix_vec_mul(cv: Curve, matrix: Matrix, input: list[int], witness: list[int]) -> np.ndarray:
+def matrix_vec_mul(cv: Curve, matrix: Matrix, input: FrVec, witness: FrVec) -> np.ndarray:
     """ark `matrix_vec_mul`: `matrix * (input ‖ witness)` in fr, as an `fr` array.
     `matrix` is a sparse `Vec<Vec<(coeff, var_index)>>`; `input`/`witness` are fr
     ints. The per-row inner product runs over `cv.fr` arrays, so the dtype reduces
@@ -104,7 +104,7 @@ def matrix_vec_mul(cv: Curve, matrix: Matrix, input: list[int], witness: list[in
 
 
 def _serialize_proof(cv: Curve, comm_a: np.ndarray, comm_b: np.ndarray, comm_c: np.ndarray,
-                     blinded_witness: list[int]) -> bytes:
+                     blinded_witness: FrVec) -> bytes:
     """ark `CanonicalSerialize` of a no-zk `Proof`: the three first-round
     commitments (compressed, 33B), the `None` first-round randomness flag, the
     blinded-witness `Vec<Fr>` (u64 length + 32B LE each), and the `None`
@@ -151,8 +151,8 @@ def prove_no_zk_core(cv: Curve, csr_a: tuple, csr_b: tuple, csr_c: tuple, z: frx
     return NoZkNarkCore(commit(csr_a), commit(csr_b), commit(csr_c))
 
 
-def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
-                     witness: list[int], generators: list[np.ndarray]) -> tuple:
+def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: FrVec,
+                     witness: FrVec, generators: list[np.ndarray]) -> tuple:
     """Build the fused no-zk NARK core as `(core_fn, bases)`: a single `@frx.jit`
     closing over the circuit (the sparse CSR matrices + `z = input ‖ witness`) with
     the committer key `bases` as its **sole runtime argument** — the export-correct
@@ -171,8 +171,8 @@ def build_no_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int
     return core_fn, bases
 
 
-def prove_no_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
-                witness: list[int], generators: list[np.ndarray]) -> bytes:
+def prove_no_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: FrVec,
+                witness: FrVec, generators: list[np.ndarray]) -> bytes:
     """ark `R1CSNark::prove` (no-zk) as a single fused `@frx.jit` trace — the
     standalone no-zk NARK prove. The `M·z` reduce runs **on-device** from the
     sparse CSR (`prove_no_zk_core`), so the whole prove is the trace the GPU
@@ -242,8 +242,8 @@ class NarkZkRuntime(NamedTuple):
     input_u8b: frx.Array   # (·,) fq — u8_batch(r1cs_input) for the gamma sponge
 
 
-def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int],
-                         witness: list[int], r: list[int], a_blinder: int, b_blinder: int,
+def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: FrVec,
+                         witness: FrVec, r: list[int], a_blinder: int, b_blinder: int,
                          c_blinder: int, r_a_blinder: int, r_b_blinder: int, r_c_blinder: int,
                          blinder_1: int, blinder_2: int, rt: NarkZkRuntime | None = None) -> tuple:
     """Field operand prep for the zk NARK prove (no group ops): the sparse CSR of
@@ -287,7 +287,7 @@ def _prove_zk_field_prep(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list
     return (csr_a, csr_b, csr_c, z, zr, blinders, witness_arr, r_arr, None)
 
 
-def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[int],
+def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: FrVec,
                       csr_a: tuple, csr_b: tuple, csr_c: tuple, num_rows: int, z: frx.Array,
                       zr: frx.Array, bases_h: frx.Array, blinders: frx.Array,
                       witness_arr: frx.Array, r_arr: frx.Array, fork: bool = True,
@@ -343,7 +343,7 @@ def _prove_zk_segment(cv: Curve, params: Any, matrices_hash: bytes, input: list[
                       comm_2, blinded_witness, sigma_abc, sigma_o, gamma)
 
 
-def prove_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witness: list[int],
+def prove_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: FrVec, witness: FrVec,
                   bases_h: frx.Array, params: Any, matrices_hash: bytes, r: list[int],
                   a_blinder: int, b_blinder: int, c_blinder: int, r_a_blinder: int,
                   r_b_blinder: int, r_c_blinder: int, blinder_1: int, blinder_2: int,
@@ -366,7 +366,7 @@ def prove_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
                              input_u8b=input_u8b, dense=dense)
 
 
-def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witness: list[int],
+def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: FrVec, witness: FrVec,
                   generators: list[np.ndarray], hiding: np.ndarray, params: Any,
                   matrices_hash: bytes, r: list[int], a_blinder: int, b_blinder: int,
                   c_blinder: int, r_a_blinder: int, r_b_blinder: int, r_c_blinder: int,
@@ -391,7 +391,7 @@ def build_zk_core(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], 
     return core_fn, bases_h
 
 
-def prove_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: list[int], witness: list[int],
+def prove_zk(cv: Curve, a: Matrix, b: Matrix, c: Matrix, input: FrVec, witness: FrVec,
              generators: list[np.ndarray], hiding: np.ndarray, params: Any,
              matrices_hash: bytes, r: list[int], a_blinder: int, b_blinder: int,
              c_blinder: int, r_a_blinder: int, r_b_blinder: int, r_c_blinder: int,
