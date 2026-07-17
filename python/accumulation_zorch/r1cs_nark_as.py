@@ -114,10 +114,11 @@ class FoldedAccumulator(NamedTuple):
     hp_rand: tuple[int, int, int]
 
     def to_decide(self) -> "Accumulator":
-        """The decider's view of this accumulator."""
+        """The decider's view of this accumulator. The vectors are `FrVec` on both
+        sides now, so they pass through — no list() round-trip."""
         return Accumulator(
-            r1cs_input=list(self.r1cs_input), blinded_witness=list(self.blinded_witness),
-            hp_a_vec=list(self.hp_a_vec), hp_b_vec=list(self.hp_b_vec),
+            r1cs_input=self.r1cs_input, blinded_witness=self.blinded_witness,
+            hp_a_vec=self.hp_a_vec, hp_b_vec=self.hp_b_vec,
             sigmas=self.sigma_abc, hp_rand=self.hp_rand)
 
 
@@ -179,7 +180,7 @@ def _serialize_proof(cv: Curve, low: list[np.ndarray], high: list[np.ndarray]) -
 
 
 def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
-                      r1cs_input: list[int], blinded_witness: list[int],
+                      r1cs_input: FrVec, blinded_witness: FrVec,
                       generators: list[np.ndarray], supported_num_elems: int,
                       params: Any) -> tuple:
     """Build the fused no-zk prove `@frx.jit` core (the **general**
@@ -216,14 +217,16 @@ def _build_no_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
     return _core, bases, r1cs_input_arr, blinded_witness_arr
 
 
-def prove_no_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
-                blinded_witness: list[int], generators: list[np.ndarray],
+def prove_no_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: FrVec,
+                blinded_witness: FrVec, generators: list[np.ndarray],
                 supported_num_elems: int, params: Any) -> tuple[bytes, bytes, bytes]:
     """no-zk `ASForR1CSNark::prove` over a single input, no prior accumulators.
 
     `a`/`b`/`c` are sparse `Matrix<Fr>` (rows of `(coeff, var_index)`);
-    `r1cs_input`/`blinded_witness` are fr ints; `generators` are the committer
-    key's points. Returns the serialized `(acc_instance, acc_witness, proof)`.
+    `r1cs_input`/`blinded_witness` are the `Vec<Fr>` assignment (`FrVec`: fr ints,
+    `cv.fr` elements, or a field array — the prover canonicalizes either way);
+    `generators` are the committer key's points. Returns the serialized
+    `(acc_instance, acc_witness, proof)`.
     """
     core_fn, bases, r1cs_input_arr, blinded_witness_arr = _build_no_zk_core(
         cv, a, b, c, r1cs_input, blinded_witness, generators, supported_num_elems, params)
@@ -299,8 +302,8 @@ def _beta_challenges_frx(cv: Curve, params: Any, as_matrices_hash: bytes, input_
     return fnp.concatenate([fr_one, ch])
 
 
-def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
-                   witness: list[int], generators: list[np.ndarray], hiding: np.ndarray, params: Any,
+def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: FrVec,
+                   witness: FrVec, generators: list[np.ndarray], hiding: np.ndarray, params: Any,
                    nark_matrices_hash: bytes, as_matrices_hash: bytes, supported_num_elems: int,
                    nark_r: list[int], nark_blinders: tuple[int, int, int, int, int, int, int, int],
                    as_r1cs_r_input: int, as_r1cs_r_witness: int, as_rand: tuple[int, int, int],
@@ -444,8 +447,8 @@ def _build_zk_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1
             ex_as_rand, ex_hp_rand, ex_in_u8b, ex_r_in_u8b)
 
 
-def prove_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
-             witness: list[int], generators: list[np.ndarray], hiding: np.ndarray, params: Any,
+def prove_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: FrVec,
+             witness: FrVec, generators: list[np.ndarray], hiding: np.ndarray, params: Any,
              nark_matrices_hash: bytes, as_matrices_hash: bytes, supported_num_elems: int,
              nark_r: list[int], nark_blinders: tuple[int, int, int, int, int, int, int, int],
              as_r1cs_r_input: int, as_r1cs_r_witness: int, as_rand: tuple[int, int, int],
@@ -464,7 +467,7 @@ def prove_zk(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_inp
 
 
 def _accumulate(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
-                r1cs_input: list[int], witness: list[int], generators: list[np.ndarray],
+                r1cs_input: FrVec, witness: FrVec, generators: list[np.ndarray],
                 hiding: np.ndarray, params: Any, nark_matrices_hash: bytes,
                 as_matrices_hash: bytes, supported_num_elems: int, rnd: Randomness
                 ) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
@@ -489,10 +492,10 @@ class Accumulator(NamedTuple):
     `ASForR1CSNark::decide` + `ASForHadamardProducts::decide` read. `sigmas` /
     `hp_rand` are the zk Pedersen randomizers (`None` on the no-zk path, where the
     commitments are non-hiding)."""
-    r1cs_input: list[int]            # instance.r1cs_input
-    blinded_witness: list[int]       # witness.r1cs_blinded_witness
-    hp_a_vec: list[int]              # witness.hp_witness.a_vec
-    hp_b_vec: list[int]              # witness.hp_witness.b_vec
+    r1cs_input: FrVec            # instance.r1cs_input
+    blinded_witness: FrVec       # witness.r1cs_blinded_witness
+    hp_a_vec: FrVec              # witness.hp_witness.a_vec
+    hp_b_vec: FrVec              # witness.hp_witness.b_vec
     sigmas: tuple[int, int, int] | None       # witness.randomness.{sigma_a,sigma_b,sigma_c}
     hp_rand: tuple[int, int, int] | None       # witness.hp_witness.randomness.{rand_1,rand_2,rand_3}
 
@@ -539,15 +542,15 @@ def decide(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
 # --- zk fold (one input folded into one prior accumulator, num_addends=3) ----
 
 
-def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
-                        witness: list[int], generators: list[np.ndarray], hiding: np.ndarray, params: Any,
+def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: FrVec,
+                        witness: FrVec, generators: list[np.ndarray], hiding: np.ndarray, params: Any,
                         nark_matrices_hash: bytes, as_matrices_hash: bytes, supported_num_elems: int,
                         nark_r: list[int], nark_blinders: tuple[int, int, int, int, int, int, int, int],
                         as_r1cs_r_input: int, as_r1cs_r_witness: int, as_rand: tuple[int, int, int],
                         hp_hiding_a: int, hp_hiding_b: int, hp_rand: tuple[int, int, int],
-                        acc_r1cs_input: list[int], acc_comms: list[np.ndarray], acc_blinded_witness: list[int],
-                        acc_sigma_abc: tuple[int, int, int], acc_hp_a_vec: list[int],
-                        acc_hp_b_vec: list[int], acc_hp_rand: tuple[int, int, int]) -> tuple:
+                        acc_r1cs_input: FrVec, acc_comms: list[np.ndarray], acc_blinded_witness: FrVec,
+                        acc_sigma_abc: tuple[int, int, int], acc_hp_a_vec: FrVec,
+                        acc_hp_b_vec: FrVec, acc_hp_rand: tuple[int, int, int]) -> tuple:
     """Build the fused zk **fold** `@frx.jit` core (closing over the host constants:
     `params`, the matrices hashes, both inputs' fr components, and replayed
     randomness — none are frx pytrees) plus its three affine arguments
@@ -582,7 +585,7 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     # AS reduces here is a data-movement choice (the vectors are constants anyway),
     # not a scatter workaround; the on-device sparse matvec is exercised both by the
     # standalone NARK half-step and by those NARK-internal fold reduces.
-    def _host_mz(m: nark.Matrix, inp: list[int], wit: list[int]) -> frx.Array:
+    def _host_mz(m: nark.Matrix, inp: FrVec, wit: FrVec) -> frx.Array:
         return fnp.asarray(nark.matrix_vec_mul(cv, m, inp, wit))
 
     # comm_r = commit(M·(r1cs_r_input ‖ r1cs_r_witness)); the AS proof-randomness reduce.
@@ -675,15 +678,15 @@ def _build_zk_fold_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matri
     return _core, bases_h, id_pt, acc_comms_arr
 
 
-def prove_zk_fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
-                  witness: list[int], generators: list[np.ndarray], hiding: np.ndarray, params: Any,
+def prove_zk_fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: FrVec,
+                  witness: FrVec, generators: list[np.ndarray], hiding: np.ndarray, params: Any,
                   nark_matrices_hash: bytes, as_matrices_hash: bytes, supported_num_elems: int,
                   nark_r: list[int], nark_blinders: tuple[int, int, int, int, int, int, int, int],
                   as_r1cs_r_input: int, as_r1cs_r_witness: int, as_rand: tuple[int, int, int],
                   hp_hiding_a: int, hp_hiding_b: int, hp_rand: tuple[int, int, int],
-                  acc_r1cs_input: list[int], acc_comms: list[np.ndarray], acc_blinded_witness: list[int],
-                  acc_sigma_abc: tuple[int, int, int], acc_hp_a_vec: list[int],
-                  acc_hp_b_vec: list[int], acc_hp_rand: tuple[int, int, int]) -> tuple[bytes, bytes, bytes]:
+                  acc_r1cs_input: FrVec, acc_comms: list[np.ndarray], acc_blinded_witness: FrVec,
+                  acc_sigma_abc: tuple[int, int, int], acc_hp_a_vec: FrVec,
+                  acc_hp_b_vec: FrVec, acc_hp_rand: tuple[int, int, int]) -> tuple[bytes, bytes, bytes]:
     """zk `ASForR1CSNark::prove` folding one input INTO one prior accumulator — the
     full IVC fold step (`num_addends = 3`, `beta = [1, c₁, c₂]`). Runs the fused fold
     core (`_build_zk_fold_core`) over its three affine inputs, then materializes +
@@ -698,8 +701,8 @@ def prove_zk_fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1c
                           acc_sigma_abc, acc_hp_a_vec, acc_hp_b_vec, acc_hp_rand))[1:]
 
 
-def _fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
-          witness: list[int], generators: list[np.ndarray], hiding: np.ndarray, params: Any,
+def _fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: FrVec,
+          witness: FrVec, generators: list[np.ndarray], hiding: np.ndarray, params: Any,
           nark_matrices_hash: bytes, as_matrices_hash: bytes, supported_num_elems: int,
           rnd: Randomness, acc: FoldedAccumulator
           ) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
@@ -725,7 +728,7 @@ def _matrices_hashes(cv: Curve, a: nark.Matrix, b: nark.Matrix,
 
 
 def accumulate(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
-               r1cs_input: list[int], witness: list[int], generators: list[np.ndarray],
+               r1cs_input: FrVec, witness: FrVec, generators: list[np.ndarray],
                hiding: np.ndarray, params: Any, supported_num_elems: int,
                rnd: Randomness) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
     """zk `ASForR1CSNark::prove` over one input with no prior accumulator — the
@@ -738,8 +741,8 @@ def accumulate(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
                        nark_h, as_h, supported_num_elems, rnd)
 
 
-def fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: list[int],
-         witness: list[int], generators: list[np.ndarray], hiding: np.ndarray, params: Any,
+def fold(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, r1cs_input: FrVec,
+         witness: FrVec, generators: list[np.ndarray], hiding: np.ndarray, params: Any,
          supported_num_elems: int, acc: FoldedAccumulator, rnd: Randomness
          ) -> tuple[FoldedAccumulator, bytes, bytes, bytes]:
     """zk `ASForR1CSNark::prove` folding one input INTO `acc` — the IVC step
