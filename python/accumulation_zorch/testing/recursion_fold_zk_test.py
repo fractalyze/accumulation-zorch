@@ -22,34 +22,46 @@ both dumps have to have been run. On demand:
     ACCUMULATION_ZORCH_ARTIFACTS=$PWD/artifacts \
       bazel test //python/accumulation_zorch/testing:recursion_fold_zk_test
 
-The target is `manual`, so `bazel test //python/...` does not run it: the full IVC fold is
+The target is `manual`, so `bazel test //python/...` does not run it: the full IVC fold
+is
 minutes-slow on CPU, a clean checkout has no fixtures, and a test that cannot check
 anything must not report a pass.
 """
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+import recursion_artifacts
 from absl.testing import absltest
 
-import recursion_artifacts
 from accumulation_zorch import curve, nark, r1cs_nark_as, sponge
 
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
 # The dump that emits a direction's fixture; `cv.name` is "vesta" / "pallas".
-_DUMP = "cargo test --features recursion --test recursion_step {}::dump::dump_recursion_fold_zk"
+_DUMP = (
+    "cargo test --features recursion --test recursion_step "
+    "{}::dump::dump_recursion_fold_zk"
+)
 
 # (label, curve, fixture filename, Poseidon sponge fixture over the constraint field).
 # Forward folds on Vesta (constraint field ark_vesta::Fq); reverse on Pallas
 # (constraint field ark_pallas::Fq = the toy's sponge_fixtures.json).
 _DIRECTIONS = [
-    ("vesta forward", curve.VESTA, "recursion_fold_zk_fixtures.json",
-     "sponge_vesta_fixtures.json"),
-    ("pallas reverse", curve.PALLAS, "recursion_fold_zk_pallas_fixtures.json",
-     "sponge_fixtures.json"),
+    (
+        "vesta forward",
+        curve.VESTA,
+        "recursion_fold_zk_fixtures.json",
+        "sponge_vesta_fixtures.json",
+    ),
+    (
+        "pallas reverse",
+        curve.PALLAS,
+        "recursion_fold_zk_pallas_fixtures.json",
+        "sponge_fixtures.json",
+    ),
 ]
 
 
@@ -66,8 +78,10 @@ def _point(cv: Any, p: Any) -> Any:
 
 
 def _params(cv: Any, sponge_file: str) -> Any:
-    ark_le = b"".join(bytes.fromhex(h)
-                      for h in json.loads((_TESTDATA / sponge_file).read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h)
+        for h in json.loads((_TESTDATA / sponge_file).read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -79,45 +93,100 @@ def _fold(cv: Any, d: Any, params: Any) -> tuple[bytes, bytes, bytes]:
     input2 = [_fr(h) for h in d["input2_r1cs_input"]]
     witness2 = [_fr(h) for h in d["input2_witness"]]
     nark_r = [_fr(h) for h in d["r"]]
-    nark_blinders = tuple(_fr(d[k]) for k in (
-        "a_blinder", "b_blinder", "c_blinder", "r_a_blinder", "r_b_blinder", "r_c_blinder",
-        "blinder_1", "blinder_2"))
-    as_rand = tuple(_fr(d[k]) for k in ("as_rand_1", "as_rand_2", "as_rand_3"))
-    hp_rand = tuple(_fr(d[k]) for k in ("hp_rand_1", "hp_rand_2", "hp_rand_3"))
+    nark_blinders = cast(
+        tuple[int, int, int, int, int, int, int, int],
+        tuple(
+            _fr(d[k])
+            for k in (
+                "a_blinder",
+                "b_blinder",
+                "c_blinder",
+                "r_a_blinder",
+                "r_b_blinder",
+                "r_c_blinder",
+                "blinder_1",
+                "blinder_2",
+            )
+        ),
+    )
+    as_rand = cast(
+        tuple[int, int, int],
+        tuple(_fr(d[k]) for k in ("as_rand_1", "as_rand_2", "as_rand_3")),
+    )
+    hp_rand = cast(
+        tuple[int, int, int],
+        tuple(_fr(d[k]) for k in ("hp_rand_1", "hp_rand_2", "hp_rand_3")),
+    )
 
     acc = d["acc_prev_instance"]
     accw = d["acc_prev_witness"]
     acc_r1cs_input = [_fr(h) for h in acc["r1cs_input"]]
-    acc_comms = [np.asarray(_point(cv, acc[k])) for k in (
-        "comm_a", "comm_b", "comm_c", "hp_comm_1", "hp_comm_2", "hp_comm_3")]
+    acc_comms = [
+        np.asarray(_point(cv, acc[k]))
+        for k in ("comm_a", "comm_b", "comm_c", "hp_comm_1", "hp_comm_2", "hp_comm_3")
+    ]
     acc_blinded_witness = [_fr(h) for h in accw["r1cs_blinded_witness"]]
-    acc_sigma_abc = tuple(_fr(accw[k]) for k in ("sigma_a", "sigma_b", "sigma_c"))
+    acc_sigma_abc = cast(
+        tuple[int, int, int],
+        tuple(_fr(accw[k]) for k in ("sigma_a", "sigma_b", "sigma_c")),
+    )
     acc_hp_a_vec = [_fr(h) for h in accw["hp_a_vec"]]
     acc_hp_b_vec = [_fr(h) for h in accw["hp_b_vec"]]
-    acc_hp_rand = tuple(_fr(accw[k]) for k in ("hp_rand_1", "hp_rand_2", "hp_rand_3"))
+    acc_hp_rand = cast(
+        tuple[int, int, int],
+        tuple(_fr(accw[k]) for k in ("hp_rand_1", "hp_rand_2", "hp_rand_3")),
+    )
 
     return r1cs_nark_as.prove_zk_fold(
-        cv, a, b, c, input2, witness2, generators, hiding, params,
-        bytes.fromhex(d["nark_matrices_hash_hex"]), bytes.fromhex(d["as_matrices_hash_hex"]),
-        d["supported_num_elems"], nark_r, nark_blinders,
-        _fr(d["as_r1cs_r_input"]), _fr(d["as_r1cs_r_witness"]), as_rand,
-        _fr(d["hp_hiding_a"]), _fr(d["hp_hiding_b"]), hp_rand,
-        acc_r1cs_input, acc_comms, acc_blinded_witness, acc_sigma_abc,
-        acc_hp_a_vec, acc_hp_b_vec, acc_hp_rand)
+        cv,
+        a,
+        b,
+        c,
+        input2,
+        witness2,
+        generators,
+        hiding,
+        params,
+        bytes.fromhex(d["nark_matrices_hash_hex"]),
+        bytes.fromhex(d["as_matrices_hash_hex"]),
+        d["supported_num_elems"],
+        nark_r,
+        nark_blinders,
+        _fr(d["as_r1cs_r_input"]),
+        _fr(d["as_r1cs_r_witness"]),
+        as_rand,
+        _fr(d["hp_hiding_a"]),
+        _fr(d["hp_hiding_b"]),
+        hp_rand,
+        acc_r1cs_input,
+        acc_comms,
+        acc_blinded_witness,
+        acc_sigma_abc,
+        acc_hp_a_vec,
+        acc_hp_b_vec,
+        acc_hp_rand,
+    )
 
 
 def _check_direction(label: str, cv: Any, fixture: str, sponge_file: str) -> None:
-    d = json.loads(recursion_artifacts.fixture(fixture, _DUMP.format(cv.name)).read_text())
+    d = json.loads(
+        recursion_artifacts.fixture(fixture, _DUMP.format(cv.name)).read_text()
+    )
     acc_instance, acc_witness, proof = _fold(cv, d, _params(cv, sponge_file))
-    assert acc_instance.hex() == d["golden_instance_hex"], (
-        f"[{label}] folded acc.instance diverged ({len(acc_instance)}B)")
-    assert acc_witness.hex() == d["golden_witness_hex"], (
-        f"[{label}] folded acc.witness diverged ({len(acc_witness)}B)")
-    assert proof.hex() == d["golden_proof_hex"], (
-        f"[{label}] fold proof diverged ({len(proof)}B)")
-    print(f"  [{label}] recursion zk fold byte-matches arkworks "
-          f"({d['num_constraints']} constraints, acc.instance {len(acc_instance)}B ‖ "
-          f"acc.witness {len(acc_witness)}B ‖ proof {len(proof)}B)")
+    assert (
+        acc_instance.hex() == d["golden_instance_hex"]
+    ), f"[{label}] folded acc.instance diverged ({len(acc_instance)}B)"
+    assert (
+        acc_witness.hex() == d["golden_witness_hex"]
+    ), f"[{label}] folded acc.witness diverged ({len(acc_witness)}B)"
+    assert (
+        proof.hex() == d["golden_proof_hex"]
+    ), f"[{label}] fold proof diverged ({len(proof)}B)"
+    print(
+        f"  [{label}] recursion zk fold byte-matches arkworks "
+        f"({d['num_constraints']} constraints, acc.instance {len(acc_instance)}B ‖ "
+        f"acc.witness {len(acc_witness)}B ‖ proof {len(proof)}B)"
+    )
 
 
 class RecursionFoldZkTest(absltest.TestCase):

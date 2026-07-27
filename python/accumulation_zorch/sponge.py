@@ -155,7 +155,9 @@ def challenges_from_fq(fq_elems: frx.Array, k: int, size: int, cv: Curve) -> frx
         stream.reshape(k, used, _LIMB_BITS).astype(fnp.uint32) << limb_pos, axis=2
     )
     place = fnp.asarray(
-        np.array([pow(1 << _LIMB_BITS, i, cv.fr_modulus) for i in range(used)], dtype=cv.fr)
+        np.array(
+            [pow(1 << _LIMB_BITS, i, cv.fr_modulus) for i in range(used)], dtype=cv.fr
+        )
     )
     return fnp.sum(limb_val.astype(cv.fr) * place[fnp.newaxis, :], axis=1)
 

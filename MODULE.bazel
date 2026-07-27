@@ -24,12 +24,12 @@ bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "zorch", version = "0.0.0")
 git_override(
     module_name = "zorch",
-    remote = "https://github.com/fractalyze/zorch.git",
     # zorch main. Keep requirements.in's frx / zk-dtypes pins in lockstep with
     # this commit: accumulation-zorch's py_tests put BOTH this repo's pip hub and
     # zorch's on the runfiles, so a frx skew between the two silently breaks the
     # arkworks byte-match.
     commit = "33f2837e6aa308d2af740a0854736df4f0837aad",
+    remote = "https://github.com/fractalyze/zorch.git",
 )
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")

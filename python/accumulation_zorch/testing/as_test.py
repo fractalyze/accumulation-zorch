@@ -1,6 +1,7 @@
 """Slice-5 byte-match: the no-zk R1CS-NARK-AS prove vs arkworks — end-to-end.
 
-The acceptance criterion for the no-zk frx prover port. Replays the inputs dumped from the
+The acceptance criterion for the no-zk frx prover port. Replays the inputs dumped from
+the
 crate's real `ASForR1CSNark::prove` (no-zk) — `examples/dump_as.rs`, itself
 seeded identically to `src/oracle.rs`'s `prove_byte_identical_to_arkworks_no_zk`
 target — and asserts the ported prover reproduces the serialized
@@ -32,7 +33,9 @@ _SPONGE = _TESTDATA / "sponge_fixtures.json"
 
 
 def _params() -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -46,10 +49,12 @@ def _matrix(rows: Any) -> Any:
 
 
 def _point(p: Any) -> Any:
-    return cv.g1((
-        int.from_bytes(bytes.fromhex(p["x_le_hex"]), "little"),
-        int.from_bytes(bytes.fromhex(p["y_le_hex"]), "little"),
-    ))
+    return cv.g1(
+        (
+            int.from_bytes(bytes.fromhex(p["x_le_hex"]), "little"),
+            int.from_bytes(bytes.fromhex(p["y_le_hex"]), "little"),
+        )
+    )
 
 
 def _load() -> Any:
@@ -63,7 +68,15 @@ def _prove(d: Any, a: Any, b: Any, c: Any, generators: Any, seed_entry: Any) -> 
     r1cs_input = [_fr(h) for h in seed_entry["r1cs_input"]]
     blinded_witness = [_fr(h) for h in seed_entry["blinded_witness"]]
     return r1cs_nark_as.prove_no_zk(
-        cv, a, b, c, r1cs_input, blinded_witness, generators, d["supported_num_elems"], _params()
+        cv,
+        a,
+        b,
+        c,
+        r1cs_input,
+        blinded_witness,
+        generators,
+        d["supported_num_elems"],
+        _params(),
     )
 
 
@@ -72,23 +85,46 @@ class AsTest(absltest.TestCase):
         d, a, b, c, generators = _load()
         for seed_entry in d["seeds"]:
             seed = seed_entry["seed"]
-            acc_instance, acc_witness, proof = _prove(d, a, b, c, generators, seed_entry)
+            acc_instance, acc_witness, proof = _prove(
+                d, a, b, c, generators, seed_entry
+            )
 
-            self.assertEqual(acc_instance.hex(), seed_entry["acc_instance_hex"], (
-                f"seed {seed} acc.instance:\n got  {acc_instance.hex()}\n want {seed_entry['acc_instance_hex']}"
-            ))
-            self.assertEqual(acc_witness.hex(), seed_entry["acc_witness_hex"], (
-                f"seed {seed} acc.witness:\n got  {acc_witness.hex()}\n want {seed_entry['acc_witness_hex']}"
-            ))
-            self.assertEqual(proof.hex(), seed_entry["proof_hex"], (
-                f"seed {seed} proof:\n got  {proof.hex()}\n want {seed_entry['proof_hex']}"
-            ))
+            self.assertEqual(
+                acc_instance.hex(),
+                seed_entry["acc_instance_hex"],
+                (
+                    f"seed {seed} acc.instance:\n got  {acc_instance.hex()}\n want "
+                    f"{seed_entry['acc_instance_hex']}"
+                ),
+            )
+            self.assertEqual(
+                acc_witness.hex(),
+                seed_entry["acc_witness_hex"],
+                (
+                    f"seed {seed} acc.witness:\n got  {acc_witness.hex()}\n want "
+                    f"{seed_entry['acc_witness_hex']}"
+                ),
+            )
+            self.assertEqual(
+                proof.hex(),
+                seed_entry["proof_hex"],
+                (
+                    f"seed {seed} proof:\n got  {proof.hex()}\n want "
+                    f"{seed_entry['proof_hex']}"
+                ),
+            )
 
             full = (acc_instance + acc_witness + proof).hex()
-            want_full = seed_entry["acc_instance_hex"] + seed_entry["acc_witness_hex"] + seed_entry["proof_hex"]
+            want_full = (
+                seed_entry["acc_instance_hex"]
+                + seed_entry["acc_witness_hex"]
+                + seed_entry["proof_hex"]
+            )
             self.assertEqual(full, want_full)
-            print(f"  seed {seed}: (acc.instance {len(acc_instance)}B ‖ acc.witness "
-                  f"{len(acc_witness)}B ‖ proof {len(proof)}B) byte-matches arkworks")
+            print(
+                f"  seed {seed}: (acc.instance {len(acc_instance)}B ‖ acc.witness "
+                f"{len(acc_witness)}B ‖ proof {len(proof)}B) byte-matches arkworks"
+            )
 
     def test_mutation_breaks_match(self) -> None:
         """Perturbing a blinded-witness element must break the byte-match."""
@@ -103,8 +139,14 @@ class AsTest(absltest.TestCase):
         acc_instance, acc_witness, proof = _prove(d, a, b, c, generators, seed_entry)
         full = (acc_instance + acc_witness + proof).hex()
         golden = d["seeds"][0]
-        want = golden["acc_instance_hex"] + golden["acc_witness_hex"] + golden["proof_hex"]
-        self.assertNotEqual(full, want, "mutation did not change the output — byte-match is not sensitive")
+        want = (
+            golden["acc_instance_hex"] + golden["acc_witness_hex"] + golden["proof_hex"]
+        )
+        self.assertNotEqual(
+            full,
+            want,
+            "mutation did not change the output — byte-match is not sensitive",
+        )
         print("  mutation check: a perturbed witness diverges from the golden bytes")
 
 

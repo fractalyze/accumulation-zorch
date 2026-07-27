@@ -24,6 +24,7 @@ Run under Bazel — CPU is enough, lowering needs no GPU:
 
     bazel run //export:export_ipa [-- pallas|vesta]
 """
+
 import json
 import os
 import sys
@@ -34,12 +35,10 @@ from typing import Any
 import frx
 import frx.numpy as fnp
 import numpy as np
-from frx import lax
-
 from accumulation_zorch import curve
 from accumulation_zorch.curve import Curve
-
 from export_prove import write_bytecode
+from frx import lax
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
 _FIXTURE = {
@@ -92,8 +91,10 @@ def export_decider(cv: Curve) -> Path:
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / f"ipa_decider_msm_{cv.name}.mlirbc"
     size = write_bytecode(lowered, out)
-    print(f"wrote {out} ({size} B); {cv.name} decider size-d MSM core; "
-          f"lower {t_lower:.2f}s; coeffs={scalars.shape[0]}, bases={bases.shape[0]}")
+    print(
+        f"wrote {out} ({size} B); {cv.name} decider size-d MSM core; "
+        f"lower {t_lower:.2f}s; coeffs={scalars.shape[0]}, bases={bases.shape[0]}"
+    )
     return out
 
 
@@ -113,8 +114,10 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / "ipa_decider_msm_bench.mlirbc"
     size = write_bytecode(lowered, out)
-    print(f"wrote {out} ({size} B); {cv.name} decider MSM bench core; "
-          f"lower {t_lower:.2f}s; size={n}")
+    print(
+        f"wrote {out} ({size} B); {cv.name} decider MSM bench core; "
+        f"lower {t_lower:.2f}s; size={n}"
+    )
     return out
 
 
@@ -126,7 +129,8 @@ def main() -> None:
     bench_size = os.environ.get("IPA_DECIDER_SIZE")
     if bench_size:
         cv = {"pallas": curve.PALLAS, "vesta": curve.VESTA}[
-            os.environ.get("PROVE_CURVE", "pallas").lower()]
+            os.environ.get("PROVE_CURVE", "pallas").lower()
+        ]
         export_decider_bench(cv, int(bench_size))
         return
 

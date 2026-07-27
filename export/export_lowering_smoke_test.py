@@ -11,18 +11,18 @@ guards the lower path of every exporter whose fixtures are committed.
 Out of scope: the nark / fold_zk exporters lower inside ``main()`` from
 cargo-generated fixtures (``ART/recursion_*.json``), not committed testdata.
 """
+
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from absl.testing import absltest
-
-from accumulation_zorch import curve
 import export_as_decide
 import export_ipa
 import export_ipa_fold
 import export_prove
+from absl.testing import absltest
+from accumulation_zorch import curve
 
 _CURVES = (curve.PALLAS, curve.VESTA)
 _EXPORTERS = (export_prove, export_ipa, export_ipa_fold, export_as_decide)

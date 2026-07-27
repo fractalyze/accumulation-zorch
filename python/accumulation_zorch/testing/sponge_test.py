@@ -44,12 +44,15 @@ class SpongeTest(absltest.TestCase):
         every squeezed challenge and surface as an unrelated byte-match diff."""
         for cv, fixture in _CURVES:
             ark_le = b"".join(
-                bytes.fromhex(h) for h in json.loads(fixture.read_text())["ark_le_hex"])
+                bytes.fromhex(h) for h in json.loads(fixture.read_text())["ark_le_hex"]
+            )
             self.assertTrue(
                 np.array_equal(
                     np.asarray(sponge.default_params(cv).round_constants),
-                    np.asarray(sponge.poseidon_params(cv, ark_le).round_constants)),
-                f"[{cv.name}] in-package ARK diverged from the arkworks fixture")
+                    np.asarray(sponge.poseidon_params(cv, ark_le).round_constants),
+                ),
+                f"[{cv.name}] in-package ARK diverged from the arkworks fixture",
+            )
             print(f"  [{cv.name}] in-package ARK byte-matches the arkworks fixture")
 
     def test_sponge_schedules_match_arkworks(self) -> None:
@@ -69,16 +72,27 @@ class SpongeTest(absltest.TestCase):
                     else:
                         sp, out = sp.squeeze(op["n"])
                         got = np.asarray(out)
-                        self.assertEqual(got.shape[0], op["n"], f"[{cv.name}] {sched['name']}: squeeze count")
+                        self.assertEqual(
+                            got.shape[0],
+                            op["n"],
+                            f"[{cv.name}] {sched['name']}: squeeze count",
+                        )
                         for i, want_hex in enumerate(op["out"]):
                             got_hex = got[i].tobytes().hex()
-                            self.assertEqual(got_hex, want_hex, (
-                                f"[{cv.name}] {sched['name']} squeeze[{i}]: {got_hex} != {want_hex}"
-                            ))
+                            self.assertEqual(
+                                got_hex,
+                                want_hex,
+                                (
+                                    f"[{cv.name}] {sched['name']} squeeze[{i}]: "
+                                    f"{got_hex} != {want_hex}"
+                                ),
+                            )
                         n_squeezes += 1
                 print(f"  [{cv.name}] {sched['name']} OK")
-            print(f"  [{cv.name}] classic Poseidon FS sponge matches ark-sponge "
-                  f"({len(data['schedules'])} schedules, {n_squeezes} squeezes)")
+            print(
+                f"  [{cv.name}] classic Poseidon FS sponge matches ark-sponge "
+                f"({len(data['schedules'])} schedules, {n_squeezes} squeezes)"
+            )
 
     def test_nonnative_truncated_squeeze_matches_arkworks(self) -> None:
         for cv, fixture in _CURVES:
@@ -94,13 +108,21 @@ class SpongeTest(absltest.TestCase):
                 self.assertEqual(len(challenges), len(case["challenges"]))
                 for i, want_hex in enumerate(case["challenges"]):
                     got_hex = cv.fr(challenges[i]).tobytes().hex()
-                    self.assertEqual(got_hex, want_hex, (
-                        f"[{cv.name}] {case['name']} challenge[{i}]: {got_hex} != {want_hex}"
-                    ))
+                    self.assertEqual(
+                        got_hex,
+                        want_hex,
+                        (
+                            f"[{cv.name}] {case['name']} challenge[{i}]: {got_hex} != "
+                            f"{want_hex}"
+                        ),
+                    )
                     n += 1
                 print(f"  [{cv.name}] {case['name']} (k={case['k']}) OK")
-            print(f"  [{cv.name}] nonnative truncated-128 squeeze -> Fr matches ark-sponge "
-                  f"({n} challenges)")
+            print(
+                f"  [{cv.name}] nonnative truncated-128 squeeze -> Fr matches "
+                f"ark-sponge "
+                f"({n} challenges)"
+            )
 
 
 if __name__ == "__main__":

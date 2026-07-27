@@ -41,7 +41,11 @@ _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 # pulls its own sponge fixture.
 _CURVES = [
     (curve.PALLAS, _TESTDATA / "ipa_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
-    (curve.VESTA, _TESTDATA / "ipa_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
+    (
+        curve.VESTA,
+        _TESTDATA / "ipa_vesta_fixtures.json",
+        _TESTDATA / "sponge_vesta_fixtures.json",
+    ),
 ]
 
 
@@ -54,7 +58,9 @@ def _point(cv: curve.Curve, p: Any) -> Any:
 
 
 def _params(cv: curve.Curve, sponge_fixture: Path) -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -71,14 +77,23 @@ class IpaTest(absltest.TestCase):
         for cv, ipa_fixture, sponge_fixture in _CURVES:
             params = _params(cv, sponge_fixture)
             d, commitment, point, value, l_vec, r_vec = _load(cv, ipa_fixture)
-            got = ipa_challenger.succinct_check_challenges(cv, params, commitment, point, value, l_vec, r_vec)
-            self.assertEqual(len(got), len(d["round_challenges"]), f"[{cv.name}] challenge count")
+            got = ipa_challenger.succinct_check_challenges(
+                cv, params, commitment, point, value, l_vec, r_vec
+            )
+            self.assertEqual(
+                len(got), len(d["round_challenges"]), f"[{cv.name}] challenge count"
+            )
             for i, want_hex in enumerate(d["round_challenges"]):
                 got_hex = cv.fr(got[i]).tobytes().hex()
-                self.assertEqual(got_hex, want_hex, (
-                    f"[{cv.name}] round challenge[{i}]: {got_hex} != {want_hex}"))
-            print(f"  [{cv.name}] succinct_check round challenges byte-match arkworks "
-                  f"({len(got)} rounds)")
+                self.assertEqual(
+                    got_hex,
+                    want_hex,
+                    (f"[{cv.name}] round challenge[{i}]: {got_hex} != {want_hex}"),
+                )
+            print(
+                f"  [{cv.name}] succinct_check round challenges byte-match arkworks "
+                f"({len(got)} rounds)"
+            )
 
     def test_check_poly_coeffs_and_eval_match_arkworks(self) -> None:
         """`h(X)` dense coefficients + the evaluation at the point, fed the golden
@@ -91,27 +106,53 @@ class IpaTest(absltest.TestCase):
             self.assertEqual(len(coeffs), len(d["coeffs"]), f"[{cv.name}] coeff count")
             for i, want_hex in enumerate(d["coeffs"]):
                 got_hex = coeffs[i].tobytes().hex()
-                self.assertEqual(got_hex, want_hex, f"[{cv.name}] h(X) coeff[{i}]: {got_hex} != {want_hex}")
+                self.assertEqual(
+                    got_hex,
+                    want_hex,
+                    f"[{cv.name}] h(X) coeff[{i}]: {got_hex} != {want_hex}",
+                )
 
-            got_eval = np.asarray(ipa_challenger.evaluate_fr(cv, challenges, point), dtype=cv.fr).tobytes().hex()
-            self.assertEqual(got_eval, d["eval_at_point"], (
-                f"[{cv.name}] h(point): {got_eval} != {d['eval_at_point']}"))
-            print(f"  [{cv.name}] h(X) compute_coeffs ({len(coeffs)} coeffs) + evaluate "
-                  f"byte-match arkworks")
+            got_eval = (
+                np.asarray(
+                    ipa_challenger.evaluate_fr(cv, challenges, point), dtype=cv.fr
+                )
+                .tobytes()
+                .hex()
+            )
+            self.assertEqual(
+                got_eval,
+                d["eval_at_point"],
+                (f"[{cv.name}] h(point): {got_eval} != {d['eval_at_point']}"),
+            )
+            print(
+                f"  [{cv.name}] h(X) compute_coeffs ({len(coeffs)} coeffs) + evaluate "
+                f"byte-match arkworks"
+            )
 
     def test_succinct_check_end_to_end_matches_arkworks(self) -> None:
         """The full Slice-1 path: derive the challenges from the sponge, then expand
-        `h(X)` from them — the integrated succinct-check the later decider MSM consumes."""
+        `h(X)` from them — the integrated succinct-check the later decider MSM consumes.
+        """
         for cv, ipa_fixture, sponge_fixture in _CURVES:
             params = _params(cv, sponge_fixture)
             d, commitment, point, value, l_vec, r_vec = _load(cv, ipa_fixture)
-            challenges = ipa_challenger.succinct_check_challenges(cv, params, commitment, point, value, l_vec, r_vec)
+            challenges = ipa_challenger.succinct_check_challenges(
+                cv, params, commitment, point, value, l_vec, r_vec
+            )
             coeffs = ipa_challenger.compute_coeffs(cv, challenges)
             for i, want_hex in enumerate(d["coeffs"]):
                 got_hex = coeffs[i].tobytes().hex()
-                self.assertEqual(got_hex, want_hex, (
-                    f"[{cv.name}] end-to-end h(X) coeff[{i}]: {got_hex} != {want_hex}"))
-            print(f"  [{cv.name}] end-to-end (sponge → h(X) coeffs) byte-matches arkworks")
+                self.assertEqual(
+                    got_hex,
+                    want_hex,
+                    (
+                        f"[{cv.name}] end-to-end h(X) coeff[{i}]: {got_hex} != "
+                        f"{want_hex}"
+                    ),
+                )
+            print(
+                f"  [{cv.name}] end-to-end (sponge → h(X) coeffs) byte-matches arkworks"
+            )
 
 
 if __name__ == "__main__":

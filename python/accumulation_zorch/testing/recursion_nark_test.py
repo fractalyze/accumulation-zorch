@@ -29,9 +29,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import recursion_artifacts
 from absl.testing import absltest
 
-import recursion_artifacts
 from accumulation_zorch import curve, nark
 
 cv = curve.VESTA  # the forward half-step proves on Vesta
@@ -41,7 +41,10 @@ _DUMP = "cargo test --features recursion --test recursion_step dump_recursion_na
 
 
 def _parse_matrix(rows: Any) -> Any:
-    return [[(int.from_bytes(bytes.fromhex(coeff), "little"), idx) for coeff, idx in row] for row in rows]
+    return [
+        [(int.from_bytes(bytes.fromhex(coeff), "little"), idx) for coeff, idx in row]
+        for row in rows
+    ]
 
 
 def _fr_list(hexes: Any) -> Any:
@@ -54,10 +57,12 @@ def _load(path: Path) -> Any:
     input_ = _fr_list(d["input"])
     witness = _fr_list(d["witness"])
     generators = [
-        cv.g1((
-            int.from_bytes(bytes.fromhex(g["x_le_hex"]), "little"),
-            int.from_bytes(bytes.fromhex(g["y_le_hex"]), "little"),
-        ))
+        cv.g1(
+            (
+                int.from_bytes(bytes.fromhex(g["x_le_hex"]), "little"),
+                int.from_bytes(bytes.fromhex(g["y_le_hex"]), "little"),
+            )
+        )
         for g in d["generators"]
     ]
     return d, a, b, c, input_, witness, generators
@@ -78,13 +83,18 @@ class RecursionNarkTest(absltest.TestCase):
         crate's `R1CSNark::prove`."""
         d, a, b, c, input_, witness, generators = _load(self.fixture)
         proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
-        self.assertEqual(proof.hex(), d["proof_hex"], (
-            f"[vesta] fused recursion NARK proof diverged from arkworks "
-            f"(got {len(proof)}B, want {len(d['proof_hex'])//2}B)"
-        ))
+        self.assertEqual(
+            proof.hex(),
+            d["proof_hex"],
+            (
+                f"[vesta] fused recursion NARK proof diverged from arkworks "
+                f"(got {len(proof)}B, want {len(d['proof_hex'])//2}B)"
+            ),
+        )
         print(
             f"  [vesta] fused (on-device sparse M·z) recursion no-zk NARK proof "
-            f"byte-matches arkworks ({d['num_constraints']} constraints, {len(proof)} bytes)"
+            f"byte-matches arkworks ({d['num_constraints']} constraints, {len(proof)} "
+            f"bytes)"
         )
 
 

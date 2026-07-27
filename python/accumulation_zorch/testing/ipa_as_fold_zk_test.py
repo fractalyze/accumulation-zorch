@@ -33,8 +33,16 @@ from accumulation_zorch import curve, ipa_challenger, ipa_pc_as, sponge
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
 _CURVES = [
-    (curve.PALLAS, _TESTDATA / "ipa_as_fold_zk_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
-    (curve.VESTA, _TESTDATA / "ipa_as_fold_zk_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
+    (
+        curve.PALLAS,
+        _TESTDATA / "ipa_as_fold_zk_fixtures.json",
+        _TESTDATA / "sponge_fixtures.json",
+    ),
+    (
+        curve.VESTA,
+        _TESTDATA / "ipa_as_fold_zk_vesta_fixtures.json",
+        _TESTDATA / "sponge_vesta_fixtures.json",
+    ),
 ]
 
 
@@ -49,6 +57,7 @@ def _point(cv: curve.Curve, p: Any) -> Any:
 class _Input(NamedTuple):
     """A parsed input / accumulator instance; `hiding_comm`/`rand` present only for a
     hiding (zk-prove) accumulator."""
+
     commitment: Any
     point: int
     value: int
@@ -73,7 +82,9 @@ def _parse_input(cv: curve.Curve, d: Any) -> _Input:
 
 
 def _params(cv: curve.Curve, sponge_fixture: Path) -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -98,29 +109,67 @@ class IpaAsFoldZkTest(absltest.TestCase):
             hiding_rand = _fr(d["hiding_rand"])
 
             acc = ipa_pc_as.prove_fold(
-                cv, params, svk_h, generators, [new_input], [acc_prev],
-                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s,
-                hiding_poly, hiding_rand)
+                cv,
+                params,
+                svk_h,
+                generators,
+                [new_input],
+                [acc_prev],
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness),
+                s,
+                hiding_poly,
+                hiding_rand,
+            )
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:
                 return curve.point_to_bytes(cv, p).hex()
 
-            self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
-            self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(
+                _pt(acc.commitment),
+                _pt(_point(cv, want["commitment"])),
+                f"[{cv.name}] commitment",
+            )
+            self.assertEqual(
+                cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point"
+            )
+            self.assertEqual(
+                acc.evaluation.tobytes().hex(),
+                want["evaluation"],
+                f"[{cv.name}] evaluation",
+            )
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
-                self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}")
+                self.assertEqual(
+                    got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}"
+                )
             for i, want_r in enumerate(want["r_vec"]):
                 got, wnt = _pt(acc.ipa_proof.r_vec[i]), _pt(_point(cv, want_r))
-                self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.r_vec[{i}]: {got} != {wnt}")
-            self.assertEqual(_pt(acc.ipa_proof.final_comm_key), _pt(_point(cv, want["final_comm_key"])), f"[{cv.name}] final_comm_key")
-            self.assertEqual(cv.fr(acc.ipa_proof.c).tobytes().hex(), want["c"], f"[{cv.name}] c")
-            self.assertEqual(_pt(acc.ipa_proof.hiding_comm), _pt(_point(cv, want["hiding_comm"])), f"[{cv.name}] hiding_comm")
-            self.assertEqual(cv.fr(acc.ipa_proof.rand).tobytes().hex(), want["rand"], f"[{cv.name}] rand")
-            print(f"  [{cv.name}] zk FOLD (1 no-zk input into hiding acc_prev, "
-                  f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks")
+                self.assertEqual(
+                    got, wnt, f"[{cv.name}] ipa_proof.r_vec[{i}]: {got} != {wnt}"
+                )
+            self.assertEqual(
+                _pt(acc.ipa_proof.final_comm_key),
+                _pt(_point(cv, want["final_comm_key"])),
+                f"[{cv.name}] final_comm_key",
+            )
+            self.assertEqual(
+                cv.fr(acc.ipa_proof.c).tobytes().hex(), want["c"], f"[{cv.name}] c"
+            )
+            self.assertEqual(
+                _pt(acc.ipa_proof.hiding_comm),
+                _pt(_point(cv, want["hiding_comm"])),
+                f"[{cv.name}] hiding_comm",
+            )
+            self.assertEqual(
+                cv.fr(acc.ipa_proof.rand).tobytes().hex(),
+                want["rand"],
+                f"[{cv.name}] rand",
+            )
+            print(
+                f"  [{cv.name}] zk FOLD (1 no-zk input into hiding acc_prev, "
+                f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks"
+            )
 
     def test_fold_zk_decide_size_d_msm_matches_final_comm_key(self) -> None:
         """The zk decider's size-`d` MSM on the FOLDED (hiding) accumulator:
@@ -136,8 +185,16 @@ class IpaAsFoldZkTest(absltest.TestCase):
             final_key = ipa_pc_as.decide_final_key(cv, params, generators, acc, s)
             got = curve.point_to_bytes(cv, final_key).hex()
             want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
-            self.assertEqual(got, want, f"[{cv.name}] folded zk decider size-d MSM != final_comm_key: {got} != {want}")
-            print(f"  [{cv.name}] folded (hiding) accumulator zk decider size-d MSM byte-matches its final_comm_key")
+            self.assertEqual(
+                got,
+                want,
+                f"[{cv.name}] folded zk decider size-d MSM != final_comm_key: {got} != "
+                f"{want}",
+            )
+            print(
+                f"  [{cv.name}] folded (hiding) accumulator zk decider size-d MSM "
+                f"byte-matches its final_comm_key"
+            )
 
     def test_fold_zk_decider_coeffs_fixture_matches_port(self) -> None:
         """The fixture's arkworks-golden `decider_coeffs` equal the port's
@@ -149,14 +206,28 @@ class IpaAsFoldZkTest(absltest.TestCase):
             acc = _parse_input(cv, d["accumulator"])
 
             check_poly = ipa_challenger.succinct_check_challenges_zk(
-                cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec,
-                s, acc.hiding_comm, acc.rand)
+                cv,
+                params,
+                acc.commitment,
+                acc.point,
+                acc.value,
+                acc.l_vec,
+                acc.r_vec,
+                s,
+                acc.hiding_comm,
+                acc.rand,
+            )
             coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
             got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
-            self.assertEqual(got, want, f"[{cv.name}] zk decider_coeffs: port != fixture")
-            print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's zk "
-                  f"compute_coeffs(succinct_check(folded acc))")
+            self.assertEqual(
+                got, want, f"[{cv.name}] zk decider_coeffs: port != fixture"
+            )
+            print(
+                f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's "
+                f"zk "
+                f"compute_coeffs(succinct_check(folded acc))"
+            )
 
 
 if __name__ == "__main__":

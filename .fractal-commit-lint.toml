@@ -1,0 +1,53 @@
+# Commit-scope policy for accumulation-zorch.
+#
+# The Python prover is a flat set of modules under python/accumulation_zorch,
+# so directory derivation has nothing to name and the [scopes] aliases below
+# give the modules themselves a scope. `testing` is the one real subpackage.
+#
+# A change spanning several modules takes no scope, which is what most of the
+# history here already does, so a scope is not required.
+
+roots = ["python/accumulation_zorch"]
+require_scope = false
+
+exempt_paths = [
+  "README.md",
+  "CLAUDE.md",
+  "LICENSE",
+  ".github",
+  ".gitignore",
+  ".pre-commit-config.yaml",
+  ".fractal-commit-lint.toml",
+  "mypy.ini",
+  "requirements.in",
+  "requirements_lock_3_11.txt",
+  "MODULE.bazel",
+  "MODULE.bazel.lock",
+  "BUILD.bazel",
+  "Cargo.toml",
+  "Cargo.lock",
+  "python/BUILD.bazel",
+  # The Rust crate, its fixture dumpers, and the benches that drive them. A
+  # Python change refreshing a fixture alongside keeps the Python scope.
+  "src",
+  "crates",
+  "examples",
+  "export",
+  "tests",
+  "bench",
+  "python/testdata",
+]
+
+[scopes]
+curve = ["python/accumulation_zorch/curve.py"]
+field = ["python/accumulation_zorch/field.py"]
+nark = ["python/accumulation_zorch/nark.py"]
+hp_as = ["python/accumulation_zorch/hp_as.py"]
+ipa = [
+  "python/accumulation_zorch/ipa_open.py",
+  "python/accumulation_zorch/ipa_pc_as.py",
+  "python/accumulation_zorch/ipa_challenger.py",
+]
+r1cs_nark_as = ["python/accumulation_zorch/r1cs_nark_as.py"]
+sponge = ["python/accumulation_zorch/poseidon_ark.py", "python/accumulation_zorch/absorbable.py"]
+release = ["python/accumulation_zorch/__init__.py"]

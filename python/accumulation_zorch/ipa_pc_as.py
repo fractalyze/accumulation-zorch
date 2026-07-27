@@ -5,7 +5,8 @@ succinct checks into the new accumulator's *instance* fields — the combined
 commitment, the new opening point, and the combined evaluation. The accumulator's
 IPA *proof* (the `IpaPC::open` fold over the combined check polynomial) is Slice 2b.
 
-Faithful to the arkworks no-zk path (`combine_succinct_check_polynomials_and_commitments`
+Faithful to the arkworks no-zk path
+(`combine_succinct_check_polynomials_and_commitments`
 + `compute_new_challenge` + `compute_new_accumulator`):
 
 * The AS uses a **`"AS-FOR-IPA-PC-2020"`** domain-separated sponge — distinct from
@@ -54,6 +55,7 @@ _LC_CHALLENGE_BYTES = (_LC_CHALLENGE_BITS + 7) // 8
 class SuccinctCheck(NamedTuple):
     """One input's succinct-check output: the `SuccinctCheckPolynomial` round
     challenges and the IPA proof's `final_comm_key` (the AS combines these)."""
+
     check_poly: list[int]
     final_comm_key: np.ndarray
 
@@ -64,9 +66,10 @@ class Randomness(NamedTuple):
     `proof: Option<&Randomness>`). The verifier key's hiding generator `s`
     (`ipa_svk.s`) is NOT part of it — it belongs to the key, not the proof, so it
     is threaded separately."""
-    rlp_coeffs: list[int]         # random_linear_polynomial coefficients (degree ≤ 1)
-    rlp_commitment: np.ndarray    # the IpaPC commitment to the random linear polynomial
-    commitment_randomness: int    # randomness hiding the combined commitment
+
+    rlp_coeffs: list[int]  # random_linear_polynomial coefficients (degree ≤ 1)
+    rlp_commitment: np.ndarray  # the IpaPC commitment to the random linear polynomial
+    commitment_randomness: int  # randomness hiding the combined commitment
 
 
 def _new(cv: Curve, params):  # type: ignore[no-untyped-def]
@@ -82,8 +85,11 @@ def _absorb_check_poly(cv: Curve, sp, check_poly: list[int]):  # type: ignore[no
 
 
 def combine(
-    cv: Curve, params, succinct_checks: list[SuccinctCheck],
-    proof: Randomness | None = None, s: np.ndarray | None = None,
+    cv: Curve,
+    params,
+    succinct_checks: list[SuccinctCheck],
+    proof: Randomness | None = None,
+    s: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[tuple[int, list[int]]]]:  # type: ignore[no-untyped-def]
     """`combine_succinct_check_polynomials_and_commitments(proof)`: the combined
     commitment `[rlp_commitment +] Σ final_comm_key_j · lc_challenge_j`, its
@@ -107,25 +113,32 @@ def combine(
     for sc in succinct_checks:
         sp = _absorb_check_poly(cv, sp, sc.check_poly)
         sp = absorbable.absorb_point(cv, sp, sc.final_comm_key)
-    _, lc_challenges = sponge.squeeze_challenges(sp, len(succinct_checks), _LC_CHALLENGE_BITS)
+    _, lc_challenges = sponge.squeeze_challenges(
+        sp, len(succinct_checks), _LC_CHALLENGE_BITS
+    )
 
     if proof is not None:
         bases = [proof.rlp_commitment] + [sc.final_comm_key for sc in succinct_checks]
         scalars = [1] + list(lc_challenges)
         combined = curve.pedersen_commit(cv, bases, scalars)
         randomized = curve.pedersen_commit(
-            cv, bases, scalars, hiding=s, randomizer=int(proof.commitment_randomness))
+            cv, bases, scalars, hiding=s, randomizer=int(proof.commitment_randomness)
+        )
     else:
         combined = curve.pedersen_commit(
-            cv, [sc.final_comm_key for sc in succinct_checks], lc_challenges)
+            cv, [sc.final_comm_key for sc in succinct_checks], lc_challenges
+        )
         randomized = combined
     addends = [(lc, sc.check_poly) for lc, sc in zip(lc_challenges, succinct_checks)]
     return combined, randomized, addends
 
 
 def compute_new_challenge(
-    cv: Curve, params, combined_commitment: np.ndarray,
-    addends: list[tuple[int, list[int]]], rlp_coeffs: list[int] | None = None,
+    cv: Curve,
+    params,
+    combined_commitment: np.ndarray,
+    addends: list[tuple[int, list[int]]],
+    rlp_coeffs: list[int] | None = None,
 ) -> int:  # type: ignore[no-untyped-def]
     """`compute_new_challenge(random_linear_polynomial)`: a fresh AS sponge absorbs
     the (non-randomized) combined commitment, then the random-linear-polynomial
@@ -139,16 +152,21 @@ def compute_new_challenge(
     else:
         c0, c1 = _rlp_pair(rlp_coeffs)
         sp = absorbable.absorb_option_bytes(
-            cv, sp, c0.to_bytes(32, "little") + c1.to_bytes(32, "little"))
+            cv, sp, c0.to_bytes(32, "little") + c1.to_bytes(32, "little")
+        )
     for lc_challenge, check_poly in addends:
-        sp = absorbable.absorb_bytes(cv, sp, int(lc_challenge).to_bytes(_LC_CHALLENGE_BYTES, "little"))
+        sp = absorbable.absorb_bytes(
+            cv, sp, int(lc_challenge).to_bytes(_LC_CHALLENGE_BYTES, "little")
+        )
         sp = _absorb_check_poly(cv, sp, check_poly)
     _, point = sponge.squeeze_challenges(sp, 1, _CHALLENGE_POINT_BITS)
     return point[0]
 
 
 def _combined_evaluation_fr(
-    cv: Curve, addends: list[tuple[int, list[int]]], point: int,
+    cv: Curve,
+    addends: list[tuple[int, list[int]]],
+    point: int,
     rlp_coeffs: list[int] | None = None,
 ) -> FrScalar:
     """`evaluate_combined_succinct_check_polynomials(point, random_polynomial)`:
@@ -160,9 +178,15 @@ def _combined_evaluation_fr(
     `rlp(point) = c0 + c1·point` is added on top; `rlp_coeffs is None` ⇒ the no-zk
     path (arkworks `random_polynomial = None`). Stays a numpy `fr` scalar — the new
     accumulator's `evaluation` — never decoded to a python int."""
-    lc = fnp.asarray(np.array([lc_challenge for lc_challenge, _ in addends], dtype=cv.fr))
+    lc = fnp.asarray(
+        np.array([lc_challenge for lc_challenge, _ in addends], dtype=cv.fr)
+    )
     h = fnp.concatenate(
-        [ipa_challenger.evaluate_fr(cv, check_poly, point).reshape(1) for _, check_poly in addends])
+        [
+            ipa_challenger.evaluate_fr(cv, check_poly, point).reshape(1)
+            for _, check_poly in addends
+        ]
+    )
     eval_fr = np.asarray(fnp.sum(lc * h), dtype=cv.fr)
     if rlp_coeffs is not None:
         c0, c1 = _rlp_pair(rlp_coeffs)
@@ -171,7 +195,8 @@ def _combined_evaluation_fr(
 
 
 def combine_check_polynomials(
-    cv: Curve, addends: list[tuple[int, list[int]]],
+    cv: Curve,
+    addends: list[tuple[int, list[int]]],
     rlp_coeffs: list[int] | None = None,
 ) -> np.ndarray:
     """`combine_succinct_check_polynomials(random_polynomial)`: the dense combined
@@ -209,6 +234,7 @@ class AccumulatorInstance(NamedTuple):
     """The new accumulator's *instance* fields (no-zk), minus the IPA proof
     (Slice 2b): the combined commitment, the new opening point, and the combined
     evaluation."""
+
     commitment: np.ndarray
     point: int
     evaluation: FrScalar  # combined-evaluation `fr` scalar
@@ -217,14 +243,20 @@ class AccumulatorInstance(NamedTuple):
 class Accumulator(NamedTuple):
     """The full new accumulator instance (no-zk): the instance fields plus the IPA
     opening proof of the combined check polynomial at the new point."""
+
     commitment: np.ndarray
     point: int
     evaluation: FrScalar  # combined-evaluation `fr` scalar
     ipa_proof: ipa_open.IpaProof
 
 
-def _prove_instance(cv: Curve, params, succinct_checks: list[SuccinctCheck],
-                    proof: Randomness | None, s: np.ndarray | None):  # type: ignore[no-untyped-def]
+def _prove_instance(
+    cv: Curve,
+    params,
+    succinct_checks: list[SuccinctCheck],
+    proof: Randomness | None,
+    s: np.ndarray | None,
+):  # type: ignore[no-untyped-def]
     """The AS prove up to the new accumulator instance (arkworks `prove`, instance
     fields only): combine the succinct checks, derive the new opening point, and
     evaluate the combined check polynomial there. Returns the new `AccumulatorInstance`
@@ -240,8 +272,11 @@ def _prove_instance(cv: Curve, params, succinct_checks: list[SuccinctCheck],
 
 
 def prove_instance(
-    cv: Curve, params, succinct_checks: list[SuccinctCheck],
-    proof: Randomness | None = None, s: np.ndarray | None = None,
+    cv: Curve,
+    params,
+    succinct_checks: list[SuccinctCheck],
+    proof: Randomness | None = None,
+    s: np.ndarray | None = None,
 ) -> AccumulatorInstance:  # type: ignore[no-untyped-def]
     """The AS prove up to the new accumulator instance (arkworks `prove`, instance
     fields only). For the zk path pass `proof` (the random linear polynomial bundle)
@@ -251,9 +286,14 @@ def prove_instance(
 
 
 def prove_accumulator(
-    cv: Curve, params, svk_h: np.ndarray, generators: list[np.ndarray],
-    succinct_checks: list[SuccinctCheck], proof: Randomness | None = None,
-    s: np.ndarray | None = None, hiding_poly_raw: list[int] | None = None,
+    cv: Curve,
+    params,
+    svk_h: np.ndarray,
+    generators: list[np.ndarray],
+    succinct_checks: list[SuccinctCheck],
+    proof: Randomness | None = None,
+    s: np.ndarray | None = None,
+    hiding_poly_raw: list[int] | None = None,
     hiding_rand: int | None = None,
 ) -> Accumulator:  # type: ignore[no-untyped-def]
     """The full AS prove (arkworks `prove`): the instance fields plus
@@ -269,22 +309,41 @@ def prove_accumulator(
     coeffs = combine_check_polynomials(cv, addends, rlp)
     if proof is None:
         ipa_proof = ipa_open.open_no_zk(
-            cv, params, svk_h, instance.commitment, instance.point, coeffs, generators)
+            cv, params, svk_h, instance.commitment, instance.point, coeffs, generators
+        )
     else:
         # The zk path needs the hiding generator and the replayed hiding-open
         # randomness; a zk `proof` without them is a caller error.
         assert s is not None and hiding_poly_raw is not None and hiding_rand is not None
         ipa_proof = ipa_open.open_zk(
-            cv, params, svk_h, s, generators, instance.commitment, instance.point, coeffs,
-            hiding_poly_raw, hiding_rand, proof.commitment_randomness)
-    return Accumulator(instance.commitment, instance.point, instance.evaluation, ipa_proof)
+            cv,
+            params,
+            svk_h,
+            s,
+            generators,
+            instance.commitment,
+            instance.point,
+            coeffs,
+            hiding_poly_raw,
+            hiding_rand,
+            proof.commitment_randomness,
+        )
+    return Accumulator(
+        instance.commitment, instance.point, instance.evaluation, ipa_proof
+    )
 
 
 def prove_fold(
-    cv: Curve, params, svk_h: np.ndarray, generators: list[np.ndarray],
-    input_insts: list[Any], acc_prev_insts: list[Any],
-    proof: Randomness | None = None, s: np.ndarray | None = None,
-    hiding_poly_raw: list[int] | None = None, hiding_rand: int | None = None,
+    cv: Curve,
+    params,
+    svk_h: np.ndarray,
+    generators: list[np.ndarray],
+    input_insts: list[Any],
+    acc_prev_insts: list[Any],
+    proof: Randomness | None = None,
+    s: np.ndarray | None = None,
+    hiding_poly_raw: list[int] | None = None,
+    hiding_rand: int | None = None,
 ) -> Accumulator:  # type: ignore[no-untyped-def]
     """The AS **fold**: accumulate inputs INTO prior accumulators (arkworks `prove`
     with a non-empty `old_accumulators`).
@@ -296,12 +355,20 @@ def prove_fold(
     the zk path a prior accumulator carries a hiding IPA opening, so its succinct
     check is the hiding one (`succinct_check_input` with `s`, folding the proof's
     `hiding_comm`/`rand`), while the new inputs stay no-zk (`s is None`)."""
-    succinct_checks = (
-        [succinct_check_input(cv, params, i) for i in input_insts]
-        + [succinct_check_input(cv, params, a, s) for a in acc_prev_insts]
-    )
+    succinct_checks = [succinct_check_input(cv, params, i) for i in input_insts] + [
+        succinct_check_input(cv, params, a, s) for a in acc_prev_insts
+    ]
     return prove_accumulator(
-        cv, params, svk_h, generators, succinct_checks, proof, s, hiding_poly_raw, hiding_rand)
+        cv,
+        params,
+        svk_h,
+        generators,
+        succinct_checks,
+        proof,
+        s,
+        hiding_poly_raw,
+        hiding_rand,
+    )
 
 
 def _input_check_poly(cv: Curve, params, inst: Any, s: np.ndarray | None):  # type: ignore[no-untyped-def]
@@ -312,14 +379,27 @@ def _input_check_poly(cv: Curve, params, inst: Any, s: np.ndarray | None):  # ty
     no-zk succinct check."""
     if s is None:
         return ipa_challenger.succinct_check_challenges(
-            cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec)
+            cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec
+        )
     return ipa_challenger.succinct_check_challenges_zk(
-        cv, params, inst.commitment, inst.point, inst.value, inst.l_vec, inst.r_vec,
-        s, inst.hiding_comm, inst.rand)
+        cv,
+        params,
+        inst.commitment,
+        inst.point,
+        inst.value,
+        inst.l_vec,
+        inst.r_vec,
+        s,
+        inst.hiding_comm,
+        inst.rand,
+    )
 
 
 def succinct_check_input(
-    cv: Curve, params, inst: Any, s: np.ndarray | None = None,
+    cv: Curve,
+    params,
+    inst: Any,
+    s: np.ndarray | None = None,
 ) -> SuccinctCheck:
     """Run the Slice-1 succinct check on one instance (a dict-like with `commitment`,
     `point`, `evaluation`, `l_vec`, `r_vec`, `final_comm_key`) and pair the resulting
@@ -329,8 +409,13 @@ def succinct_check_input(
     return SuccinctCheck(_input_check_poly(cv, params, inst, s), inst.final_comm_key)
 
 
-def decide_final_key(cv: Curve, params, generators: list[np.ndarray], inst: Any,
-                     s: np.ndarray | None = None) -> np.ndarray:  # type: ignore[no-untyped-def]
+def decide_final_key(
+    cv: Curve,
+    params,
+    generators: list[np.ndarray],
+    inst: Any,
+    s: np.ndarray | None = None,
+) -> np.ndarray:  # type: ignore[no-untyped-def]
     """The AS decider's size-`d` MSM (`IpaPC::check`'s final check): run the
     accumulator's succinct check, densely expand its check polynomial, and recompute
     `final_key = Σ generators_i · compute_coeffs(check_poly)_i`. The decider accepts

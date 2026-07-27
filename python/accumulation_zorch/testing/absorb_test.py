@@ -37,7 +37,9 @@ _SPONGE = _TESTDATA / "sponge_fixtures.json"
 
 
 def _params() -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -69,16 +71,24 @@ class AbsorbTest(absltest.TestCase):
         data = json.loads(_ABSORB.read_text())
         params = _params()
         for case in data["fork"]:
-            sp = absorbable.fork(cv, sponge.new_sponge(params), bytes.fromhex(case["domain_hex"]))
-            self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"fork {case['domain_utf8']}")
+            sp = absorbable.fork(
+                cv, sponge.new_sponge(params), bytes.fromhex(case["domain_hex"])
+            )
+            self.assertEqual(
+                _squeeze_hex(sp, 2), case["squeeze"], f"fork {case['domain_utf8']}"
+            )
             print(f"  fork({case['domain_utf8']}) OK")
 
     def test_bytes_absorb_matches_arkworks(self) -> None:
         data = json.loads(_ABSORB.read_text())
         params = _params()
         for case in data["bytes_absorb"]:
-            sp = absorbable.absorb_bytes(cv, sponge.new_sponge(params), bytes.fromhex(case["data_hex"]))
-            self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"bytes_absorb len={case['len']}")
+            sp = absorbable.absorb_bytes(
+                cv, sponge.new_sponge(params), bytes.fromhex(case["data_hex"])
+            )
+            self.assertEqual(
+                _squeeze_hex(sp, 2), case["squeeze"], f"bytes_absorb len={case['len']}"
+            )
             print(f"  &[u8] absorb (len={case['len']}) OK")
 
     def test_point_absorb_matches_arkworks(self) -> None:
@@ -88,7 +98,9 @@ class AbsorbTest(absltest.TestCase):
             sp = sponge.new_sponge(params)
             for p in case["points"]:
                 sp = absorbable.absorb_point(cv, sp, _point_from_fixture(p))
-            self.assertEqual(_squeeze_hex(sp, 2), case["squeeze"], f"point_absorb {case['label']}")
+            self.assertEqual(
+                _squeeze_hex(sp, 2), case["squeeze"], f"point_absorb {case['label']}"
+            )
             print(f"  point absorb ({case['label']}) OK")
 
     def test_point_to_field_array_frx_identity_matches_arkworks(self) -> None:
@@ -107,10 +119,14 @@ class AbsorbTest(absltest.TestCase):
         g = json.loads(_ABSORB.read_text())["gamma"]
         params = _params()
         matrices_hash = bytes.fromhex(g["matrices_hash_hex"])
-        inputs = [int.from_bytes(bytes.fromhex(h), "little") for h in g["inputs_le_hex"]]
+        inputs = [
+            int.from_bytes(bytes.fromhex(h), "little") for h in g["inputs_le_hex"]
+        ]
         comms = [_point_from_fixture(c) for c in g["comms"]]
         self.assertIsNone(g["randomness"], "this slice ports the no-zk gamma only")
-        gamma = nark.compute_challenge(cv, params, matrices_hash, inputs, comms, randomness=None)
+        gamma = nark.compute_challenge(
+            cv, params, matrices_hash, inputs, comms, randomness=None
+        )
         got = gamma.tobytes().hex()
         self.assertEqual(got, g["gamma_hex"], f"gamma: {got} != {g['gamma_hex']}")
         print("  NARK gamma challenge byte-matches R1CSNark::compute_challenge OK")

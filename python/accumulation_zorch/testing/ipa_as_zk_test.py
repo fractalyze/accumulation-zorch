@@ -31,8 +31,16 @@ from accumulation_zorch import curve, ipa_pc_as, sponge
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
 _CURVES = [
-    (curve.PALLAS, _TESTDATA / "ipa_as_zk_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
-    (curve.VESTA, _TESTDATA / "ipa_as_zk_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
+    (
+        curve.PALLAS,
+        _TESTDATA / "ipa_as_zk_fixtures.json",
+        _TESTDATA / "sponge_fixtures.json",
+    ),
+    (
+        curve.VESTA,
+        _TESTDATA / "ipa_as_zk_vesta_fixtures.json",
+        _TESTDATA / "sponge_vesta_fixtures.json",
+    ),
 ]
 
 
@@ -69,7 +77,9 @@ def _parse_input(cv: curve.Curve, d: Any) -> _Input:
 
 
 def _params(cv: curve.Curve, sponge_fixture: Path) -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -85,29 +95,52 @@ class IpaAsZkTest(absltest.TestCase):
             commitment_randomness = _fr(d["commitment_randomness"])
 
             # No-zk inputs ⇒ no-zk succinct check; the AS layer is the zk part.
-            succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
+            succinct_checks = [
+                ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs
+            ]
             got = ipa_pc_as.prove_instance(
-                cv, params, succinct_checks,
-                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s)
+                cv,
+                params,
+                succinct_checks,
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness),
+                s,
+            )
 
             acc = d["accumulator"]
             got_comm = curve.point_to_bytes(cv, got.commitment).hex()
             want_comm = curve.point_to_bytes(cv, _point(cv, acc["commitment"])).hex()
-            self.assertEqual(got_comm, want_comm, f"[{cv.name}] randomized combined commitment: {got_comm} != {want_comm}")
+            self.assertEqual(
+                got_comm,
+                want_comm,
+                f"[{cv.name}] randomized combined commitment: {got_comm} != "
+                f"{want_comm}",
+            )
 
             got_point = cv.fr(got.point).tobytes().hex()
-            self.assertEqual(got_point, acc["point"], f"[{cv.name}] new point: {got_point} != {acc['point']}")
+            self.assertEqual(
+                got_point,
+                acc["point"],
+                f"[{cv.name}] new point: {got_point} != {acc['point']}",
+            )
 
             got_eval = got.evaluation.tobytes().hex()
-            self.assertEqual(got_eval, acc["evaluation"], f"[{cv.name}] combined evaluation: {got_eval} != {acc['evaluation']}")
+            self.assertEqual(
+                got_eval,
+                acc["evaluation"],
+                f"[{cv.name}] combined evaluation: {got_eval} != {acc['evaluation']}",
+            )
 
-            print(f"  [{cv.name}] zk AS accumulator instance (randomized commitment, point, evaluation) "
-                  f"byte-matches arkworks ({d['num_inputs']} inputs)")
+            print(
+                f"  [{cv.name}] zk AS accumulator instance (randomized commitment, "
+                f"point, evaluation) "
+                f"byte-matches arkworks ({d['num_inputs']} inputs)"
+            )
 
     def test_as_prove_zk_full_accumulator_matches_arkworks(self) -> None:
         """Slice 5c: the FULL new accumulator, including the hiding IPA opening proof
         (`l_vec`/`r_vec`/`final_comm_key`/`c` + `hiding_comm`/`rand`) produced by the
-        zk `IpaPC::open` fold over the combined check polynomial `rlp(X) + Σ lc_j·h_j(X)`.
+        zk `IpaPC::open` fold over the combined check polynomial `rlp(X) + Σ
+        lc_j·h_j(X)`.
         The open's hiding polynomial + blinder are the fixture's replayed
         `hiding_polynomial` / `hiding_rand`."""
         for cv, as_fixture, sponge_fixture in _CURVES:
@@ -123,31 +156,70 @@ class IpaAsZkTest(absltest.TestCase):
             hiding_poly = [_fr(h) for h in d["hiding_polynomial"]]
             hiding_rand = _fr(d["hiding_rand"])
 
-            succinct_checks = [ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs]
+            succinct_checks = [
+                ipa_pc_as.succinct_check_input(cv, params, inp) for inp in inputs
+            ]
             acc = ipa_pc_as.prove_accumulator(
-                cv, params, svk_h, generators, succinct_checks,
-                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness), s,
-                hiding_poly, hiding_rand)
+                cv,
+                params,
+                svk_h,
+                generators,
+                succinct_checks,
+                ipa_pc_as.Randomness(rlp_coeffs, rlp_commitment, commitment_randomness),
+                s,
+                hiding_poly,
+                hiding_rand,
+            )
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:
                 return curve.point_to_bytes(cv, p).hex()
 
-            self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
-            self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(
+                _pt(acc.commitment),
+                _pt(_point(cv, want["commitment"])),
+                f"[{cv.name}] commitment",
+            )
+            self.assertEqual(
+                cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point"
+            )
+            self.assertEqual(
+                acc.evaluation.tobytes().hex(),
+                want["evaluation"],
+                f"[{cv.name}] evaluation",
+            )
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
-                self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}")
+                self.assertEqual(
+                    got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}"
+                )
             for i, want_r in enumerate(want["r_vec"]):
                 got, wnt = _pt(acc.ipa_proof.r_vec[i]), _pt(_point(cv, want_r))
-                self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.r_vec[{i}]: {got} != {wnt}")
-            self.assertEqual(_pt(acc.ipa_proof.final_comm_key), _pt(_point(cv, want["final_comm_key"])), f"[{cv.name}] final_comm_key")
-            self.assertEqual(cv.fr(acc.ipa_proof.c).tobytes().hex(), want["c"], f"[{cv.name}] c")
-            self.assertEqual(_pt(acc.ipa_proof.hiding_comm), _pt(_point(cv, want["hiding_comm"])), f"[{cv.name}] hiding_comm")
-            self.assertEqual(cv.fr(acc.ipa_proof.rand).tobytes().hex(), want["rand"], f"[{cv.name}] rand")
-            print(f"  [{cv.name}] full zk AS accumulator (instance + hiding IPA proof: "
-                  f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks")
+                self.assertEqual(
+                    got, wnt, f"[{cv.name}] ipa_proof.r_vec[{i}]: {got} != {wnt}"
+                )
+            self.assertEqual(
+                _pt(acc.ipa_proof.final_comm_key),
+                _pt(_point(cv, want["final_comm_key"])),
+                f"[{cv.name}] final_comm_key",
+            )
+            self.assertEqual(
+                cv.fr(acc.ipa_proof.c).tobytes().hex(), want["c"], f"[{cv.name}] c"
+            )
+            self.assertEqual(
+                _pt(acc.ipa_proof.hiding_comm),
+                _pt(_point(cv, want["hiding_comm"])),
+                f"[{cv.name}] hiding_comm",
+            )
+            self.assertEqual(
+                cv.fr(acc.ipa_proof.rand).tobytes().hex(),
+                want["rand"],
+                f"[{cv.name}] rand",
+            )
+            print(
+                f"  [{cv.name}] full zk AS accumulator (instance + hiding IPA proof: "
+                f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks"
+            )
 
     def test_decide_zk_size_d_msm_matches_final_comm_key(self) -> None:
         """Slice 5d (zk Decide): the decider's size-`d` MSM
@@ -164,9 +236,15 @@ class IpaAsZkTest(absltest.TestCase):
             final_key = ipa_pc_as.decide_final_key(cv, params, generators, acc, s)
             got = curve.point_to_bytes(cv, final_key).hex()
             want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
-            self.assertEqual(got, want, f"[{cv.name}] zk decider size-d MSM != final_comm_key: {got} != {want}")
-            print(f"  [{cv.name}] zk decider size-d MSM (= MSM(generators, h(X) coeffs)) "
-                  f"byte-matches the accumulator's final_comm_key")
+            self.assertEqual(
+                got,
+                want,
+                f"[{cv.name}] zk decider size-d MSM != final_comm_key: {got} != {want}",
+            )
+            print(
+                f"  [{cv.name}] zk decider size-d MSM (= MSM(generators, h(X) coeffs)) "
+                f"byte-matches the accumulator's final_comm_key"
+            )
 
     def test_decider_coeffs_fixture_matches_port_zk(self) -> None:
         """The fixture's arkworks-golden `decider_coeffs` — the scalar input fed to the
@@ -174,6 +252,7 @@ class IpaAsZkTest(absltest.TestCase):
         `compute_coeffs(zk_succinct_check(accumulator))`, tying the GPU core's runtime
         input to the byte-matched CPU port."""
         from accumulation_zorch import ipa_challenger
+
         for cv, as_fixture, sponge_fixture in _CURVES:
             params = _params(cv, sponge_fixture)
             d = json.loads(as_fixture.read_text())
@@ -181,14 +260,29 @@ class IpaAsZkTest(absltest.TestCase):
             acc = _parse_input(cv, d["accumulator"])
 
             check_poly = ipa_challenger.succinct_check_challenges_zk(
-                cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec,
-                s, acc.hiding_comm, acc.rand)
+                cv,
+                params,
+                acc.commitment,
+                acc.point,
+                acc.value,
+                acc.l_vec,
+                acc.r_vec,
+                s,
+                acc.hiding_comm,
+                acc.rand,
+            )
             coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
             got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
-            self.assertEqual(got, want, f"[{cv.name}] zk decider_coeffs: port != fixture")
-            print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's zk "
-                  f"compute_coeffs(succinct_check(acc)) — the fused GPU MSM's scalar input")
+            self.assertEqual(
+                got, want, f"[{cv.name}] zk decider_coeffs: port != fixture"
+            )
+            print(
+                f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's "
+                f"zk "
+                f"compute_coeffs(succinct_check(acc)) — the fused GPU MSM's scalar "
+                f"input"
+            )
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ Run under Bazel (CPU is enough — lowering needs no GPU):
     ACCUMULATION_ZORCH_ARTIFACTS=<dir> \\
       bazel run //export:export_nark_zk
 """
+
 import json
 import os
 import time
@@ -47,7 +48,12 @@ ART = Path(
     )
 )
 _FIXTURE = ART / "recursion_nark_zk_fixtures.json"
-_SPONGE = Path(__file__).resolve().parent.parent / "python" / "testdata" / "sponge_vesta_fixtures.json"
+_SPONGE = (
+    Path(__file__).resolve().parent.parent
+    / "python"
+    / "testdata"
+    / "sponge_vesta_fixtures.json"
+)
 _MLIRBC = ART / f"nark_zk_{_CURVE.name}.mlirbc"
 
 
@@ -64,7 +70,9 @@ def _point(p: Any) -> Any:
 
 
 def _params() -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(_CURVE, ark_le)
 
 
@@ -73,7 +81,8 @@ def main() -> None:
         raise SystemExit(
             f"no fixture at {_FIXTURE}\n"
             "  (generate it: ACCUMULATION_ZORCH_ARTIFACTS=<dir> "
-            "cargo test --features recursion --test recursion_step dump_recursion_nark_zk)"
+            "cargo test --features recursion --test recursion_step "
+            "dump_recursion_nark_zk)"
         )
     d = json.loads(_FIXTURE.read_text())
     a, b, c = (_matrix(d[k]) for k in ("a", "b", "c"))
@@ -83,12 +92,25 @@ def main() -> None:
     hiding = _point(d["hiding"])
 
     core_fn, bases_h = nark.build_zk_core(
-        _CURVE, a, b, c, input_, witness, generators, hiding, _params(),
+        _CURVE,
+        a,
+        b,
+        c,
+        input_,
+        witness,
+        generators,
+        hiding,
+        _params(),
         bytes.fromhex(d["nark_matrices_hash_hex"]),
         [_fr(h) for h in d["r"]],
-        _fr(d["a_blinder"]), _fr(d["b_blinder"]), _fr(d["c_blinder"]),
-        _fr(d["r_a_blinder"]), _fr(d["r_b_blinder"]), _fr(d["r_c_blinder"]),
-        _fr(d["blinder_1"]), _fr(d["blinder_2"]),
+        _fr(d["a_blinder"]),
+        _fr(d["b_blinder"]),
+        _fr(d["c_blinder"]),
+        _fr(d["r_a_blinder"]),
+        _fr(d["r_b_blinder"]),
+        _fr(d["r_c_blinder"]),
+        _fr(d["blinder_1"]),
+        _fr(d["blinder_2"]),
         fork=False,  # standalone half-step: unforked gamma sponge
     )
     t0 = time.perf_counter()

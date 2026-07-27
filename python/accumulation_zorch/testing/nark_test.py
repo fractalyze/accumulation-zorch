@@ -37,7 +37,10 @@ _CURVES = [
 
 
 def _parse_matrix(rows: Any) -> Any:
-    return [[(int.from_bytes(bytes.fromhex(coeff), "little"), idx) for coeff, idx in row] for row in rows]
+    return [
+        [(int.from_bytes(bytes.fromhex(coeff), "little"), idx) for coeff, idx in row]
+        for row in rows
+    ]
 
 
 def _fr_list(hexes: Any) -> Any:
@@ -50,10 +53,12 @@ def _load(cv: curve.Curve, fixture: Path) -> Any:
     input_ = _fr_list(d["input"])
     witness = _fr_list(d["witness"])
     generators = [
-        cv.g1((
-            int.from_bytes(bytes.fromhex(g["x_le_hex"]), "little"),
-            int.from_bytes(bytes.fromhex(g["y_le_hex"]), "little"),
-        ))
+        cv.g1(
+            (
+                int.from_bytes(bytes.fromhex(g["x_le_hex"]), "little"),
+                int.from_bytes(bytes.fromhex(g["y_le_hex"]), "little"),
+            )
+        )
         for g in d["generators"]
     ]
     return d, a, b, c, input_, witness, generators
@@ -73,8 +78,12 @@ class NarkTest(absltest.TestCase):
             }
             for name, (matrix, want_hex) in comms.items():
                 z = nark.matrix_vec_mul(cv, matrix, input_, witness)
-                got_hex = curve.point_to_bytes(cv, curve.pedersen_commit(cv, generators, z)).hex()
-                self.assertEqual(got_hex, want_hex, f"[{cv.name}] {name}: {got_hex} != {want_hex}")
+                got_hex = curve.point_to_bytes(
+                    cv, curve.pedersen_commit(cv, generators, z)
+                ).hex()
+                self.assertEqual(
+                    got_hex, want_hex, f"[{cv.name}] {name}: {got_hex} != {want_hex}"
+                )
                 print(f"  [{cv.name}] {name} = commit(M·z) byte-matches OK")
 
     def test_no_zk_fused_proof_matches_arkworks(self) -> None:
@@ -85,9 +94,15 @@ class NarkTest(absltest.TestCase):
         for cv, fixture in _CURVES:
             d, a, b, c, input_, witness, generators = _load(cv, fixture)
             proof = nark.prove_no_zk(cv, a, b, c, input_, witness, generators)
-            self.assertEqual(proof.hex(), d["proof_hex"], (
-                f"[{cv.name}] fused no-zk NARK proof diverged from host-side"))
-            print(f"  [{cv.name}] fused (on-device sparse M·z) no-zk NARK proof byte-matches arkworks")
+            self.assertEqual(
+                proof.hex(),
+                d["proof_hex"],
+                (f"[{cv.name}] fused no-zk NARK proof diverged from host-side"),
+            )
+            print(
+                f"  [{cv.name}] fused (on-device sparse M·z) no-zk NARK proof "
+                f"byte-matches arkworks"
+            )
 
 
 if __name__ == "__main__":
