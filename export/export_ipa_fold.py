@@ -22,6 +22,7 @@ Run under Bazel — CPU is enough, lowering needs no GPU:
 
     bazel run //export:export_ipa_fold [-- pallas|vesta]
 """
+
 import json
 import os
 import sys
@@ -31,17 +32,28 @@ from typing import Any, NamedTuple
 
 from accumulation_zorch import curve, ipa_open, ipa_pc_as, sponge
 from accumulation_zorch.curve import Curve
-
 from export_prove import write_bytecode
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
 _FIXTURE = {
-    "pallas": (_TESTDATA / "ipa_as_fold_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
-    "vesta": (_TESTDATA / "ipa_as_fold_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
+    "pallas": (
+        _TESTDATA / "ipa_as_fold_fixtures.json",
+        _TESTDATA / "sponge_fixtures.json",
+    ),
+    "vesta": (
+        _TESTDATA / "ipa_as_fold_vesta_fixtures.json",
+        _TESTDATA / "sponge_vesta_fixtures.json",
+    ),
 }
 _FIXTURE_ZK = {
-    "pallas": (_TESTDATA / "ipa_as_fold_zk_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
-    "vesta": (_TESTDATA / "ipa_as_fold_zk_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
+    "pallas": (
+        _TESTDATA / "ipa_as_fold_zk_fixtures.json",
+        _TESTDATA / "sponge_fixtures.json",
+    ),
+    "vesta": (
+        _TESTDATA / "ipa_as_fold_zk_vesta_fixtures.json",
+        _TESTDATA / "sponge_vesta_fixtures.json",
+    ),
 }
 
 ART = Path(
@@ -64,6 +76,7 @@ class _Input(NamedTuple):
     """One parsed input / accumulator instance — the fields the succinct check +
     AS combine read (mirrors ``ipa_as_fold{,_zk}_test._Input``). ``hiding_comm`` /
     ``rand`` are present only for a hiding (zk-prove) accumulator."""
+
     commitment: Any
     point: int
     value: int
@@ -88,7 +101,9 @@ def _parse_input(cv: Curve, d: Any) -> _Input:
 
 
 def _params(cv: Curve, sponge_fixture: Path) -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -104,7 +119,9 @@ def _combine(cv: Curve, params: Any, d: Any) -> tuple:
         ipa_pc_as.succinct_check_input(cv, params, new_input),
         ipa_pc_as.succinct_check_input(cv, params, acc_prev),
     ]
-    instance, addends = ipa_pc_as._prove_instance(cv, params, succinct_checks, None, None)
+    instance, addends = ipa_pc_as._prove_instance(
+        cv, params, succinct_checks, None, None
+    )
     coeffs = ipa_pc_as.combine_check_polynomials(cv, addends, None)
     return instance.commitment, instance.point, coeffs
 
@@ -129,9 +146,11 @@ def export_fold(cv: Curve) -> Path:
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / f"ipa_fold_{cv.name}.mlirbc"
     size = write_bytecode(lowered, out)
-    print(f"wrote {out} ({size} B); {cv.name} IPA fold open core; "
-          f"lower {t_lower:.2f}s; coeffs={len(coeffs)}, bases={basis.shape[0]}, "
-          f"rounds={(len(coeffs) - 1).bit_length()}")
+    print(
+        f"wrote {out} ({size} B); {cv.name} IPA fold open core; "
+        f"lower {t_lower:.2f}s; coeffs={len(coeffs)}, bases={basis.shape[0]}, "
+        f"rounds={(len(coeffs) - 1).bit_length()}"
+    )
     return out
 
 
@@ -173,8 +192,17 @@ def export_fold_zk(cv: Curve) -> Path:
     generators = [_point(cv, g) for g in d["generators"]]
 
     core = ipa_open.build_open_zk_core(
-        cv, params, svk_h, s, commitment, point, coeffs, hiding_poly, hiding_rand,
-        commitment_randomness)
+        cv,
+        params,
+        svk_h,
+        s,
+        commitment,
+        point,
+        coeffs,
+        hiding_poly,
+        hiding_rand,
+        commitment_randomness,
+    )
     basis = curve.stack_affine(cv, generators[: len(coeffs)])
 
     t0 = time.perf_counter()
@@ -183,9 +211,11 @@ def export_fold_zk(cv: Curve) -> Path:
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / f"ipa_fold_zk_{cv.name}.mlirbc"
     size = write_bytecode(lowered, out)
-    print(f"wrote {out} ({size} B); {cv.name} IPA zk fold open core; "
-          f"lower {t_lower:.2f}s; coeffs={len(coeffs)}, bases={basis.shape[0]}, "
-          f"rounds={(len(coeffs) - 1).bit_length()}")
+    print(
+        f"wrote {out} ({size} B); {cv.name} IPA zk fold open core; "
+        f"lower {t_lower:.2f}s; coeffs={len(coeffs)}, bases={basis.shape[0]}, "
+        f"rounds={(len(coeffs) - 1).bit_length()}"
+    )
     return out
 
 

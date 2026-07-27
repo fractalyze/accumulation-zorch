@@ -32,8 +32,16 @@ from accumulation_zorch import curve, ipa_challenger, ipa_pc_as, sponge
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
 _CURVES = [
-    (curve.PALLAS, _TESTDATA / "ipa_as_fold_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
-    (curve.VESTA, _TESTDATA / "ipa_as_fold_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
+    (
+        curve.PALLAS,
+        _TESTDATA / "ipa_as_fold_fixtures.json",
+        _TESTDATA / "sponge_fixtures.json",
+    ),
+    (
+        curve.VESTA,
+        _TESTDATA / "ipa_as_fold_vesta_fixtures.json",
+        _TESTDATA / "sponge_vesta_fixtures.json",
+    ),
 ]
 
 
@@ -48,6 +56,7 @@ def _point(cv: curve.Curve, p: Any) -> Any:
 class _Input(NamedTuple):
     """One parsed input / accumulator instance — the fields the succinct check + AS
     combine read."""
+
     commitment: Any
     point: int
     value: int
@@ -68,7 +77,9 @@ def _parse_input(cv: curve.Curve, d: Any) -> _Input:
 
 
 def _params(cv: curve.Curve, sponge_fixture: Path) -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -86,29 +97,54 @@ class IpaAsFoldTest(absltest.TestCase):
             generators = [_point(cv, g) for g in d["generators"]]
 
             acc = ipa_pc_as.prove_fold(
-                cv, params, svk_h, generators, [new_input], [acc_prev])
+                cv, params, svk_h, generators, [new_input], [acc_prev]
+            )
             want = d["accumulator"]
 
             def _pt(p: Any) -> str:
                 return curve.point_to_bytes(cv, p).hex()
 
-            self.assertEqual(_pt(acc.commitment), _pt(_point(cv, want["commitment"])), f"[{cv.name}] commitment")
-            self.assertEqual(cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point")
-            self.assertEqual(acc.evaluation.tobytes().hex(), want["evaluation"], f"[{cv.name}] evaluation")
+            self.assertEqual(
+                _pt(acc.commitment),
+                _pt(_point(cv, want["commitment"])),
+                f"[{cv.name}] commitment",
+            )
+            self.assertEqual(
+                cv.fr(acc.point).tobytes().hex(), want["point"], f"[{cv.name}] point"
+            )
+            self.assertEqual(
+                acc.evaluation.tobytes().hex(),
+                want["evaluation"],
+                f"[{cv.name}] evaluation",
+            )
 
             for i, want_l in enumerate(want["l_vec"]):
                 got, wnt = _pt(acc.ipa_proof.l_vec[i]), _pt(_point(cv, want_l))
-                self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}")
+                self.assertEqual(
+                    got, wnt, f"[{cv.name}] ipa_proof.l_vec[{i}]: {got} != {wnt}"
+                )
             for i, want_r in enumerate(want["r_vec"]):
                 got, wnt = _pt(acc.ipa_proof.r_vec[i]), _pt(_point(cv, want_r))
-                self.assertEqual(got, wnt, f"[{cv.name}] ipa_proof.r_vec[{i}]: {got} != {wnt}")
-            got_fck, wnt_fck = _pt(acc.ipa_proof.final_comm_key), _pt(_point(cv, want["final_comm_key"]))
-            self.assertEqual(got_fck, wnt_fck, f"[{cv.name}] ipa_proof.final_comm_key: {got_fck} != {wnt_fck}")
+                self.assertEqual(
+                    got, wnt, f"[{cv.name}] ipa_proof.r_vec[{i}]: {got} != {wnt}"
+                )
+            got_fck, wnt_fck = _pt(acc.ipa_proof.final_comm_key), _pt(
+                _point(cv, want["final_comm_key"])
+            )
+            self.assertEqual(
+                got_fck,
+                wnt_fck,
+                f"[{cv.name}] ipa_proof.final_comm_key: {got_fck} != {wnt_fck}",
+            )
             got_c = cv.fr(acc.ipa_proof.c).tobytes().hex()
-            self.assertEqual(got_c, want["c"], f"[{cv.name}] ipa_proof.c: {got_c} != {want['c']}")
+            self.assertEqual(
+                got_c, want["c"], f"[{cv.name}] ipa_proof.c: {got_c} != {want['c']}"
+            )
 
-            print(f"  [{cv.name}] no-zk FOLD (1 input into acc_prev, "
-                  f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks")
+            print(
+                f"  [{cv.name}] no-zk FOLD (1 input into acc_prev, "
+                f"{len(acc.ipa_proof.l_vec)} fold rounds) byte-matches arkworks"
+            )
 
     def test_fold_decide_size_d_msm_matches_final_comm_key(self) -> None:
         """The decider's size-`d` MSM on the FOLDED accumulator:
@@ -124,8 +160,16 @@ class IpaAsFoldTest(absltest.TestCase):
             final_key = ipa_pc_as.decide_final_key(cv, params, generators, acc)
             got = curve.point_to_bytes(cv, final_key).hex()
             want = curve.point_to_bytes(cv, acc.final_comm_key).hex()
-            self.assertEqual(got, want, f"[{cv.name}] folded decider size-d MSM != final_comm_key: {got} != {want}")
-            print(f"  [{cv.name}] folded accumulator decider size-d MSM byte-matches its final_comm_key")
+            self.assertEqual(
+                got,
+                want,
+                f"[{cv.name}] folded decider size-d MSM != final_comm_key: {got} != "
+                f"{want}",
+            )
+            print(
+                f"  [{cv.name}] folded accumulator decider size-d MSM byte-matches its "
+                f"final_comm_key"
+            )
 
     def test_fold_decider_coeffs_fixture_matches_port(self) -> None:
         """The fixture's arkworks-golden `decider_coeffs` (the fused GPU fold
@@ -137,13 +181,18 @@ class IpaAsFoldTest(absltest.TestCase):
             acc = _parse_input(cv, d["accumulator"])
 
             check_poly = ipa_challenger.succinct_check_challenges(
-                cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec)
+                cv, params, acc.commitment, acc.point, acc.value, acc.l_vec, acc.r_vec
+            )
             coeffs = ipa_challenger.compute_coeffs(cv, check_poly)
             got = [c.tobytes().hex() for c in coeffs]
             want = d["decider_coeffs"]
-            self.assertEqual(got, want, f"[{cv.name}] decider_coeffs: port {got} != fixture {want}")
-            print(f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's "
-                  f"compute_coeffs(succinct_check(folded acc))")
+            self.assertEqual(
+                got, want, f"[{cv.name}] decider_coeffs: port {got} != fixture {want}"
+            )
+            print(
+                f"  [{cv.name}] fixture decider_coeffs ({len(want)}) match the port's "
+                f"compute_coeffs(succinct_check(folded acc))"
+            )
 
 
 if __name__ == "__main__":

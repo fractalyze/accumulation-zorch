@@ -22,8 +22,9 @@ def matvec(coeffs: frx.Array, z: frx.Array) -> frx.Array:
     return fnp.sum(coeffs * z[fnp.newaxis, :], axis=1)
 
 
-def sparse_matvec(vals: frx.Array, col_idx: frx.Array, indptr: frx.Array,
-                  z: frx.Array, num_rows: int) -> frx.Array:
+def sparse_matvec(
+    vals: frx.Array, col_idx: frx.Array, indptr: frx.Array, z: frx.Array, num_rows: int
+) -> frx.Array:
     """`M·z` over Fr from a sparse matrix in CSR form — the per-nonzero products
     `vals·z[col_idx]` summed per row via a prefix sum → `(num_rows,)` Fr.
 
@@ -94,8 +95,15 @@ def t_vecs_no_zk(a: frx.Array, b: frx.Array, mu: frx.Array) -> frx.Array:
     return _conv(mu[:, fnp.newaxis] * a, fnp.flip(b, axis=0))
 
 
-def t_vecs_zk(a: frx.Array, b: frx.Array, mu: frx.Array, hiding_a: frx.Array,
-              hiding_b: frx.Array, mu_n: frx.Array, mu_1: frx.Array) -> frx.Array:
+def t_vecs_zk(
+    a: frx.Array,
+    b: frx.Array,
+    mu: frx.Array,
+    hiding_a: frx.Array,
+    hiding_b: frx.Array,
+    mu_n: frx.Array,
+    mu_1: frx.Array,
+) -> frx.Array:
     """`compute_t_vecs` (zk): like `t_vecs_no_zk` plus the hiding addends —
     `hiding_a·mu[n]` on the first `a` coefficient (input 0) and `hiding_b·mu[1]`
     on the first (post-reverse) `b` coefficient. `hiding_a`/`hiding_b` are `(L,)`,

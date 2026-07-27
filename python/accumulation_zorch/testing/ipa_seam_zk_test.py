@@ -53,25 +53,34 @@ import frx.numpy as fnp
 import numpy as np
 from absl.testing import absltest
 from frx import lax
-
-from accumulation_zorch import curve, sponge
-from accumulation_zorch.curve import Curve
-from accumulation_zorch.ipa_challenger import ark_challenger
-
 from zorch.pcs.ipa.config import IpaZkProof
 from zorch.pcs.ipa.math import challenge_vector
 from zorch.pcs.ipa.prover import IpaProver, _open_one_zk
 from zorch.pcs.ipa.setup import setup
 from zorch.pcs.ipa.verifier import reduce_opening_zk, settle
 
+from accumulation_zorch import curve, sponge
+from accumulation_zorch.curve import Curve
+from accumulation_zorch.ipa_challenger import ark_challenger
+
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
 # (name, curve, ipa-zk fixture, ipa-as-zk fixture, sponge fixture)
 _CURVES = [
-    ("pallas", curve.PALLAS,
-     "ipa_zk_fixtures.json", "ipa_as_zk_fixtures.json", "sponge_fixtures.json"),
-    ("vesta", curve.VESTA,
-     "ipa_zk_vesta_fixtures.json", "ipa_as_zk_vesta_fixtures.json", "sponge_vesta_fixtures.json"),
+    (
+        "pallas",
+        curve.PALLAS,
+        "ipa_zk_fixtures.json",
+        "ipa_as_zk_fixtures.json",
+        "sponge_fixtures.json",
+    ),
+    (
+        "vesta",
+        curve.VESTA,
+        "ipa_zk_vesta_fixtures.json",
+        "ipa_as_zk_vesta_fixtures.json",
+        "sponge_vesta_fixtures.json",
+    ),
 ]
 
 
@@ -135,24 +144,32 @@ class IpaSeamZkTest(absltest.TestCase):
             value = fnp.asarray(np.array(_fr(z["evaluation"]), dtype=cv.fr))
 
             _, claim = reduce_opening_zk(
-                key, commitment, point, value, proof,
-                ark_challenger(cv, params))
+                key, commitment, point, value, proof, ark_challenger(cv, params)
+            )
 
             for j, want in enumerate(z["round_challenges"]):
-                self.assertEqual(_hexs(cv, claim.u[j]), want,
-                                 f"[{name}] zk round challenge[{j}]")
+                self.assertEqual(
+                    _hexs(cv, claim.u[j]), want, f"[{name}] zk round challenge[{j}]"
+                )
 
             s_vec = challenge_vector(claim.u)
             g_final = lax.msm(s_vec, basis[: s_vec.shape[0]])
             want = z["final_comm_key"]
-            self.assertEqual(_point_hex(g_final),
-                             (want["x_le_hex"], want["y_le_hex"]),
-                             f"[{name}] final_comm_key")
+            self.assertEqual(
+                _point_hex(g_final),
+                (want["x_le_hex"], want["y_le_hex"]),
+                f"[{name}] final_comm_key",
+            )
 
-            self.assertTrue(bool(settle(key, claim)),
-                            f"[{name}] settle() rejected a valid zk opening")
-            print(f"  [{name}] verifier: round_challenges[{len(z['round_challenges'])}] "
-                  f"(hiding-folded seed) + final_comm_key byte-match arkworks; settle accepts")
+            self.assertTrue(
+                bool(settle(key, claim)),
+                f"[{name}] settle() rejected a valid zk opening",
+            )
+            print(
+                f"  [{name}] verifier: round_challenges[{len(z['round_challenges'])}] "
+                f"(hiding-folded seed) + final_comm_key byte-match arkworks; settle "
+                f"accepts"
+            )
 
     def test_prover_open_one_zk_byte_matches_port(self) -> None:
         """`commit_zk` + `_open_one_zk` over the fixture's witness polynomial and
@@ -168,38 +185,65 @@ class IpaSeamZkTest(absltest.TestCase):
             basis = fnp.stack([_frx_point(cv, g) for g in a["generators"]])
             key = setup(basis, _frx_point(cv, z["h"]), _frx_point(cv, z["s"]))
 
-            coeffs = fnp.asarray(np.array([_fr(c) for c in z["polynomial"]], dtype=cv.fr))
-            crand_j = fnp.asarray(np.array(_fr(z["commitment_randomness"]), dtype=cv.fr))
+            coeffs = fnp.asarray(
+                np.array([_fr(c) for c in z["polynomial"]], dtype=cv.fr)
+            )
+            crand_j = fnp.asarray(
+                np.array(_fr(z["commitment_randomness"]), dtype=cv.fr)
+            )
             point = fnp.asarray(np.array(_fr(z["point"]), dtype=cv.fr))
             hiding_j = fnp.asarray(
-                np.array([_fr(h) for h in z["hiding_polynomial"]], dtype=cv.fr))
+                np.array([_fr(h) for h in z["hiding_polynomial"]], dtype=cv.fr)
+            )
             hrand_j = fnp.asarray(np.array(_fr(z["hiding_rand"]), dtype=cv.fr))
 
             # `commit_zk` reproduces the golden (hiding) commitment.
             commitment_z, _ = IpaProver(key).commit_zk([coeffs], [crand_j])
-            self.assertEqual(_host_point(commitment_z[0]).tobytes(),
-                             _np_point(cv, z["commitment"]).tobytes(),
-                             f"[{name}] commit_zk != arkworks hiding commitment")
+            self.assertEqual(
+                _host_point(commitment_z[0]).tobytes(),
+                _np_point(cv, z["commitment"]).tobytes(),
+                f"[{name}] commit_zk != arkworks hiding commitment",
+            )
 
             _, _, pz, final_comm_key, _ = _open_one_zk(
-                key, commitment_z[0], coeffs, point, hiding_j, hrand_j, crand_j,
-                ark_challenger(cv, params))
+                key,
+                commitment_z[0],
+                coeffs,
+                point,
+                hiding_j,
+                hrand_j,
+                crand_j,
+                ark_challenger(cv, params),
+            )
 
             for j, (lw, rw) in enumerate(zip(z["l_vec"], z["r_vec"])):
-                self.assertEqual(_host_point(pz.l[j]).tobytes(), _np_point(cv, lw).tobytes(),
-                                 f"[{name}] L[{j}]")
-                self.assertEqual(_host_point(pz.r[j]).tobytes(), _np_point(cv, rw).tobytes(),
-                                 f"[{name}] R[{j}]")
+                self.assertEqual(
+                    _host_point(pz.l[j]).tobytes(),
+                    _np_point(cv, lw).tobytes(),
+                    f"[{name}] L[{j}]",
+                )
+                self.assertEqual(
+                    _host_point(pz.r[j]).tobytes(),
+                    _np_point(cv, rw).tobytes(),
+                    f"[{name}] R[{j}]",
+                )
             self.assertEqual(_hexs(cv, pz.a), z["c"], f"[{name}] c")
-            self.assertEqual(_host_point(pz.hiding_comm).tobytes(),
-                             _np_point(cv, z["hiding_comm"]).tobytes(), f"[{name}] hiding_comm")
+            self.assertEqual(
+                _host_point(pz.hiding_comm).tobytes(),
+                _np_point(cv, z["hiding_comm"]).tobytes(),
+                f"[{name}] hiding_comm",
+            )
             self.assertEqual(_hexs(cv, pz.rand), z["rand"], f"[{name}] rand")
             self.assertEqual(
                 _point_hex(final_comm_key),
                 (z["final_comm_key"]["x_le_hex"], z["final_comm_key"]["y_le_hex"]),
-                f"[{name}] final_comm_key")
-            print(f"  [{name}] prover: commit_zk + l_vec[{len(z['l_vec'])}] + r_vec + c + "
-                  f"hiding_comm + rand + final_comm_key byte-match arkworks golden")
+                f"[{name}] final_comm_key",
+            )
+            print(
+                f"  [{name}] prover: commit_zk + l_vec[{len(z['l_vec'])}] + r_vec + c "
+                f"+ "
+                f"hiding_comm + rand + final_comm_key byte-match arkworks golden"
+            )
 
 
 if __name__ == "__main__":

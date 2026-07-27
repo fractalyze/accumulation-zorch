@@ -63,7 +63,9 @@ def u8_batch_field_array_frx(cv: Curve, data_u8: frx.Array) -> frx.Array:
     The jit-able path the fused open core's on-device Fiat-Shamir seed uses instead of
     the host `bytes` path — byte-identical (canonical-LE `fq` chunks), via the same
     `bitcast_convert_type(..32 uint8.., fq)` idiom as `ipa_challenger._absorb_prev`."""
-    prefix = fnp.asarray(np.frombuffer(struct.pack("<Q", data_u8.shape[0]), dtype=np.uint8).copy())
+    prefix = fnp.asarray(
+        np.frombuffer(struct.pack("<Q", data_u8.shape[0]), dtype=np.uint8).copy()
+    )
     full = fnp.concatenate([prefix, data_u8])
     m = full.shape[0]
     n_fe = (m + _BYTES_PER_FE - 1) // _BYTES_PER_FE
@@ -106,7 +108,9 @@ def fork(cv: Curve, sp: DuplexSponge, domain: bytes) -> DuplexSponge:
 def _fe_array(cv: Curve, values: list[int]) -> np.ndarray:
     """fq array from canonical integer values (each ``< p``, via 32-byte LE repr);
     ``to_bytes(32)`` raises on a wider int rather than silently reducing."""
-    return np.frombuffer(b"".join(int(v).to_bytes(32, "little") for v in values), dtype=cv.fq)
+    return np.frombuffer(
+        b"".join(int(v).to_bytes(32, "little") for v in values), dtype=cv.fq
+    )
 
 
 def point_to_field_array_frx(cv: Curve, points: frx.Array) -> frx.Array:
@@ -164,21 +168,33 @@ def absorb_option_bytes(cv: Curve, sp: DuplexSponge, data: bytes) -> DuplexSpong
     flag, then the bytes' `u8::batch_to_sponge_field_elements` packing — all in one
     absorb (e.g. `compute_new_challenge`'s `Some(to_bytes![rlp_coeffs])`). The
     `None` case is :func:`absorb_none`."""
-    arr = fnp.concatenate([fnp.asarray(option_flag(cv, True)),
-                           fnp.asarray(u8_batch_field_array(cv, data))])
+    arr = fnp.concatenate(
+        [
+            fnp.asarray(option_flag(cv, True)),
+            fnp.asarray(u8_batch_field_array(cv, data)),
+        ]
+    )
     return sp.absorb(arr)
 
 
-def absorb_option_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) -> DuplexSponge:
+def absorb_option_points(
+    cv: Curve, sp: DuplexSponge, points: list[np.ndarray]
+) -> DuplexSponge:
     """Absorb an `Option<_>` whose inner Absorbable is a batch of points, in the
     `Some` case: a single `F::from(true)` flag, then each point's `[x, y,
     infinity]` — all in one absorb (e.g. `Some(ProofHidingCommitments)`)."""
-    arr = fnp.concatenate([fnp.asarray(option_flag(cv, True)),
-                           point_to_field_array_frx(cv, curve.stack_affine(cv, points))])
+    arr = fnp.concatenate(
+        [
+            fnp.asarray(option_flag(cv, True)),
+            point_to_field_array_frx(cv, curve.stack_affine(cv, points)),
+        ]
+    )
     return sp.absorb(arr)
 
 
-def absorb_points(cv: Curve, sp: DuplexSponge, points: list[np.ndarray]) -> DuplexSponge:
+def absorb_points(
+    cv: Curve, sp: DuplexSponge, points: list[np.ndarray]
+) -> DuplexSponge:
     """Absorb a batch of SW-affine points in one call (e.g. a `Vec<InputInstance>`
     flattened to its commitments, or a `ProductPolynomialCommitment`'s low‖high):
     the concatenation of each point's `[x, y, infinity]`."""
@@ -194,9 +210,14 @@ def absorb_points_frx(cv: Curve, sp: DuplexSponge, points: frx.Array) -> DuplexS
     return sp.absorb(point_to_field_array_frx(cv, points))
 
 
-def absorb_option_points_frx(cv: Curve, sp: DuplexSponge, points: frx.Array) -> DuplexSponge:
+def absorb_option_points_frx(
+    cv: Curve, sp: DuplexSponge, points: frx.Array
+) -> DuplexSponge:
     """`absorb_option_points` for a pre-stacked `(N,)` frx affine array (the `Some`
     case): the `F::from(true)` flag then each point's `[x, y, infinity]`, all in one
     absorb — the in-trace twin of `absorb_option_points`."""
-    return sp.absorb(fnp.concatenate([fnp.asarray(option_flag(cv, True)),
-                                      point_to_field_array_frx(cv, points)]))
+    return sp.absorb(
+        fnp.concatenate(
+            [fnp.asarray(option_flag(cv, True)), point_to_field_array_frx(cv, points)]
+        )
+    )

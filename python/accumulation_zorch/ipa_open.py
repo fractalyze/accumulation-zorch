@@ -24,7 +24,8 @@ module is the thin translation between the two shapes:
   This adapter reads those straight from the fold, so recovering `final_comm_key`
   needs no challenger replay and no second size-`n` MSM.
 
-The two `open_*` functions here mirror arkworks' `ipa_pc::open_individual_opening_challenges`
+The two `open_*` functions here mirror arkworks'
+`ipa_pc::open_individual_opening_challenges`
 (no-zk / zk) signatures, so `ipa_pc_as` calls them directly — this is the sole
 IPA-fold implementation left in the tree.
 """
@@ -37,7 +38,6 @@ import frx
 import frx.numpy as fnp
 import numpy as np
 from frx import Array, lax
-
 from zorch.pcs.ipa.prover import _open_one, _open_one_zk
 from zorch.pcs.ipa.setup import IpaKey
 
@@ -50,6 +50,7 @@ class IpaProof(NamedTuple):
     generator and coefficient, and (zk only) the hiding commitment + combined
     blinder. No-zk leaves `hiding_comm`/`rand` as `None`. Produced here by driving
     zorch's fold; the AS combinator (`ipa_pc_as.Accumulator`) carries it."""
+
     l_vec: list[np.ndarray]
     r_vec: list[np.ndarray]
     final_comm_key: np.ndarray
@@ -93,12 +94,19 @@ def _pad_hiding_poly(cv: Curve, hiding_poly_raw: list[int], n: int) -> Array:
     """The open's blinding polynomial as a length-`n` `cv.fr` vector: arkworks resizes
     `P::rand(d)` to `d+1` (zeros for the missing high terms) before the
     vanish-at-`point` shift, and `_open_one_zk` expects the full length-`n` poly."""
-    return _fr_vec(cv, [int(c) for c in hiding_poly_raw] + [0] * (n - len(hiding_poly_raw)))
+    return _fr_vec(
+        cv, [int(c) for c in hiding_poly_raw] + [0] * (n - len(hiding_poly_raw))
+    )
 
 
 def open_no_zk(
-    cv: Curve, params: Any, svk_h: np.ndarray, combined_commitment: np.ndarray,
-    point: int, coeffs: np.ndarray, generators: list[np.ndarray],
+    cv: Curve,
+    params: Any,
+    svk_h: np.ndarray,
+    combined_commitment: np.ndarray,
+    point: int,
+    coeffs: np.ndarray,
+    generators: list[np.ndarray],
 ) -> IpaProof:
     """Drop-in for arkworks' `ipa_pc::open_individual_opening_challenges` (no-zk),
     driving zorch's `_open_one`: the IPA fold producing `(l_vec, r_vec,
@@ -108,7 +116,9 @@ def open_no_zk(
     `generators` the committer key `comm_key`, `combined_commitment` seeds the
     Fiat-Shamir, `svk_h` the inner-product generator."""
     n = len(coeffs)
-    key = IpaKey(basis=_basis(cv, generators, n), u=fnp.asarray(_affine(cv, svk_h)), s=None)
+    key = IpaKey(
+        basis=_basis(cv, generators, n), u=fnp.asarray(_affine(cv, svk_h)), s=None
+    )
     coeffs_arr = _fr_vec(cv, coeffs)
     x = _fr_scalar(cv, point)
     commitment = fnp.asarray(_affine(cv, combined_commitment))
@@ -123,8 +133,12 @@ def open_no_zk(
 
 
 def build_open_no_zk_core(
-    cv: Curve, params: Any, svk_h: np.ndarray, combined_commitment: np.ndarray,
-    point: int, coeffs: np.ndarray,
+    cv: Curve,
+    params: Any,
+    svk_h: np.ndarray,
+    combined_commitment: np.ndarray,
+    point: int,
+    coeffs: np.ndarray,
 ):  # type: ignore[no-untyped-def]
     """The fused GPU **fold** core: a `@frx.jit` device twin of :func:`open_no_zk`.
 
@@ -160,8 +174,15 @@ def build_open_no_zk_core(
 
 
 def build_open_zk_core(
-    cv: Curve, params: Any, svk_h: np.ndarray, s: np.ndarray, combined_commitment: np.ndarray,
-    point: int, coeffs: np.ndarray, hiding_poly_raw: list[int], hiding_rand: int,
+    cv: Curve,
+    params: Any,
+    svk_h: np.ndarray,
+    s: np.ndarray,
+    combined_commitment: np.ndarray,
+    point: int,
+    coeffs: np.ndarray,
+    hiding_poly_raw: list[int],
+    hiding_rand: int,
     commitment_randomness: int,
 ):  # type: ignore[no-untyped-def]
     """The fused GPU **zk fold** core: a `@frx.jit` device twin of :func:`open_zk`.
@@ -192,8 +213,15 @@ def build_open_zk_core(
         key = IpaKey(basis=basis, u=u, s=s_pt)
         fs = ipa_challenger.ark_challenger(cv, params)
         _fs, _value, zkp, final, _mod_commitment = _open_one_zk(
-            key, commitment, coeffs_arr, x, hiding_poly, hiding_rand_s,
-            commitment_randomness_s, fs)
+            key,
+            commitment,
+            coeffs_arr,
+            x,
+            hiding_poly,
+            hiding_rand_s,
+            commitment_randomness_s,
+            fs,
+        )
         hcomm = lax.convert_element_type(zkp.hiding_comm, key.basis.dtype)
         return zkp.l, zkp.r, final, zkp.a, hcomm, zkp.rand
 
@@ -201,9 +229,17 @@ def build_open_zk_core(
 
 
 def open_zk(
-    cv: Curve, params: Any, svk_h: np.ndarray, s: np.ndarray, generators: list[np.ndarray],
-    combined_commitment: np.ndarray, point: int, coeffs: np.ndarray,
-    hiding_poly_raw: list[int], hiding_rand: int, commitment_randomness: int,
+    cv: Curve,
+    params: Any,
+    svk_h: np.ndarray,
+    s: np.ndarray,
+    generators: list[np.ndarray],
+    combined_commitment: np.ndarray,
+    point: int,
+    coeffs: np.ndarray,
+    hiding_poly_raw: list[int],
+    hiding_rand: int,
+    commitment_randomness: int,
 ) -> IpaProof:
     """Drop-in for arkworks' `ipa_pc::open_individual_opening_challenges` (zk),
     driving zorch's `_open_one_zk`: the hiding prelude + shared fold producing
@@ -217,7 +253,9 @@ def open_zk(
     to `d+1` before the vanish-at-`point` shift)."""
     n = len(coeffs)
     s_pt = fnp.asarray(_affine(cv, s))
-    key = IpaKey(basis=_basis(cv, generators, n), u=fnp.asarray(_affine(cv, svk_h)), s=s_pt)
+    key = IpaKey(
+        basis=_basis(cv, generators, n), u=fnp.asarray(_affine(cv, svk_h)), s=s_pt
+    )
     coeffs_arr = _fr_vec(cv, coeffs)
     x = _fr_scalar(cv, point)
     commitment = fnp.asarray(_affine(cv, combined_commitment))
@@ -228,12 +266,24 @@ def open_zk(
 
     fs = ipa_challenger.ark_challenger(cv, params)
     _fs, _value, zkp, final_comm_key, _mod_commitment = _open_one_zk(
-        key, commitment, coeffs_arr, x, hiding_poly, hiding_rand_s,
-        commitment_randomness_s, fs)
+        key,
+        commitment,
+        coeffs_arr,
+        x,
+        hiding_poly,
+        hiding_rand_s,
+        commitment_randomness_s,
+        fs,
+    )
 
     final = _affine(cv, final_comm_key)
     l_vec = [_affine(cv, zkp.l[j]) for j in range(zkp.l.shape[0])]
     r_vec = [_affine(cv, zkp.r[j]) for j in range(zkp.r.shape[0])]
     return IpaProof(
-        l_vec, r_vec, final, _c_int(cv, zkp.a),
-        hiding_comm=_affine(cv, zkp.hiding_comm), rand=_c_int(cv, zkp.rand))
+        l_vec,
+        r_vec,
+        final,
+        _c_int(cv, zkp.a),
+        hiding_comm=_affine(cv, zkp.hiding_comm),
+        rand=_c_int(cv, zkp.rand),
+    )

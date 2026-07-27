@@ -35,8 +35,16 @@ from accumulation_zorch import curve, ipa_challenger, sponge
 _TESTDATA = Path(__file__).resolve().parents[2] / "testdata"
 
 _CURVES = [
-    (curve.PALLAS, _TESTDATA / "ipa_zk_fixtures.json", _TESTDATA / "sponge_fixtures.json"),
-    (curve.VESTA, _TESTDATA / "ipa_zk_vesta_fixtures.json", _TESTDATA / "sponge_vesta_fixtures.json"),
+    (
+        curve.PALLAS,
+        _TESTDATA / "ipa_zk_fixtures.json",
+        _TESTDATA / "sponge_fixtures.json",
+    ),
+    (
+        curve.VESTA,
+        _TESTDATA / "ipa_zk_vesta_fixtures.json",
+        _TESTDATA / "sponge_vesta_fixtures.json",
+    ),
 ]
 
 
@@ -49,7 +57,9 @@ def _point(cv: curve.Curve, p: Any) -> Any:
 
 
 def _params(cv: curve.Curve, sponge_fixture: Path) -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(sponge_fixture.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -70,8 +80,17 @@ def _load(cv: curve.Curve, ipa_fixture: Path) -> Any:
 
 def _zk_challenges(cv: curve.Curve, params: Any, f: Any) -> list[int]:
     return ipa_challenger.succinct_check_challenges_zk(
-        cv, params, f["commitment"], f["point"], f["value"], f["l_vec"], f["r_vec"],
-        f["s"], f["hiding_comm"], f["rand"])
+        cv,
+        params,
+        f["commitment"],
+        f["point"],
+        f["value"],
+        f["l_vec"],
+        f["r_vec"],
+        f["s"],
+        f["hiding_comm"],
+        f["rand"],
+    )
 
 
 class IpaZkTest(absltest.TestCase):
@@ -84,9 +103,16 @@ class IpaZkTest(absltest.TestCase):
             self.assertEqual(len(got), len(want), f"[{cv.name}] challenge count")
             for i, want_hex in enumerate(want):
                 got_hex = cv.fr(got[i]).tobytes().hex()
-                self.assertEqual(got_hex, want_hex, f"[{cv.name}] zk round challenge[{i}]: {got_hex} != {want_hex}")
-            print(f"  [{cv.name}] zk succinct_check round challenges (hiding-folded seed) "
-                  f"byte-match arkworks ({len(got)} rounds)")
+                self.assertEqual(
+                    got_hex,
+                    want_hex,
+                    f"[{cv.name}] zk round challenge[{i}]: {got_hex} != {want_hex}",
+                )
+            print(
+                f"  [{cv.name}] zk succinct_check round challenges (hiding-folded "
+                f"seed) "
+                f"byte-match arkworks ({len(got)} rounds)"
+            )
 
     def test_zk_check_poly_coeffs_and_eval_match_arkworks(self) -> None:
         """`h(X)` coeffs + evaluation fed the golden zk challenges — `compute_coeffs` /
@@ -100,12 +126,29 @@ class IpaZkTest(absltest.TestCase):
             coeffs = ipa_challenger.compute_coeffs(cv, challenges)
             for i, want_hex in enumerate(d["coeffs"]):
                 got_hex = coeffs[i].tobytes().hex()
-                self.assertEqual(got_hex, want_hex, f"[{cv.name}] zk h(X) coeff[{i}]: {got_hex} != {want_hex}")
+                self.assertEqual(
+                    got_hex,
+                    want_hex,
+                    f"[{cv.name}] zk h(X) coeff[{i}]: {got_hex} != {want_hex}",
+                )
 
-            got_eval = np.asarray(ipa_challenger.evaluate_fr(cv, challenges, point), dtype=cv.fr).tobytes().hex()
-            self.assertEqual(got_eval, d["eval_at_point"], f"[{cv.name}] zk h(point): {got_eval} != {d['eval_at_point']}")
-            print(f"  [{cv.name}] zk h(X) compute_coeffs ({len(coeffs)} coeffs) + evaluate "
-                  f"byte-match arkworks")
+            got_eval = (
+                np.asarray(
+                    ipa_challenger.evaluate_fr(cv, challenges, point), dtype=cv.fr
+                )
+                .tobytes()
+                .hex()
+            )
+            self.assertEqual(
+                got_eval,
+                d["eval_at_point"],
+                f"[{cv.name}] zk h(point): {got_eval} != {d['eval_at_point']}",
+            )
+            print(
+                f"  [{cv.name}] zk h(X) compute_coeffs ({len(coeffs)} coeffs) + "
+                f"evaluate "
+                f"byte-match arkworks"
+            )
 
     def test_zk_succinct_check_end_to_end_matches_arkworks(self) -> None:
         """The full zk path: hiding-folded sponge → round challenges → `h(X)` coeffs."""
@@ -116,8 +159,16 @@ class IpaZkTest(absltest.TestCase):
             coeffs = ipa_challenger.compute_coeffs(cv, challenges)
             for i, want_hex in enumerate(f["d"]["coeffs"]):
                 got_hex = coeffs[i].tobytes().hex()
-                self.assertEqual(got_hex, want_hex, f"[{cv.name}] zk end-to-end h(X) coeff[{i}]: {got_hex} != {want_hex}")
-            print(f"  [{cv.name}] zk end-to-end (hiding sponge → h(X) coeffs) byte-matches arkworks")
+                self.assertEqual(
+                    got_hex,
+                    want_hex,
+                    f"[{cv.name}] zk end-to-end h(X) coeff[{i}]: {got_hex} != "
+                    f"{want_hex}",
+                )
+            print(
+                f"  [{cv.name}] zk end-to-end (hiding sponge → h(X) coeffs) "
+                f"byte-matches arkworks"
+            )
 
 
 if __name__ == "__main__":

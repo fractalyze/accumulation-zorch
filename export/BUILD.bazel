@@ -1,5 +1,5 @@
-load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 
 # Each export lowers a frx prove/decide core to a StableHLO .mlirbc that the Rust
 # GPU byte-match / bench (Cargo, hardware-gated) runs. Lowering is CPU-only.
@@ -28,9 +28,12 @@ py_binary(
 [
     py_binary(
         name = n,
-        srcs = [n + ".py", "export_prove.py"],
-        main = n + ".py",
+        srcs = [
+            n + ".py",
+            "export_prove.py",
+        ],
         imports = ["."],
+        main = n + ".py",
         visibility = ["//visibility:public"],
         deps = _EXPORT_DEPS,
     )
@@ -52,13 +55,13 @@ py_test(
     name = "export_lowering_smoke_test",
     size = "small",
     srcs = [
-        "export_lowering_smoke_test.py",
-        "export_prove.py",
+        "export_as_decide.py",
         "export_ipa.py",
         "export_ipa_fold.py",
-        "export_as_decide.py",
+        "export_lowering_smoke_test.py",
+        "export_prove.py",
     ],
-    imports = ["."],
     data = ["//python/testdata:fixtures"],
+    imports = ["."],
     deps = _EXPORT_DEPS + [requirement("absl_py")],
 )

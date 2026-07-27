@@ -185,7 +185,10 @@ class ArkIpaChallenger:
         sp = absorbable.absorb_points_frx(cv, sp, fnp.asarray(commitment).reshape(1))
         sp = sp.absorb(_seed_pv_fq(cv, point, value))
         xi0 = self._squeeze(sp)
-        return ArkIpaChallenger(self.state, xi0, cv, self.params, self.mode, self.pos), xi0
+        return (
+            ArkIpaChallenger(self.state, xi0, cv, self.params, self.mode, self.pos),
+            xi0,
+        )
 
     def challenge(self, l: Array, r: Array) -> tuple[ArkIpaChallenger, Array]:
         """One fold round: a fresh sponge absorbs the previous challenge (low 16
@@ -218,7 +221,10 @@ class ArkIpaChallenger:
         sp = absorbable.absorb_points_frx(cv, sp, fnp.asarray(hiding_comm).reshape(1))
         sp = sp.absorb(_seed_pv_fq(cv, point, value))
         hc = self._squeeze(sp)
-        return ArkIpaChallenger(self.state, hc, cv, self.params, self.mode, self.pos), hc
+        return (
+            ArkIpaChallenger(self.state, hc, cv, self.params, self.mode, self.pos),
+            hc,
+        )
 
 
 def ark_challenger(cv: Curve, params: Any) -> ArkIpaChallenger:
@@ -240,13 +246,19 @@ def ark_challenger(cv: Curve, params: Any) -> ArkIpaChallenger:
 
 
 def _challenge_int(cv: Curve, u: Array) -> int:
-    """A 0-d `fr` challenge as its canonical `fr` int (the `check_poly` element form)."""
+    """A 0-d `fr` challenge as its canonical `fr` int (the `check_poly` element
+    form)."""
     return int.from_bytes(np.asarray(u, dtype=cv.fr).tobytes(), "little")
 
 
 def succinct_check_challenges(
-    cv: Curve, params, commitment: np.ndarray, point: int, value: int,
-    l_vec: list[np.ndarray], r_vec: list[np.ndarray],
+    cv: Curve,
+    params,
+    commitment: np.ndarray,
+    point: int,
+    value: int,
+    l_vec: list[np.ndarray],
+    r_vec: list[np.ndarray],
 ) -> list[int]:  # type: ignore[no-untyped-def]
     """The `SuccinctCheckPolynomial` round challenges (ξ₁..ξ_log_d) of
     `ipa_pc::succinct_check` (no-zk), as canonical `fr` ints, by driving
@@ -268,9 +280,16 @@ def succinct_check_challenges(
 
 
 def succinct_check_challenges_zk(
-    cv: Curve, params, commitment: np.ndarray, point: int, value: int,
-    l_vec: list[np.ndarray], r_vec: list[np.ndarray],
-    s: np.ndarray, hiding_comm: np.ndarray, rand: int,
+    cv: Curve,
+    params,
+    commitment: np.ndarray,
+    point: int,
+    value: int,
+    l_vec: list[np.ndarray],
+    r_vec: list[np.ndarray],
+    s: np.ndarray,
+    hiding_comm: np.ndarray,
+    rand: int,
 ) -> list[int]:  # type: ignore[no-untyped-def]
     """The zk/hiding `ipa_pc::succinct_check` round challenges. Before the round
     challenges, `ArkIpaChallenger.hiding_challenge` absorbs `commitment`, `hiding_comm`,
@@ -288,7 +307,8 @@ def succinct_check_challenges_zk(
     # seeds the rounds from the folded commitment.
     neg_rand = (-int(rand)) % cv.fr_modulus
     seed = curve.pedersen_commit(
-        cv, [commitment, hiding_comm, s], [1, _challenge_int(cv, hc), neg_rand])
+        cv, [commitment, hiding_comm, s], [1, _challenge_int(cv, hc), neg_rand]
+    )
 
     fs, _xi0 = fs.seed(seed, point, value)
     challenges: list[int] = []

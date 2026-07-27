@@ -21,7 +21,7 @@ Run under Bazel:
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import frx
 import frx.numpy as fnp
@@ -51,7 +51,9 @@ def _point(p: Any) -> Any:
 
 
 def _params() -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -73,12 +75,28 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
     witness2 = [_fr(h) for h in s["input2_witness"]]
     input_len, witness_len = len(input2), len(witness2)
     nark_r = [_fr(h) for h in s["r"]]
-    nark_blinders = tuple(_fr(s[k]) for k in (
-        "a_blinder", "b_blinder", "c_blinder", "r_a_blinder", "r_b_blinder", "r_c_blinder",
-        "blinder_1", "blinder_2"))
+    nark_blinders = cast(
+        tuple[int, int, int, int, int, int, int, int],
+        tuple(
+            _fr(s[k])
+            for k in (
+                "a_blinder",
+                "b_blinder",
+                "c_blinder",
+                "r_a_blinder",
+                "r_b_blinder",
+                "r_c_blinder",
+                "blinder_1",
+                "blinder_2",
+            )
+        ),
+    )
     as_r1cs_r_input = _fr(s["as_r1cs_r_input"])
     as_r1cs_r_witness = _fr(s["as_r1cs_r_witness"])
-    as_rand = tuple(_fr(s[k]) for k in ("as_rand_1", "as_rand_2", "as_rand_3"))
+    as_rand = cast(
+        tuple[int, int, int],
+        tuple(_fr(s[k]) for k in ("as_rand_1", "as_rand_2", "as_rand_3")),
+    )
 
     acc = s["acc_prev_instance"]
     acc_r1cs_input = [_fr(h) for h in acc["r1cs_input"]]
@@ -86,9 +104,15 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
     r1cs_r_witness = [as_r1cs_r_witness] * witness_len
 
     accw = s["acc_prev_witness"]
-    acc_blinded_witness = fnp.asarray(np.array([_fr(h) for h in accw["r1cs_blinded_witness"]], dtype=cv.fr))
-    acc_sigma_abc = fnp.asarray(np.array(
-        [_fr(accw["sigma_a"]), _fr(accw["sigma_b"]), _fr(accw["sigma_c"])], dtype=cv.fr))
+    acc_blinded_witness = fnp.asarray(
+        np.array([_fr(h) for h in accw["r1cs_blinded_witness"]], dtype=cv.fr)
+    )
+    acc_sigma_abc = fnp.asarray(
+        np.array(
+            [_fr(accw["sigma_a"]), _fr(accw["sigma_b"]), _fr(accw["sigma_c"])],
+            dtype=cv.fr,
+        )
+    )
     r1cs_r_witness_arr = fnp.asarray(np.array(r1cs_r_witness, dtype=cv.fr))
     as_rand_arr = fnp.asarray(np.array(list(as_rand), dtype=cv.fr))
 
@@ -97,21 +121,43 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
     r1cs_r_input_bytes = _fr_bytes(r1cs_r_input)
 
     bases_h = curve.stack_affine(cv, list(generators[:rows]) + [hiding])
-    acc_comms = curve.stack_affine(cv, [
-        _point(acc["comm_a"]), _point(acc["comm_b"]), _point(acc["comm_c"]),
-        _point(acc["hp_comm_1"]), _point(acc["hp_comm_2"]), _point(acc["hp_comm_3"])])
+    acc_comms = curve.stack_affine(
+        cv,
+        [
+            _point(acc["comm_a"]),
+            _point(acc["comm_b"]),
+            _point(acc["comm_c"]),
+            _point(acc["hp_comm_1"]),
+            _point(acc["hp_comm_2"]),
+            _point(acc["hp_comm_3"]),
+        ],
+    )
 
     @frx.jit
     def core(bases_h: frx.Array, acc_comms: frx.Array) -> tuple:
         fr_one = fnp.asarray(np.array([1], dtype=cv.fr))
-        nk = nark.prove_zk_core(cv, a, b, c, input2, witness2, bases_h, params,
-                                nark_matrices_hash, nark_r, *nark_blinders)
+        nk = nark.prove_zk_core(
+            cv,
+            a,
+            b,
+            c,
+            input2,
+            witness2,
+            bases_h,
+            params,
+            nark_matrices_hash,
+            nark_r,
+            *nark_blinders,
+        )
         gamma = nk.gamma
 
         # The fold's AS proof-randomness commitments comm_r_M = commit(M·z_r, as_r_M).
         def _mz(matrix: nark.Matrix, zv: frx.Array) -> frx.Array:
             return field.matvec(fnp.asarray(nark.to_dense(cv, matrix, zv.shape[0])), zv)
-        zr = fnp.asarray(np.array(r1cs_r_input + [as_r1cs_r_witness] * witness_len, dtype=cv.fr))
+
+        zr = fnp.asarray(
+            np.array(r1cs_r_input + [as_r1cs_r_witness] * witness_len, dtype=cv.fr)
+        )
         comm_r_a = curve.commit_hiding(cv, _mz(a, zr), as_rand[0], bases_h)
         comm_r_b = curve.commit_hiding(cv, _mz(b, zr), as_rand[1], bases_h)
         comm_r_c = curve.commit_hiding(cv, _mz(c, zr), as_rand[2], bases_h)
@@ -125,37 +171,74 @@ def _combined_instance(d: Any, s: Any, params: Any) -> tuple:
         # beta over num_addends=3: as_sponge absorbs the accumulator instance, then
         # the input instance, then the proof randomness; squeeze 2 challenges.
         acc_inst_fe = r1cs_nark_as._acc_instance_fe(cv, acc_bytes, acc_comms)
-        inst_fe = fnp.concatenate([
-            fnp.asarray(absorbable.u8_batch_field_array(cv, input2_bytes)),
-            absorbable.point_to_field_array_frx(cv, fnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])),
-            fnp.asarray(absorbable.option_flag(cv, True)),
-            absorbable.point_to_field_array_frx(
-                cv, fnp.stack([nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2])),
-        ])
-        pr_fe = fnp.concatenate([
-            fnp.asarray(absorbable.option_flag(cv, True)),
-            fnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes)),
-            absorbable.point_to_field_array_frx(cv, fnp.stack([comm_r_a, comm_r_b, comm_r_c])),
-        ])
+        inst_fe = fnp.concatenate(
+            [
+                fnp.asarray(absorbable.u8_batch_field_array(cv, input2_bytes)),
+                absorbable.point_to_field_array_frx(
+                    cv, fnp.stack([nk.comm_a, nk.comm_b, nk.comm_c])
+                ),
+                fnp.asarray(absorbable.option_flag(cv, True)),
+                absorbable.point_to_field_array_frx(
+                    cv,
+                    fnp.stack(
+                        [nk.comm_r_a, nk.comm_r_b, nk.comm_r_c, nk.comm_1, nk.comm_2]
+                    ),
+                ),
+            ]
+        )
+        pr_fe = fnp.concatenate(
+            [
+                fnp.asarray(absorbable.option_flag(cv, True)),
+                fnp.asarray(absorbable.u8_batch_field_array(cv, r1cs_r_input_bytes)),
+                absorbable.point_to_field_array_frx(
+                    cv, fnp.stack([comm_r_a, comm_r_b, comm_r_c])
+                ),
+            ]
+        )
         beta = r1cs_nark_as._beta_challenges_frx(  # (3,) = [1, c₁, c₂]
-            cv, params, as_matrices_hash, inst_fe, pr_fe, acc_inst_fe=acc_inst_fe, num_challenges=2)
+            cv,
+            params,
+            as_matrices_hash,
+            inst_fe,
+            pr_fe,
+            acc_inst_fe=acc_inst_fe,
+            num_challenges=2,
+        )
 
         # Fold under beta, in the order [acc, input, proof_randomness].
         combined_input = field.combine_vectors(
-            fnp.asarray(np.array([acc_r1cs_input, input2, r1cs_r_input], dtype=cv.fr)), beta)
-        combined_comm_a = lax.msm(beta, fnp.stack([acc_comms[0], blinded_comm_a, comm_r_a]))
-        combined_comm_b = lax.msm(beta, fnp.stack([acc_comms[1], blinded_comm_b, comm_r_b]))
-        combined_comm_c = lax.msm(beta, fnp.stack([acc_comms[2], blinded_comm_c, comm_r_c]))
+            fnp.asarray(np.array([acc_r1cs_input, input2, r1cs_r_input], dtype=cv.fr)),
+            beta,
+        )
+        combined_comm_a = lax.msm(
+            beta, fnp.stack([acc_comms[0], blinded_comm_a, comm_r_a])
+        )
+        combined_comm_b = lax.msm(
+            beta, fnp.stack([acc_comms[1], blinded_comm_b, comm_r_b])
+        )
+        combined_comm_c = lax.msm(
+            beta, fnp.stack([acc_comms[2], blinded_comm_c, comm_r_c])
+        )
 
         # Witness combine (no sponge — reuses beta): blinded witness + sigma_{a,b,c}
         # over the same [acc, input, proof_randomness] order. The fold's proof
         # randomness contributes the AS sigmas (as_rand_1/2/3); the input contributes
         # the NARK sigma_{a,b,c}; sigma_o is NARK-only and does not enter the AS fold.
         combined_blinded_witness = field.combine_vectors(
-            fnp.stack([acc_blinded_witness, nk.blinded_witness, r1cs_r_witness_arr]), beta)
-        combined_sigmas = acc_sigma_abc * beta[0] + nk.sigma_abc * beta[1] + as_rand_arr * beta[2]
-        return (combined_input, combined_comm_a, combined_comm_b, combined_comm_c,
-                combined_blinded_witness, combined_sigmas)
+            fnp.stack([acc_blinded_witness, nk.blinded_witness, r1cs_r_witness_arr]),
+            beta,
+        )
+        combined_sigmas = (
+            acc_sigma_abc * beta[0] + nk.sigma_abc * beta[1] + as_rand_arr * beta[2]
+        )
+        return (
+            combined_input,
+            combined_comm_a,
+            combined_comm_b,
+            combined_comm_c,
+            combined_blinded_witness,
+            combined_sigmas,
+        )
 
     return core(bases_h, acc_comms)
 
@@ -170,10 +253,16 @@ class AsFoldZkTest(absltest.TestCase):
         d = json.loads(_FIXTURE.read_text())
         a, b, c = (_matrix(d[k]) for k in ("a", "b", "c"))
         nark_h, as_h = r1cs_nark_as._matrices_hashes(cv, a, b, c)
-        self.assertEqual(nark_h.hex(), d["nark_matrices_hash_hex"],
-                         "nark.PROTOCOL_NAME domain diverged from arkworks")
-        self.assertEqual(as_h.hex(), d["as_matrices_hash_hex"],
-                         "AS_PROTOCOL_NAME domain diverged from arkworks")
+        self.assertEqual(
+            nark_h.hex(),
+            d["nark_matrices_hash_hex"],
+            "nark.PROTOCOL_NAME domain diverged from arkworks",
+        )
+        self.assertEqual(
+            as_h.hex(),
+            d["as_matrices_hash_hex"],
+            "AS_PROTOCOL_NAME domain diverged from arkworks",
+        )
 
     def test_as_fold_instance_matches_arkworks(self) -> None:
         d = json.loads(_FIXTURE.read_text())
@@ -185,28 +274,62 @@ class AsFoldZkTest(absltest.TestCase):
             # Combined instance: r1cs_input (canonical-LE fr bytes) + comm_a/b/c.
             got_input = [np.asarray(v).tobytes().hex() for v in cin]
             want_input = [cv.fr(_fr(h)).tobytes().hex() for h in gi["r1cs_input"]]
-            self.assertEqual(got_input, want_input, (
-                f"[seed {s['seed']}] combined r1cs_input diverged:\n got  {got_input}\n want {want_input}"))
-            for name, got_pt, want in (("comm_a", cca, gi["comm_a"]),
-                                        ("comm_b", ccb, gi["comm_b"]),
-                                        ("comm_c", ccc, gi["comm_c"])):
+            self.assertEqual(
+                got_input,
+                want_input,
+                (
+                    f"[seed {s['seed']}] combined r1cs_input diverged:\n got  "
+                    f"{got_input}\n want {want_input}"
+                ),
+            )
+            for name, got_pt, want in (
+                ("comm_a", cca, gi["comm_a"]),
+                ("comm_b", ccb, gi["comm_b"]),
+                ("comm_c", ccc, gi["comm_c"]),
+            ):
                 got_hex = curve.point_to_bytes(cv, np.asarray(got_pt)).hex()
                 want_hex = curve.point_to_bytes(cv, _point(want)).hex()
-                self.assertEqual(got_hex, want_hex, (
-                    f"[seed {s['seed']}] combined {name} diverged:\n got  {got_hex}\n want {want_hex}"))
+                self.assertEqual(
+                    got_hex,
+                    want_hex,
+                    (
+                        f"[seed {s['seed']}] combined {name} diverged:\n got  "
+                        f"{got_hex}\n want {want_hex}"
+                    ),
+                )
 
             # Combined witness: blinded witness + sigma_{a,b,c}.
             got_bw = [np.asarray(v).tobytes().hex() for v in cbw]
-            want_bw = [cv.fr(_fr(h)).tobytes().hex() for h in gw["r1cs_blinded_witness"]]
-            self.assertEqual(got_bw, want_bw, (
-                f"[seed {s['seed']}] combined blinded_witness diverged:\n got  {got_bw}\n want {want_bw}"))
+            want_bw = [
+                cv.fr(_fr(h)).tobytes().hex() for h in gw["r1cs_blinded_witness"]
+            ]
+            self.assertEqual(
+                got_bw,
+                want_bw,
+                (
+                    f"[seed {s['seed']}] combined blinded_witness diverged:\n got  "
+                    f"{got_bw}\n want {want_bw}"
+                ),
+            )
             got_sig = [np.asarray(csig[i]).tobytes().hex() for i in range(3)]
-            want_sig = [cv.fr(_fr(gw[k])).tobytes().hex() for k in ("sigma_a", "sigma_b", "sigma_c")]
-            self.assertEqual(got_sig, want_sig, (
-                f"[seed {s['seed']}] combined sigmas diverged:\n got  {got_sig}\n want {want_sig}"))
+            want_sig = [
+                cv.fr(_fr(gw[k])).tobytes().hex()
+                for k in ("sigma_a", "sigma_b", "sigma_c")
+            ]
+            self.assertEqual(
+                got_sig,
+                want_sig,
+                (
+                    f"[seed {s['seed']}] combined sigmas diverged:\n got  {got_sig}\n "
+                    f"want {want_sig}"
+                ),
+            )
 
-            print(f"  [seed {s['seed']}] combined instance + witness byte-matches arkworks "
-                  f"(num_addends=3, beta=[1,c1,c2])")
+            print(
+                f"  [seed {s['seed']}] combined instance + witness byte-matches "
+                f"arkworks "
+                f"(num_addends=3, beta=[1,c1,c2])"
+            )
         print("ALL SLICE-4 AS-FOLD INSTANCE+WITNESS CHECKS PASSED")
 
 

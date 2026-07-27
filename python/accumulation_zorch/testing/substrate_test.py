@@ -22,9 +22,7 @@ from accumulation_zorch import curve
 
 cv = curve.PALLAS
 
-_FIXTURES = (
-    Path(__file__).resolve().parents[2] / "testdata" / "substrate_fixtures.json"
-)
+_FIXTURES = Path(__file__).resolve().parents[2] / "testdata" / "substrate_fixtures.json"
 
 
 def _load() -> Any:
@@ -45,17 +43,25 @@ class SubstrateTest(absltest.TestCase):
             for entry in data["fields"][which]:
                 value = int(entry["value"], 16)  # Rust dumps into_repr() as BE hex
                 got = dtype(value).tobytes().hex()
-                self.assertEqual(got, entry["canonical_hex"], (
-                    f"{which}/{entry['label']}: {got} != {entry['canonical_hex']}"
-                ))
+                self.assertEqual(
+                    got,
+                    entry["canonical_hex"],
+                    (f"{which}/{entry['label']}: {got} != {entry['canonical_hex']}"),
+                )
                 # round-trip: the canonical (non-Montgomery) bytes decode back to
                 # the value via a plain LE read
                 v2 = int.from_bytes(dtype(value).tobytes(), "little")
-                self.assertEqual(v2, value, f"{which}/{entry['label']} value round-trip: {v2} != {value}")
+                self.assertEqual(
+                    v2,
+                    value,
+                    f"{which}/{entry['label']} value round-trip: {v2} != {value}",
+                )
         # hard sanity anchors independent of the dump
         self.assertEqual(cv.fq(1).tobytes().hex(), "01" + "00" * 31)
-        print(f"  field serialization OK ({len(data['fields']['fq'])} Fq + "
-              f"{len(data['fields']['fr'])} Fr)")
+        print(
+            f"  field serialization OK ({len(data['fields']['fq'])} Fq + "
+            f"{len(data['fields']['fr'])} Fr)"
+        )
 
     def test_point_serialization_and_dtype_mapping(self) -> None:
         data = _load()
@@ -64,29 +70,46 @@ class SubstrateTest(absltest.TestCase):
             y = int.from_bytes(bytes.fromhex(entry["y_le_hex"]), "little")
             pt = cv.g1((x, y))
             got = curve.point_to_bytes(cv, pt).hex()
-            self.assertEqual(got, entry["canonical_hex"], (
-                f"point/{entry['label']}: {got} != {entry['canonical_hex']}"
-            ))
+            self.assertEqual(
+                got,
+                entry["canonical_hex"],
+                (f"point/{entry['label']}: {got} != {entry['canonical_hex']}"),
+            )
         # pallas_g1_affine IS ark_pallas::Affine: its 1·G generator must serialize
         # to the dumped generator bytes. The zk_dtypes affine dtype reads an int as
         # the scalar `k·G`, so `[1]` is the generator.
         gen = next(p for p in data["points"] if p["label"] == "generator")
         generator = np.array([1], dtype=cv.g1)
-        self.assertEqual(curve.point_to_bytes(cv, generator).hex(), gen["canonical_hex"], (
-            "pallas_g1_affine generator != ark_pallas generator — dtype mapping wrong"
-        ))
-        print(f"  point serialization + dtype mapping OK ({len(data['points'])} points)")
+        self.assertEqual(
+            curve.point_to_bytes(cv, generator).hex(),
+            gen["canonical_hex"],
+            (
+                "pallas_g1_affine generator != ark_pallas generator — dtype mapping "
+                "wrong"
+            ),
+        )
+        print(
+            f"  point serialization + dtype mapping OK ({len(data['points'])} points)"
+        )
 
     def test_cpu_group_ops_match_arkworks(self) -> None:
         data = _load()
         by = {p["label"]: p["canonical_hex"] for p in data["points"]}
         g = np.array([1], dtype=cv.g1)  # the generator 1·G
         two_g = g + g  # CPU point add
-        self.assertEqual(curve.point_to_bytes(cv, two_g).hex(), by["two_g"], "G+G != 2G (CPU add)")
+        self.assertEqual(
+            curve.point_to_bytes(cv, two_g).hex(), by["two_g"], "G+G != 2G (CPU add)"
+        )
         k = g * np.array([12345], dtype=cv.fr)  # CPU scalar mul: 12345·G
-        self.assertEqual(curve.point_to_bytes(cv, k).hex(), by["k12345_g"], "12345·G mismatch (CPU mul)")
+        self.assertEqual(
+            curve.point_to_bytes(cv, k).hex(),
+            by["k12345_g"],
+            "12345·G mismatch (CPU mul)",
+        )
         g_plus_2g = g + g * np.array([2], dtype=cv.fr)  # G + 2·G
-        self.assertEqual(curve.point_to_bytes(cv, g_plus_2g).hex(), by["g_plus_2g"], "G+2G mismatch")
+        self.assertEqual(
+            curve.point_to_bytes(cv, g_plus_2g).hex(), by["g_plus_2g"], "G+2G mismatch"
+        )
         print("  CPU group ops (add, scalar-mul) match arkworks OK")
 
     def test_pedersen_commit_matches_arkworks(self) -> None:
@@ -105,11 +128,15 @@ class SubstrateTest(absltest.TestCase):
                 )
                 tag = f"hiding(r={r})"
             got = curve.point_to_bytes(cv, commit).hex()
-            self.assertEqual(got, case["result_canonical_hex"], (
-                f"pedersen {tag}: {got} != {case['result_canonical_hex']}"
-            ))
-        print(f"  Pedersen commit (CPU MSM) matches arkworks OK "
-              f"({len(ped['cases'])} cases, {len(elems)} elems)")
+            self.assertEqual(
+                got,
+                case["result_canonical_hex"],
+                (f"pedersen {tag}: {got} != {case['result_canonical_hex']}"),
+            )
+        print(
+            f"  Pedersen commit (CPU MSM) matches arkworks OK "
+            f"({len(ped['cases'])} cases, {len(elems)} elems)"
+        )
 
 
 if __name__ == "__main__":

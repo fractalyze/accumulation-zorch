@@ -41,17 +41,21 @@ _SIZE = min(128, sponge.FR_CAPACITY)  # the prover's CHALLENGE_SIZE window
 
 
 def _params() -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
 def _point_from_fixture(p: Any) -> Any:
     if p["infinity"]:
         return cv.g1((0, 0))
-    return cv.g1((
-        int.from_bytes(bytes.fromhex(p["x_le_hex"]), "little"),
-        int.from_bytes(bytes.fromhex(p["y_le_hex"]), "little"),
-    ))
+    return cv.g1(
+        (
+            int.from_bytes(bytes.fromhex(p["x_le_hex"]), "little"),
+            int.from_bytes(bytes.fromhex(p["y_le_hex"]), "little"),
+        )
+    )
 
 
 def _gamma_sponge(params: Any, g: Any) -> Any:
@@ -62,7 +66,9 @@ def _gamma_sponge(params: Any, g: Any) -> Any:
     comms = [_point_from_fixture(c) for c in g["comms"]]
     sp = absorbable.fork(cv, sponge.new_sponge(params), nark.PROTOCOL_NAME)
     sp = absorbable.absorb_bytes(cv, sp, matrices_hash)
-    sp = absorbable.absorb_bytes(cv, sp, b"".join(int(s).to_bytes(32, "little") for s in inputs))
+    sp = absorbable.absorb_bytes(
+        cv, sp, b"".join(int(s).to_bytes(32, "little") for s in inputs)
+    )
     arrs = [absorbable.point_to_field_array(cv, c) for c in comms]
     arrs.append(absorbable.option_flag(cv, False))  # randomness = None
     return sp.absorb(fnp.asarray(np.concatenate(arrs)))

@@ -19,8 +19,8 @@ from absl.testing import absltest
 
 from accumulation_zorch import curve, r1cs_nark_as, sponge
 
-_N = 8          # R1CS rows = chain steps
-_W = 2          # first witness wire: z = [1, out] ‖ [w_0 ..]
+_N = 8  # R1CS rows = chain steps
+_W = 2  # first witness wire: z = [1, out] ‖ [w_0 ..]
 _SEED = 3
 
 
@@ -45,8 +45,16 @@ def _assignment(cv: curve.Curve) -> tuple[list[int], list[int]]:
 
 
 class AsChainTest(absltest.TestCase):
-    def _decides(self, cv: curve.Curve, a: list, b: list, c: list, generators: list,
-                 hiding: np.ndarray, acc: r1cs_nark_as.FoldedAccumulator) -> bool:
+    def _decides(
+        self,
+        cv: curve.Curve,
+        a: list,
+        b: list,
+        c: list,
+        generators: list,
+        hiding: np.ndarray,
+        acc: r1cs_nark_as.FoldedAccumulator,
+    ) -> bool:
         """The decider settles `acc`: recompute the six commitments from the witness
         and compare against the ones the accumulator carries. Both sides are
         canonical `g1_affine`, so array equality is exact point equality."""
@@ -62,24 +70,55 @@ class AsChainTest(absltest.TestCase):
             a, b, c = _circuit()
             r1cs_input, witness = _assignment(cv)
 
-            def step(acc: r1cs_nark_as.FoldedAccumulator | None = None
-                     ) -> r1cs_nark_as.FoldedAccumulator:
+            def step(
+                acc: r1cs_nark_as.FoldedAccumulator | None = None,
+            ) -> r1cs_nark_as.FoldedAccumulator:
                 rnd = r1cs_nark_as.sample_randomness(cv, rng, len(witness))
                 if acc is None:
                     return r1cs_nark_as.accumulate(
-                        cv, a, b, c, r1cs_input, witness, generators, hiding, params, _N, rnd)[0]
+                        cv,
+                        a,
+                        b,
+                        c,
+                        r1cs_input,
+                        witness,
+                        generators,
+                        hiding,
+                        params,
+                        _N,
+                        rnd,
+                    )[0]
                 return r1cs_nark_as.fold(
-                    cv, a, b, c, r1cs_input, witness, generators, hiding, params, _N, acc, rnd)[0]
+                    cv,
+                    a,
+                    b,
+                    c,
+                    r1cs_input,
+                    witness,
+                    generators,
+                    hiding,
+                    params,
+                    _N,
+                    acc,
+                    rnd,
+                )[0]
 
             acc = step()
-            self.assertTrue(self._decides(cv, a, b, c, generators, hiding, acc),
-                            f"[{cv.name}] decider rejected a freshly accumulated statement")
+            self.assertTrue(
+                self._decides(cv, a, b, c, generators, hiding, acc),
+                f"[{cv.name}] decider rejected a freshly accumulated statement",
+            )
             for i in range(3):
                 folded = step(acc)
-                self.assertTrue(self._decides(cv, a, b, c, generators, hiding, folded),
-                                f"[{cv.name}] decider rejected the accumulator after fold {i + 1}")
-                self.assertEqual(len(folded.blinded_witness), len(acc.blinded_witness),
-                                 f"[{cv.name}] fold grew the accumulator — it must stay fixed-size")
+                self.assertTrue(
+                    self._decides(cv, a, b, c, generators, hiding, folded),
+                    f"[{cv.name}] decider rejected the accumulator after fold {i + 1}",
+                )
+                self.assertEqual(
+                    len(folded.blinded_witness),
+                    len(acc.blinded_witness),
+                    f"[{cv.name}] fold grew the accumulator — it must stay fixed-size",
+                )
                 acc = folded
 
     def test_decider_rejects_a_tampered_folded_witness(self) -> None:
@@ -93,16 +132,32 @@ class AsChainTest(absltest.TestCase):
         r1cs_input, witness = _assignment(cv)
         acc_rnd = r1cs_nark_as.sample_randomness(cv, rng, len(witness))
         fold_rnd = r1cs_nark_as.sample_randomness(cv, rng, len(witness))
-        acc = r1cs_nark_as.accumulate(cv, a, b, c, r1cs_input, witness, generators, hiding,
-                                      params, _N, acc_rnd)[0]
-        acc = r1cs_nark_as.fold(cv, a, b, c, r1cs_input, witness, generators, hiding,
-                                params, _N, acc, fold_rnd)[0]
+        acc = r1cs_nark_as.accumulate(
+            cv, a, b, c, r1cs_input, witness, generators, hiding, params, _N, acc_rnd
+        )[0]
+        acc = r1cs_nark_as.fold(
+            cv,
+            a,
+            b,
+            c,
+            r1cs_input,
+            witness,
+            generators,
+            hiding,
+            params,
+            _N,
+            acc,
+            fold_rnd,
+        )[0]
 
         bw = [int(x) for x in acc.blinded_witness]
         tampered = acc._replace(
-            blinded_witness=np.asarray([bw[0] + 1] + bw[1:], dtype=cv.fr))
-        self.assertFalse(self._decides(cv, a, b, c, generators, hiding, tampered),
-                         f"[{cv.name}] decider accepted a tampered folded witness")
+            blinded_witness=np.asarray([bw[0] + 1] + bw[1:], dtype=cv.fr)
+        )
+        self.assertFalse(
+            self._decides(cv, a, b, c, generators, hiding, tampered),
+            f"[{cv.name}] decider accepted a tampered folded witness",
+        )
 
 
 if __name__ == "__main__":

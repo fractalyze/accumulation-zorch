@@ -1,5 +1,5 @@
-load("@rules_python//python:defs.bzl", "py_library")
 load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library")
 
 # The frx port of the accumulation prover. `imports = ["."]` puts this directory
 # (python/) on the import path so the package resolves as `accumulation_zorch`.

@@ -1,5 +1,5 @@
-load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("@accumulation_zorch_pip//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
 
 # Every byte-match test is an absltest case that traces + proves on CPU and
 # asserts the serialized bytes equal the golden arkworks fixtures

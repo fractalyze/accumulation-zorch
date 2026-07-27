@@ -38,7 +38,7 @@ flag byte (``0x40`` infinity, ``0x80`` when ``y > p - y``, else ``0x00``). The
 
 import struct
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 import frx
 import frx.numpy as fnp
@@ -58,7 +58,7 @@ _FLAG_POS_Y = 0x00
 # `fr` array (a jit-core output or host field array) or an int list (e.g.
 # sponge-squeezed challenges), which `np.asarray(_, dtype=cv.fr)` unifies.
 FrScalar = Any
-FrVec = np.ndarray | frx.Array | list[int]
+FrVec: TypeAlias = np.ndarray | frx.Array | list[int]
 
 
 @dataclass(frozen=True)
@@ -84,7 +84,8 @@ class Curve:
 
     @property
     def fr_capacity(self) -> int:
-        """Usable bits per squeezed scalar = ``MODULUS_BITS - 1`` (ark field CAPACITY)."""
+        """Usable bits per squeezed scalar = ``MODULUS_BITS - 1`` (ark field
+        CAPACITY)."""
         return self.fr_modulus.bit_length() - 1
 
     @property
@@ -197,8 +198,9 @@ def stack_affine(cv: Curve, points: list[np.ndarray]) -> frx.Array:
     return fnp.asarray(np.frombuffer(raw, dtype=cv.g1).copy())
 
 
-def commit_hiding(cv: Curve, scalars: frx.Array, randomizer: int | frx.Array,
-                  bases_h: frx.Array) -> frx.Array:
+def commit_hiding(
+    cv: Curve, scalars: frx.Array, randomizer: int | frx.Array, bases_h: frx.Array
+) -> frx.Array:
     """`Σ scalars[i]·bases_h[i] + randomizer·bases_h[-1]` — a Pedersen commitment
     with a hiding term, as one `lax.msm`. `bases_h` is the pre-stacked generators
     with the hiding base appended last (so the randomizer rides as the extra MSM

@@ -6,7 +6,8 @@ The R1CS-NARK-AS decider's GPU-value work is the **six size-`n` MSMs** it runs
 `z = r1cs_input ‖ r1cs_blinded_witness`,
 
     comm_a = commit(A·z, σ_a)   comm_b = commit(B·z, σ_b)   comm_c = commit(C·z, σ_c)
-    test_comm_1 = commit(A·z, ρ₁)   test_comm_2 = commit(B·z, ρ₂)   test_comm_3 = commit(A·z∘B·z, ρ₃)
+    test_comm_1 = commit(A·z, ρ₁)   test_comm_2 = commit(B·z, ρ₂)
+    test_comm_3 = commit(A·z∘B·z, ρ₃)
 
 and the decider accepts iff these equal the accumulator's stored commitments.
 This lowers exactly that — the three `M·z` reduces (`field.matvec` +
@@ -28,6 +29,7 @@ Run under Bazel — CPU is enough, lowering needs no GPU:
     # bench core (a size-`n` pure 6-MSM decider load, for the scale benchmark):
     AS_DECIDE_SIZE=65536 PROVE_CURVE=pallas bazel run //export:export_as_decide
 """
+
 import os
 import sys
 import time
@@ -37,10 +39,8 @@ from typing import Any
 import frx
 import frx.numpy as fnp
 import numpy as np
-
 from accumulation_zorch import curve, field, nark
 from accumulation_zorch.curve import Curve
-
 from export_prove import write_bytecode
 
 _TESTDATA = Path(__file__).resolve().parent.parent / "python" / "testdata"
@@ -71,8 +71,9 @@ def _matrix(rows: Any) -> nark.Matrix:
     return [[(_fr(coeff), idx) for coeff, idx in row] for row in rows]
 
 
-def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix,
-                       num_vars: int) -> Any:
+def build_decider_core(
+    cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix, num_vars: int
+) -> Any:
     """The general decider core: `_core(bases_h, z, hp_a, hp_b, rand6)` recomputes
     the six decider commitments. `A/B/C` (baked dense `n×num_vars`) are the circuit
     shape; the runtime inputs are `bases_h = generators ‖ hiding`, the assignment
@@ -87,11 +88,18 @@ def build_decider_core(cv: Curve, a: nark.Matrix, b: nark.Matrix, c: nark.Matrix
     arkworks `ASForHadamardProducts::decide`). On the no-zk path they coincide with
     `A·z`/`B·z`. Output leaves: `comm_a, comm_b, comm_c, test_comm_1, test_comm_2,
     test_comm_3`."""
-    a_dense, b_dense, c_dense = (fnp.asarray(nark.to_dense(cv, m, num_vars)) for m in (a, b, c))
+    a_dense, b_dense, c_dense = (
+        fnp.asarray(nark.to_dense(cv, m, num_vars)) for m in (a, b, c)
+    )
 
     @frx.jit
-    def _core(bases_h: frx.Array, z: frx.Array, hp_a: frx.Array, hp_b: frx.Array,
-              rand6: frx.Array) -> tuple:
+    def _core(
+        bases_h: frx.Array,
+        z: frx.Array,
+        hp_a: frx.Array,
+        hp_b: frx.Array,
+        rand6: frx.Array,
+    ) -> tuple:
         av = field.matvec(a_dense, z)
         bv = field.matvec(b_dense, z)
         cv_vec = field.matvec(c_dense, z)
@@ -133,8 +141,10 @@ def export_decider(cv: Curve) -> Path:
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / f"as_decider_{cv.name}.mlirbc"
     size = write_bytecode(lowered, out)
-    print(f"wrote {out} ({size} B); {cv.name} R1CS-NARK decider core; "
-          f"lower {t_lower:.2f}s; rows={rows}, num_vars={num_vars}")
+    print(
+        f"wrote {out} ({size} B); {cv.name} R1CS-NARK decider core; "
+        f"lower {t_lower:.2f}s; rows={rows}, num_vars={num_vars}"
+    )
     return out
 
 
@@ -146,8 +156,13 @@ def build_decider_bench_core(cv: Curve) -> Any:
     bench core."""
 
     @frx.jit
-    def _core(bases_h: frx.Array, av: frx.Array, bv: frx.Array, cv_vec: frx.Array,
-              rand6: frx.Array) -> tuple:
+    def _core(
+        bases_h: frx.Array,
+        av: frx.Array,
+        bv: frx.Array,
+        cv_vec: frx.Array,
+        rand6: frx.Array,
+    ) -> tuple:
         product = av * bv
         return (
             curve.commit_hiding(cv, av, rand6[0], bases_h),
@@ -182,8 +197,10 @@ def export_decider_bench(cv: Curve, n: int) -> Path:
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / "as_decider_bench.mlirbc"
     size = write_bytecode(lowered, out)
-    print(f"wrote {out} ({size} B); {cv.name} R1CS-NARK decider bench core; "
-          f"lower {t_lower:.2f}s; size={n}")
+    print(
+        f"wrote {out} ({size} B); {cv.name} R1CS-NARK decider bench core; "
+        f"lower {t_lower:.2f}s; size={n}"
+    )
     return out
 
 

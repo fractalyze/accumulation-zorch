@@ -19,6 +19,7 @@ Run under Bazel (CPU is enough — lowering needs no GPU):
     ACCUMULATION_ZORCH_ARTIFACTS=<dir> \\
       bazel run //export:export_nark
 """
+
 import json
 import os
 import time

@@ -9,7 +9,8 @@ all three Fiat-Shamir sponges (gamma / mu-nu / beta) — is inside the trace. Th
 lowers that core for a fixture seed to one StableHLO module: the single PJRT call
 the GPU byte-match (Stage B2) and the Rust consumer run.
 
-The general prover lifted the assignment + all replayed randomness (NARK/AS/HP) to runtime
+The general prover lifted the assignment + all replayed randomness (NARK/AS/HP)
+to runtime
 inputs, so this lowers ONE seed-independent ``prove_zk_general.mlirbc`` (the fixture
 supplies only the runtime shapes) — no per-seed baking. The two ``u8_batch``
 Fiat-Shamir absorbs (``r1cs_input`` / ``r1cs_r_input``) are fed pre-encoded as fq
@@ -20,6 +21,7 @@ Run under Bazel — CPU is enough, lowering needs no GPU:
 
     bazel run //export:export_prove [-- no-zk]
 """
+
 import io
 import json
 import os
@@ -56,7 +58,9 @@ ART = Path(
 
 
 def _params() -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(_CURVE, ark_le)
 
 
@@ -93,7 +97,9 @@ def _seed_entry(d: Any, seed: int) -> Any:
     for s in d["seeds"]:
         if s["seed"] == seed:
             return s
-    raise SystemExit(f"seed {seed} not in fixture (have {[s['seed'] for s in d['seeds']]})")
+    raise SystemExit(
+        f"seed {seed} not in fixture (have {[s['seed'] for s in d['seeds']]})"
+    )
 
 
 def build_core(seed: int) -> tuple:
@@ -107,17 +113,34 @@ def build_core(seed: int) -> tuple:
     generators = [_point(g) for g in d["generators"]]
     s = _seed_entry(d, seed)
     return r1cs_nark_as._build_zk_core(
-        _CURVE, a, b, c, [_fr(h) for h in s["r1cs_input"]], [_fr(h) for h in s["witness"]],
-        generators, _point(d["hiding"]), _params(),
-        bytes.fromhex(d["nark_matrices_hash_hex"]), bytes.fromhex(d["as_matrices_hash_hex"]),
+        _CURVE,
+        a,
+        b,
+        c,
+        [_fr(h) for h in s["r1cs_input"]],
+        [_fr(h) for h in s["witness"]],
+        generators,
+        _point(d["hiding"]),
+        _params(),
+        bytes.fromhex(d["nark_matrices_hash_hex"]),
+        bytes.fromhex(d["as_matrices_hash_hex"]),
         d["supported_num_elems"],
         [_fr(h) for h in s["r"]],
-        (_fr(s["a_blinder"]), _fr(s["b_blinder"]), _fr(s["c_blinder"]),
-         _fr(s["r_a_blinder"]), _fr(s["r_b_blinder"]), _fr(s["r_c_blinder"]),
-         _fr(s["blinder_1"]), _fr(s["blinder_2"])),
-        _fr(s["as_r1cs_r_input"]), _fr(s["as_r1cs_r_witness"]),
+        (
+            _fr(s["a_blinder"]),
+            _fr(s["b_blinder"]),
+            _fr(s["c_blinder"]),
+            _fr(s["r_a_blinder"]),
+            _fr(s["r_b_blinder"]),
+            _fr(s["r_c_blinder"]),
+            _fr(s["blinder_1"]),
+            _fr(s["blinder_2"]),
+        ),
+        _fr(s["as_r1cs_r_input"]),
+        _fr(s["as_r1cs_r_witness"]),
         (_fr(s["as_rand_1"]), _fr(s["as_rand_2"]), _fr(s["as_rand_3"])),
-        _fr(s["hp_hiding_a"]), _fr(s["hp_hiding_b"]),
+        _fr(s["hp_hiding_a"]),
+        _fr(s["hp_hiding_b"]),
         (_fr(s["hp_rand_1"]), _fr(s["hp_rand_2"]), _fr(s["hp_rand_3"])),
     )
 
@@ -129,17 +152,44 @@ def export_zk_general() -> Path:
     ``u8_batch`` fq packings) are ALL runtime inputs — the seed-0 fixture supplies
     only the runtime shapes, so the lowered core proves any seed (no per-seed
     ``.mlirbc``)."""
-    (core_fn, bases_h, id_pt, ex_in, ex_wit, ex_r, ex_blinders, ex_r_in, ex_r_wit,
-     ex_as_rand, ex_hp_rand, ex_in_u8b, ex_r_in_u8b) = build_core(0)
+    (
+        core_fn,
+        bases_h,
+        id_pt,
+        ex_in,
+        ex_wit,
+        ex_r,
+        ex_blinders,
+        ex_r_in,
+        ex_r_wit,
+        ex_as_rand,
+        ex_hp_rand,
+        ex_in_u8b,
+        ex_r_in_u8b,
+    ) = build_core(0)
     t0 = time.perf_counter()
-    lowered = core_fn.lower(bases_h, id_pt, ex_in, ex_wit, ex_r, ex_blinders, ex_r_in,
-                            ex_r_wit, ex_as_rand, ex_hp_rand, ex_in_u8b, ex_r_in_u8b)
+    lowered = core_fn.lower(
+        bases_h,
+        id_pt,
+        ex_in,
+        ex_wit,
+        ex_r,
+        ex_blinders,
+        ex_r_in,
+        ex_r_wit,
+        ex_as_rand,
+        ex_hp_rand,
+        ex_in_u8b,
+        ex_r_in_u8b,
+    )
     t_lower = time.perf_counter() - t0
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / "prove_zk_general.mlirbc"
     size = write_bytecode(lowered, out)
-    print(f"wrote {out} ({size} B); GENERAL zk core; lower {t_lower:.2f}s; "
-          f"bases_h={bases_h.shape[0]}, input={ex_in.shape[0]}, witness={ex_wit.shape[0]}")
+    print(
+        f"wrote {out} ({size} B); GENERAL zk core; lower {t_lower:.2f}s; "
+        f"bases_h={bases_h.shape[0]}, input={ex_in.shape[0]}, witness={ex_wit.shape[0]}"
+    )
     return out
 
 
@@ -155,8 +205,16 @@ def build_no_zk_core(seed: int) -> tuple:
     generators = [_point(g) for g in d["generators"]]
     s = _seed_entry(d, seed)
     return r1cs_nark_as._build_no_zk_core(
-        _CURVE, a, b, c, [_fr(h) for h in s["r1cs_input"]],
-        [_fr(h) for h in s["blinded_witness"]], generators, d["supported_num_elems"], _params())
+        _CURVE,
+        a,
+        b,
+        c,
+        [_fr(h) for h in s["r1cs_input"]],
+        [_fr(h) for h in s["blinded_witness"]],
+        generators,
+        d["supported_num_elems"],
+        _params(),
+    )
 
 
 def export_no_zk_general() -> Path:
@@ -172,8 +230,11 @@ def export_no_zk_general() -> Path:
     ART.mkdir(parents=True, exist_ok=True)
     out = ART / "prove_no_zk_general.mlirbc"
     size = write_bytecode(lowered, out)
-    print(f"wrote {out} ({size} B); GENERAL no-zk core; lower {t_lower:.2f}s; "
-          f"bases={bases.shape[0]}, input={r1cs_input_arr.shape[0]}, witness={blinded_witness_arr.shape[0]}")
+    print(
+        f"wrote {out} ({size} B); GENERAL no-zk core; lower {t_lower:.2f}s; "
+        f"bases={bases.shape[0]}, input={r1cs_input_arr.shape[0]}, "
+        f"witness={blinded_witness_arr.shape[0]}"
+    )
     return out
 
 

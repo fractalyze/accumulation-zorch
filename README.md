@@ -306,3 +306,21 @@ reproduces `hiding_comm`/`rand`, completing no-zk + zk on GPU:
   byte-matches + bench are `gpu_fused_ipa_fold_byte_match` /
   `gpu_fused_ipa_fold_zk_byte_match` / `gpu_fused_ipa_fold_bench` (as in
   [Fused GPU byte-match](#fused-gpu-byte-match-one-core-proves-every-seed)).
+
+## Development
+
+Install the git hooks with both stages named. Plain `pre-commit install` wires
+only the `pre-commit` stage, which leaves the commit-message linter inactive —
+a malformed commit message then sails through to CI:
+
+```sh
+pre-commit install --install-hooks --hook-type pre-commit --hook-type commit-msg
+```
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org):
+a valid type, a lowercase summary with no trailing period, a header of at most
+80 characters, and a body on everything but `docs`. A scope is optional; when
+used it is `testing` or one of `curve`, `field`, `nark`, `hp_as`, `ipa`,
+`r1cs_nark_as`, `sponge`, `release`. A change spanning several takes no scope.
+The same linter runs in CI over every commit in a pull request and over the PR
+title.

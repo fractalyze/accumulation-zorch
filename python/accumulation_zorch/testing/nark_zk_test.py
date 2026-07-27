@@ -27,7 +27,9 @@ _SPONGE = _TESTDATA / "sponge_fixtures.json"
 
 
 def _params() -> Any:
-    ark_le = b"".join(bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"])
+    ark_le = b"".join(
+        bytes.fromhex(h) for h in json.loads(_SPONGE.read_text())["ark_le_hex"]
+    )
     return sponge.poseidon_params(cv, ark_le)
 
 
@@ -50,32 +52,49 @@ def _load() -> Any:
 def _prove(d: Any) -> nark.NarkZkProof:
     a, b, c = _matrix(d["a"]), _matrix(d["b"]), _matrix(d["c"])
     return nark.prove_zk(
-        cv, a, b, c,
-        [_fr(h) for h in d["input"]], [_fr(h) for h in d["witness"]],
-        [_point(g) for g in d["generators"]], _point(d["hiding"]), _params(),
+        cv,
+        a,
+        b,
+        c,
+        [_fr(h) for h in d["input"]],
+        [_fr(h) for h in d["witness"]],
+        [_point(g) for g in d["generators"]],
+        _point(d["hiding"]),
+        _params(),
         bytes.fromhex(d["nark_matrices_hash_hex"]),
         [_fr(h) for h in d["r"]],
-        _fr(d["a_blinder"]), _fr(d["b_blinder"]), _fr(d["c_blinder"]),
-        _fr(d["r_a_blinder"]), _fr(d["r_b_blinder"]), _fr(d["r_c_blinder"]),
-        _fr(d["blinder_1"]), _fr(d["blinder_2"]),
+        _fr(d["a_blinder"]),
+        _fr(d["b_blinder"]),
+        _fr(d["c_blinder"]),
+        _fr(d["r_a_blinder"]),
+        _fr(d["r_b_blinder"]),
+        _fr(d["r_c_blinder"]),
+        _fr(d["blinder_1"]),
+        _fr(d["blinder_2"]),
     )
 
 
 class NarkZkTest(absltest.TestCase):
     def test_hash_matrices_matches_arkworks(self) -> None:
         d = _load()
-        got = nark.hash_matrices(cv, b"R1CS-NARK-2020", _matrix(d["a"]), _matrix(d["b"]), _matrix(d["c"]))
-        self.assertEqual(got.hex(), d["nark_matrices_hash_hex"], (
-            f"hash_matrices:\n got  {got.hex()}\n want {d['nark_matrices_hash_hex']}"
-        ))
+        got = nark.hash_matrices(
+            cv, b"R1CS-NARK-2020", _matrix(d["a"]), _matrix(d["b"]), _matrix(d["c"])
+        )
+        self.assertEqual(
+            got.hex(),
+            d["nark_matrices_hash_hex"],
+            (f"hash_matrices:\n got  {got.hex()}\n want {d['nark_matrices_hash_hex']}"),
+        )
         print(f"  hash_matrices (blake2b) byte-matches arkworks ({got.hex()[:16]}…)")
 
     def test_nark_zk_proof_matches_arkworks(self) -> None:
         d = _load()
         proof = nark.serialize_zk_proof(cv, _prove(d))
-        self.assertEqual(proof.hex(), d["proof_hex"], (
-            f"zk NARK proof:\n got  {proof.hex()}\n want {d['proof_hex']}"
-        ))
+        self.assertEqual(
+            proof.hex(),
+            d["proof_hex"],
+            (f"zk NARK proof:\n got  {proof.hex()}\n want {d['proof_hex']}"),
+        )
         print(f"  zk NARK proof byte-matches arkworks ({len(proof)} bytes)")
 
     def test_mutation_breaks_match(self) -> None:
@@ -87,7 +106,9 @@ class NarkZkTest(absltest.TestCase):
         bad_r[0] = bytes(bad).hex()
         d["r"] = bad_r
         proof = nark.serialize_zk_proof(cv, _prove(d))
-        self.assertNotEqual(proof.hex(), _load()["proof_hex"], "mutation did not change the proof")
+        self.assertNotEqual(
+            proof.hex(), _load()["proof_hex"], "mutation did not change the proof"
+        )
         print("  mutation check: a perturbed witness-blinder diverges from the golden")
 
 
