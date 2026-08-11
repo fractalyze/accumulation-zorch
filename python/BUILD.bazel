@@ -14,10 +14,9 @@ py_library(
     imports = ["."],
     visibility = ["//visibility:public"],
     deps = [
-        "@zorch//zorch/hash:duplex_sponge",
-        "@zorch//zorch/hash/poseidon",
         "@zorch//zorch/pcs/ipa",
         requirement("frx"),
+        requirement("hash_frx"),
         requirement("numpy"),
         requirement("zk_dtypes"),
     ],

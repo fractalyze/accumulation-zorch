@@ -12,9 +12,9 @@ import frx
 import frx.numpy as fnp
 import numpy as np
 from frx import lax
-from zorch.hash.duplex_sponge import DuplexSponge
-from zorch.hash.poseidon.params import PoseidonParams
-from zorch.hash.poseidon.poseidon import Poseidon
+from hash_frx.duplex_sponge import DuplexSponge
+from hash_frx.poseidon.params import PoseidonParams
+from hash_frx.poseidon.poseidon import Poseidon
 
 from .curve import PALLAS, Curve
 from .poseidon_ark import ARK_LE_HEX
