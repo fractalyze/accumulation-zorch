@@ -13,7 +13,7 @@ import frx.numpy as fnp
 import numpy as np
 from frx import lax
 
-from zorch.hash.duplex_sponge import DuplexSponge
+from hash_frx.duplex_sponge import DuplexSponge
 
 from . import absorbable, curve, field, sponge
 from .curve import Curve, FrScalar, FrVec
